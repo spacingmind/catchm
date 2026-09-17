@@ -1,0 +1,28 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build the catchm binary
+    cmds:
+      - go build -buildvcs=false -o bin/catchm ./cmd/catchm
+
+  run:
+    desc: Run the daemon
+    cmds:
+      - go run ./cmd/catchm serve
+
+  test:
+    desc: Run Go tests
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Vet + gofmt check
+    cmds:
+      - go vet ./...
+      - test -z "$(gofmt -l $(git ls-files '*.go'))"
+
+  tidy:
+    desc: go mod tidy
+    cmds:
+      - go mod tidy
