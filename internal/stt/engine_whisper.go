@@ -5,10 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/spacingmind/catchm/internal/audio"
+	"github.com/spacingmind/catchm/internal/meeting"
 )
 
 // WhisperEngine talks to a whisper.cpp server (the `server` example built
@@ -107,4 +112,73 @@ func (e *WhisperEngine) transcribe(ctx context.Context, chunk PCM, lang string) 
 		return Result{}, fmt.Errorf("whisper server: decode response: %w", err)
 	}
 	return Result{Text: wr.Text, Final: !wr.Partial}, nil
+}
+
+type whisperFileResponse struct {
+	Segments []struct {
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+		Text  string  `json:"text"`
+	} `json:"segments"`
+}
+
+// TranscribeFile implements BatchEngine by POSTing the whole audio file to
+// the whisper.cpp server's /inference endpoint in one request, asking for
+// segment-level offsets via response_format=verbose_json.
+func (e *WhisperEngine) TranscribeFile(ctx context.Context, audioPath string, opts Options) ([]meeting.Utterance, error) {
+	f, err := os.Open(audioPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(fw, f); err != nil {
+		return nil, err
+	}
+	if opts.Lang != "" {
+		if err := mw.WriteField("language", opts.Lang); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.WriteField("response_format", "verbose_json"); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/inference", &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("whisper server: status %d", resp.StatusCode)
+	}
+	var wr whisperFileResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wr); err != nil {
+		return nil, fmt.Errorf("whisper server: decode response: %w", err)
+	}
+
+	us := make([]meeting.Utterance, len(wr.Segments))
+	for i, seg := range wr.Segments {
+		us[i] = meeting.Utterance{
+			Seq:  int64(i + 1),
+			At:   time.Time{}.Add(time.Duration(seg.Start * float64(time.Second))),
+			Text: seg.Text,
+		}
+	}
+	return us, nil
 }

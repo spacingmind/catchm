@@ -3,7 +3,11 @@
 // (cloud, paid, diarization + translation).
 package stt
 
-import "context"
+import (
+	"context"
+
+	"github.com/spacingmind/catchm/internal/meeting"
+)
 
 // PCM is one chunk of raw 16-bit little-endian, 16kHz mono audio samples.
 type PCM []byte
@@ -30,4 +34,14 @@ type StreamEngine interface {
 	Stream(ctx context.Context, opts Options) (chan<- PCM, <-chan Result, error)
 	SupportsDiarization() bool
 	SupportsTranslation() bool
+}
+
+// BatchEngine transcribes a complete audio file in one request, trading
+// realtime responsiveness for the full-context accuracy a streaming
+// session can't offer. Utterance.At in the result is relative to the
+// zero time.Time value, not wall-clock time: callers with a meeting's
+// real start time (like internal/batch.Refine) shift it into absolute
+// time before persisting.
+type BatchEngine interface {
+	TranscribeFile(ctx context.Context, audioPath string, opts Options) ([]meeting.Utterance, error)
 }
