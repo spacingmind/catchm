@@ -26,7 +26,10 @@ type Pipeline struct {
 // meeting id, while also writing raw audio to audioPath. translator may be
 // nil, in which case no translation step runs. When non-nil, it fills in
 // Translated only for results the engine left untranslated (an engine like
-// Soniox that translates natively is never overridden).
+// Soniox that translates natively is never overridden). In two-way mode
+// with an engine that has no native translation, the per-utterance
+// translation target is the other of the two configured languages, chosen
+// by best-effort language detection on the transcribed text.
 func Start(store *meeting.Store, id string, src capture.Source, engine stt.StreamEngine, opts stt.Options, audioPath string, translator translate.Translator) (*Pipeline, error) {
 	wav, err := audio.NewWriter(audioPath)
 	if err != nil {
@@ -69,8 +72,16 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 				continue
 			}
 			translated := res.Translated
-			if translator != nil && opts.TranslateTo != "" && translated == "" {
-				if t, err := translator.Translate(ctx, res.Text, opts.TranslateTo); err == nil {
+			target := opts.TranslateTo
+			if opts.TwoWay && !engine.SupportsTranslation() {
+				if translate.DetectLanguage(res.Text, opts.Lang, opts.LanguageB) == opts.Lang {
+					target = opts.LanguageB
+				} else {
+					target = opts.Lang
+				}
+			}
+			if translator != nil && target != "" && translated == "" {
+				if t, err := translator.Translate(ctx, res.Text, target); err == nil {
 					translated = t
 				}
 			}
@@ -78,7 +89,7 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 				Speaker:    res.Speaker,
 				Text:       res.Text,
 				Translated: translated,
-				Lang:       opts.TranslateTo,
+				Lang:       target,
 			})
 		}
 	}()

@@ -447,3 +447,108 @@ func TestPipelineTranslationErrorKeepsUtterance(t *testing.T) {
 		t.Fatalf("goroutine leak: before=%d after=%d", before, after)
 	}
 }
+
+// twoUtteranceEngine is a stt.StreamEngine stand-in with no native
+// translation that alternates between two fixed results — one English, one
+// Vietnamese — one per received pcm chunk, for exercising two-way wiring.
+type twoUtteranceEngine struct{}
+
+func (twoUtteranceEngine) SupportsDiarization() bool { return false }
+func (twoUtteranceEngine) SupportsTranslation() bool { return false }
+
+func (twoUtteranceEngine) Stream(_ context.Context, _ stt.Options) (chan<- stt.PCM, <-chan stt.Result, error) {
+	pcmCh := make(chan stt.PCM)
+	resultCh := make(chan stt.Result, 2)
+	results := []stt.Result{
+		{Text: "Could you walk me through the deployment plan one more time", Final: true},
+		{Text: "Tôi muốn hỏi về kế hoạch triển khai của dự án", Final: true},
+	}
+	go func() {
+		defer close(resultCh)
+		i := 0
+		for range pcmCh {
+			select {
+			case resultCh <- results[i%len(results)]:
+			default:
+			}
+			i++
+		}
+	}()
+	return pcmCh, resultCh, nil
+}
+
+// directionAwareTranslator is a translate.Translator stand-in that records
+// every target language it was asked for and answers with "→" + target, so
+// tests can assert which direction each utterance was translated in.
+type directionAwareTranslator struct {
+	targets []string
+}
+
+func (d *directionAwareTranslator) Translate(_ context.Context, _, target string) (string, error) {
+	d.targets = append(d.targets, target)
+	return "→" + target, nil
+}
+
+// TestPipelineTwoWayTranslatesBothDirections drives a fake no-native-
+// translation engine emitting one English and one Vietnamese utterance
+// through a two-way pipeline: each utterance must be translated into the
+// OTHER language of the pair (detected per utterance), never the same
+// direction twice.
+func TestPipelineTwoWayTranslatesBothDirections(t *testing.T) {
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{Engine: "whisper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	src, err := capture.NewFileSource(fixtureWAV(t, 3200), 800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	translator := &directionAwareTranslator{}
+	audioPath := filepath.Join(store.Root(), m.ID, "audio.wav")
+	p, err := Start(store, m.ID, src, twoUtteranceEngine{}, stt.Options{Lang: "en", LanguageB: "vi", TwoWay: true}, audioPath, translator)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitForUtterances(t, store, m.ID, 2)
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	const enText = "Could you walk me through the deployment plan one more time"
+	const viText = "Tôi muốn hỏi về kế hoạch triển khai của dự án"
+	us, _, err := store.ReadSince(m.ID, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawToVi, sawToEn := false, false
+	for _, u := range us {
+		switch u.Text {
+		case enText:
+			if u.Translated != "→vi" || u.Lang != "vi" {
+				t.Fatalf("english utterance = %+v, want translated to vi", u)
+			}
+			sawToVi = true
+		case viText:
+			if u.Translated != "→en" || u.Lang != "en" {
+				t.Fatalf("vietnamese utterance = %+v, want translated to en", u)
+			}
+			sawToEn = true
+		default:
+			t.Fatalf("unexpected utterance text %q", u.Text)
+		}
+	}
+	if !sawToVi || !sawToEn {
+		t.Fatalf("both directions required: sawToVi=%v sawToEn=%v", sawToVi, sawToEn)
+	}
+	for _, target := range translator.targets {
+		if target != "en" && target != "vi" {
+			t.Fatalf("translator asked for target %q, want only en or vi", target)
+		}
+	}
+}
