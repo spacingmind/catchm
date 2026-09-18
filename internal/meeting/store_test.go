@@ -185,6 +185,72 @@ func TestEngineSelectionRecorded(t *testing.T) {
 	}
 }
 
+func TestWriteReadBatchTranscript(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Standup", time.Now().UTC(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(m.ID, Utterance{Text: "live one"}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []Utterance{
+		{Text: "hello", At: time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)},
+		{Text: "world", At: time.Date(2026, 9, 17, 10, 0, 5, 0, time.UTC)},
+	}
+	if err := s.WriteBatchTranscript(m.ID, want); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ReadBatchTranscript(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Text != "hello" || got[1].Text != "world" {
+		t.Fatalf("batch transcript = %+v", got)
+	}
+	if got[0].Seq != 1 || got[1].Seq != 2 {
+		t.Fatalf("seqs = %d, %d", got[0].Seq, got[1].Seq)
+	}
+
+	// The live transcript is untouched by a batch write.
+	live, _, err := s.ReadSince(m.ID, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 1 || live[0].Text != "live one" {
+		t.Fatalf("live transcript mutated: %+v", live)
+	}
+
+	// A second write fully overwrites the first.
+	if err := s.WriteBatchTranscript(m.ID, []Utterance{{Text: "only this now"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ReadBatchTranscript(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Text != "only this now" {
+		t.Fatalf("overwrite failed: %+v", got)
+	}
+}
+
+func TestReadBatchTranscriptEmptyBeforeWrite(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Standup", time.Now().UTC(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadBatchTranscript(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("batch transcript = %+v, want empty", got)
+	}
+}
+
 func TestGetNotFound(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.Get("nope"); err != ErrNotFound {

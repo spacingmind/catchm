@@ -58,6 +58,7 @@ type Meeting struct {
 	Terms         map[string]string `yaml:"terms,omitempty" json:"terms,omitempty"`
 	Summary       string            `yaml:"summary,omitempty" json:"summary,omitempty"`
 	Notes         []string          `yaml:"notes,omitempty" json:"notes,omitempty"`
+	Refined       bool              `yaml:"refined,omitempty" json:"refined,omitempty"`
 }
 
 // SchemaVersion is the current frontmatter schema version.
