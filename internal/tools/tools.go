@@ -10,6 +10,18 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 )
 
+// ActionItemRef is an action item lifted out of its meeting for
+// cross-meeting views: the item itself plus where it lives (meeting id,
+// title) and its index inside that meeting's ActionItems slice, which is
+// the address for status updates. The embedded meeting.ActionItem keeps
+// text/owner/due/status at the top level of its JSON encoding.
+type ActionItemRef struct {
+	meeting.ActionItem
+	MeetingID    string `json:"meeting_id"`
+	MeetingTitle string `json:"meeting_title"`
+	Index        int    `json:"index"`
+}
+
 // Surface is the tool surface over a meeting store.
 type Surface struct {
 	store *meeting.Store
@@ -33,6 +45,28 @@ func (s *Surface) ListMeetings() ([]*meeting.Meeting, error) {
 // GetMeeting returns one meeting's document.
 func (s *Surface) GetMeeting(id string) (*meeting.Meeting, error) {
 	return s.store.Get(id)
+}
+
+// ListActionItems flat-maps every meeting's action items into a single
+// cross-meeting list, newest meeting first, in-document order within a
+// meeting.
+func (s *Surface) ListActionItems() ([]ActionItemRef, error) {
+	ms, err := s.store.List()
+	if err != nil {
+		return nil, err
+	}
+	var out []ActionItemRef
+	for _, m := range ms {
+		for i, a := range m.ActionItems {
+			out = append(out, ActionItemRef{
+				ActionItem:   a,
+				MeetingID:    m.ID,
+				MeetingTitle: m.Title,
+				Index:        i,
+			})
+		}
+	}
+	return out, nil
 }
 
 // SearchMeetings returns meetings whose title, summary, notes, decisions,

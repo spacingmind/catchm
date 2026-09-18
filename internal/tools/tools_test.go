@@ -124,3 +124,65 @@ func TestReadBatchTranscript(t *testing.T) {
 		t.Fatalf("utterances = %+v", us)
 	}
 }
+
+func TestListActionItemsAcrossMeetings(t *testing.T) {
+	s, store := newSurface(t)
+	base := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+
+	m1, err := store.Start("Q3 Roadmap Sync", base, meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateDoc(m1.ID, func(m *meeting.Meeting) error {
+		m.ActionItems = append(m.ActionItems,
+			meeting.ActionItem{Text: "Freeze scope", Owner: "alex"},
+			meeting.ActionItem{Text: "Send recap", Owner: "sam", Status: "done"},
+		)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := store.Start("Weekly Design Crit", base.Add(time.Hour), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateDoc(m2.ID, func(m *meeting.Meeting) error {
+		m.ActionItems = append(m.ActionItems, meeting.ActionItem{Text: "Redraw dashboard"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A meeting with no action items contributes nothing.
+	if _, err := store.Start("Silent sync", base.Add(2*time.Hour), meeting.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := s.ListActionItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("len = %d, want 3: %+v", len(items), items)
+	}
+	// Store.List is newest-first, so m2's item leads.
+	want := []struct {
+		meetingID    string
+		meetingTitle string
+		index        int
+		text         string
+	}{
+		{m2.ID, "Weekly Design Crit", 0, "Redraw dashboard"},
+		{m1.ID, "Q3 Roadmap Sync", 0, "Freeze scope"},
+		{m1.ID, "Q3 Roadmap Sync", 1, "Send recap"},
+	}
+	for i, w := range want {
+		got := items[i]
+		if got.MeetingID != w.meetingID || got.MeetingTitle != w.meetingTitle ||
+			got.Index != w.index || got.Text != w.text {
+			t.Fatalf("items[%d] = %+v, want %+v", i, got, w)
+		}
+	}
+	if items[1].Owner != "alex" || items[2].Status != "done" {
+		t.Fatalf("action item fields lost: %+v", items)
+	}
+}

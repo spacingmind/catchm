@@ -1,6 +1,7 @@
 package meeting
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -321,5 +322,68 @@ func TestDeleteMeeting(t *testing.T) {
 	}
 	if err := s.Delete("nope"); err != ErrNotFound {
 		t.Fatalf("unknown id: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetActionItemStatusBoundsChecked(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Planning", time.Now().UTC(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateDoc(m.ID, func(mm *Meeting) error {
+		mm.ActionItems = append(mm.ActionItems,
+			ActionItem{Text: "Prepare demo", Owner: "alex"},
+			ActionItem{Text: "Send notes", Owner: "sam", Status: "done"},
+		)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A valid index updates the status and persists.
+	if err := s.SetActionItemStatus(m.ID, 0, "in progress"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActionItems[0].Status != "in progress" {
+		t.Fatalf("status = %q, want %q", got.ActionItems[0].Status, "in progress")
+	}
+	if got.ActionItems[1].Status != "done" {
+		t.Fatalf("sibling status changed: %+v", got.ActionItems)
+	}
+
+	// Out-of-range indices error (no panic) and leave the doc untouched.
+	before, err := os.ReadFile(filepath.Join(s.Root(), m.ID, "meeting.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []int{2, -1} {
+		err := s.SetActionItemStatus(m.ID, index, "done")
+		if !errors.Is(err, ErrActionItemIndex) {
+			t.Fatalf("index %d: err = %v, want ErrActionItemIndex", index, err)
+		}
+	}
+	after, err := os.ReadFile(filepath.Join(s.Root(), m.ID, "meeting.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("meeting.md changed after a failed SetActionItemStatus call")
+	}
+	got, err = s.Get(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ActionItems) != 2 || got.ActionItems[0].Status != "in progress" {
+		t.Fatalf("action items corrupted: %+v", got.ActionItems)
+	}
+
+	// Unknown meeting is still ErrNotFound.
+	if err := s.SetActionItemStatus("nope", 0, "done"); err != ErrNotFound {
+		t.Fatalf("unknown meeting: err = %v, want ErrNotFound", err)
 	}
 }

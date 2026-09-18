@@ -71,6 +71,11 @@ var ErrNotFound = errors.New("meeting not found")
 // ErrNotActive is returned when an operation requires an active meeting.
 var ErrNotActive = errors.New("meeting not active")
 
+// ErrActionItemIndex is returned when an index doesn't address an
+// existing entry in a meeting's ActionItems (e.g. a stale client-side
+// index after the underlying list changed).
+var ErrActionItemIndex = errors.New("action item index out of range")
+
 // Store manages meeting directories under a root dir (e.g. ~/meetings
 // or a test temp dir).
 type Store struct {
@@ -200,6 +205,20 @@ func (s *Store) Delete(id string) error {
 		return err
 	}
 	return os.RemoveAll(s.dir(id))
+}
+
+// SetActionItemStatus updates one action item's status in place. An
+// out-of-range index returns ErrActionItemIndex and leaves the meeting
+// document untouched.
+func (s *Store) SetActionItemStatus(meetingID string, index int, status string) error {
+	return s.UpdateDoc(meetingID, func(m *Meeting) error {
+		if index < 0 || index >= len(m.ActionItems) {
+			return fmt.Errorf("%w: %d (meeting %q has %d action items)",
+				ErrActionItemIndex, index, meetingID, len(m.ActionItems))
+		}
+		m.ActionItems[index].Status = status
+		return nil
+	})
 }
 
 func sortMeetings(ms []*Meeting) {
