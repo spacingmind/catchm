@@ -108,23 +108,123 @@ builds happen on their own OS or via CI later, not in this run).
 
 ## Decisions
 
-(fill in as the implementer makes calls — expected topics: exact Wails
-version pinned, whether system deps installed successfully or not and
-what was done instead, `wails.json` frontend-command handling, whether
-`go build ./...` needed a build tag to isolate the cgo dependency from
-the rest of the module.)
+- **Wails version**: `github.com/wailsapp/wails/v2 v2.16.0`, installed via
+  `go install github.com/wailsapp/wails/v2/cmd/wails@latest` (resolved to
+  that tag). Added as a direct dependency in `go.mod`.
+- **System webview deps**: attempted, did not succeed — see Validation.
+  The Go source in `cmd/catchm-desktop/main.go` was written and verified
+  against the actual `wailsapp/wails/v2@v2.16.0` source in the local
+  module cache (not just from memory): `wails.Run(*options.App)` in
+  `wails.go`, `options.App{Title, Width, Height, AssetServer}` in
+  `pkg/options/options.go`, and `assetserver.Options{Handler http.Handler}`
+  in `pkg/options/assetserver/options.go` were all read directly to
+  confirm field names/types before writing the call site. High confidence
+  this is correct, independent of the inability to link the cgo webview
+  binary in this sandbox.
+- **`wails.json` frontend commands**: set `"frontend:dir": "../../web"`
+  (pointing at the real, already-built `web/` — not a new Wails-generated
+  `frontend/`), with `"frontend:install"` and `"frontend:build"` both
+  `""`. This was not an arbitrary pick: `BaseBuilder.BuildFrontend` in
+  `pkg/commands/build/base.go` hard-fails with `frontend directory '...'
+  does not exist` if `frontend:dir` doesn't resolve to a real directory,
+  *even when* install/build commands are empty — so pointing at `../../web`
+  (which exists and is already built by `task web:build`) was the only
+  way to satisfy that check without creating a duplicate frontend
+  directory. Empty install/build commands mean `wails build`/`wails dev`
+  never touch `web/` themselves (confirmed in that same file: empty
+  string short-circuits to "Skipping."). Also set `"wailsjsdir":
+  "bindings"` (local to `cmd/catchm-desktop`, gitignored) so that even if
+  `-skipbindings` is ever omitted, generated JS bindings can't land
+  inside `web/`. `Taskfile.yml`'s `desktop:dev`/`desktop:build` tasks
+  always pass `-s -skipbindings` regardless, since there's no Go<->JS
+  bind surface in this milestone.
+- **`go build ./...` and the cgo dependency**: no build tag was needed.
+  Confirmed by reading `internal/app/app_default_unix.go` in the Wails
+  source: `wails.Run` dispatches through `pkg/application` ->
+  `internal/app.CreateApp`, which has three build-tag-gated
+  implementations (`app_production.go` under `-tags production`,
+  `app_dev.go` under `-tags dev`, and a no-op stub under `!dev &&
+  !production && !bindings` that just returns an error at runtime). Only
+  the `production`/`dev`-tagged files import
+  `internal/frontend/desktop`, which is what pulls in the cgo
+  `#cgo pkg-config: gtk+-3.0` / `webkit2gtk-4.0`/`4.1` directives. Plain
+  `go build` (no tags) — which is what `go build ./...` and `task build`
+  use — compiles the stub, so it links successfully with **no cgo/gtk/
+  webkit dependency at all**. Only `wails build`/`wails dev` (which set
+  `-tags production`/`-tags dev` themselves) actually pull in the cgo
+  path. This was verified empirically, not just reasoned about: `go build
+  ./...` from repo root succeeds today with the wails dependency in
+  go.mod. The plain-`go build` binary is not a working desktop app (its
+  stub `CreateApp` just returns an error at runtime) — it's only
+  meaningful via `wails build`/`wails dev`, which is the documented,
+  opt-in path.
 
 ## Progress
 
-- [ ] Wails CLI installed / attempted
-- [ ] System webview dependencies installed / attempted (document outcome)
-- [ ] cmd/catchm-desktop/main.go written (AssetServer reusing internal/server.New)
-- [ ] wails.json scaffolded, no duplicate frontend
-- [ ] Taskfile desktop:dev / desktop:build tasks
-- [ ] Docs updated
-- [ ] Existing (non-desktop) build/test/lint confirmed unaffected
+- [x] Wails CLI installed / attempted — succeeded (`go install
+      github.com/wailsapp/wails/v2/cmd/wails@latest`, resolved to v2.16.0)
+- [x] System webview dependencies installed / attempted (document outcome)
+      — attempted, did not succeed (no passwordless sudo in this sandbox);
+      see Validation for the exact failure and what's needed to finish it
+- [x] cmd/catchm-desktop/main.go written (AssetServer reusing internal/server.New)
+- [x] wails.json scaffolded, no duplicate frontend
+- [x] Taskfile desktop:dev / desktop:build tasks
+- [x] Docs updated (README.md)
+- [x] Existing (non-desktop) build/test/lint confirmed unaffected
 
 ## Validation
 
-(to be filled honestly — including "not verified because X" where that's
-the true state, not a glossed-over pass)
+- **Wails CLI**: installed successfully — `wails version` reports
+  `v2.16.0`.
+- **System webview deps**: `sudo -n true` and `sudo -n apt-get update`
+  both fail with "sudo: interactive authentication is required" / "sudo:
+  a terminal is required to authenticate" — this sandbox has no
+  passwordless sudo and no way to supply a password, so `sudo apt-get
+  install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config` could not be
+  run. Confirmed via `wails doctor`, which reports (on this Ubuntu 26.04
+  "resolute" sandbox): `pkg-config` and `libgtk-3-dev` are "Available" in
+  apt sources but not installed; `libwebkit` is "Not Found" under the
+  package name `libwebkit2gtk-4.0-dev` it probes for. A direct `apt-cache
+  search webkit2gtk` confirms this system's apt sources only carry
+  `libwebkit2gtk-4.1-dev` (2.52.x), not the `-4.0-dev` package the spec's
+  fallback names — i.e. on this OS the *first* command in the spec
+  (`libwebkit2gtk-4.1-dev`) is the right one, not the fallback. Either
+  way, `sudo` itself is what blocks it, not the package name.
+  **A developer with real sudo access should run**: `sudo apt-get update
+  && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+  pkg-config`, then `task desktop:build` (or `wails build -s
+  -skipbindings` from `cmd/catchm-desktop`) to finish verifying the
+  window actually opens and renders the UI.
+- **`go build ./...` / `go vet ./...` / `gofmt`**: all pass cleanly for
+  the whole module, including `cmd/catchm-desktop`, with no build tag
+  needed — see Decisions for why (Wails' own default build produces a
+  no-op stub without the `production`/`dev` build tags, so plain `go
+  build` never touches the cgo webview path). Verified by running each
+  command directly against the repo with the new dependency in go.mod.
+- **`task build && task test && task lint`**: all pass, unaffected by
+  this change — ran and confirmed directly (`web:build` via bun/vite,
+  `go build ./cmd/catchm`, `go test ./...` across all packages, `go vet
+  ./...` + `gofmt -l` clean).
+- **`wails build -s -skipbindings` (from `cmd/catchm-desktop`, via `task
+  desktop:build`)**: attempted directly to see exactly where it fails.
+  It correctly picked up `Frontend Directory: .../catchm/web`, `Skip
+  Bindings: true`, `Skip Frontend: true` from `wails.json` and the CLI
+  flags — i.e. the wails.json scaffolding itself is validated as correct
+  by the CLI accepting it and proceeding to the compile step. It then
+  failed at Go-compiling the cgo webview package with: `github.com/
+  wailsapp/wails/v2/pkg/assetserver/webview: exec: "pkg-config":
+  executable file not found in $PATH` — precisely the expected failure
+  given no system deps are installed, and precisely at the cgo boundary
+  the plain `go build ./...` above never reaches. This is strong
+  evidence the `wails.json`/Taskfile wiring is correct; only the actual
+  window rendering (which needs the real gtk/webkit libraries) remains
+  unverified.
+- **Not verified, and can't be from this sandbox**: that the native
+  window actually opens and renders the CatchM UI end-to-end
+  (`AssetServer.Handler` correctly serving `/`, `/api/*`, `/healthz`
+  inside the webview). This requires the system webview libraries above.
+  The Go-level wiring (constructing `store`/`cfg`/`server.New(...)`
+  identically to `cmd/catchm/main.go`, passing that as `AssetServer.
+  Handler`) is code-reviewed against `cmd/catchm/main.go` line by line
+  and against the real Wails v2 struct definitions, but not
+  runtime-verified.
