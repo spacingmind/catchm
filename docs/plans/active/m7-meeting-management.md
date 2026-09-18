@@ -1,6 +1,6 @@
 # Plan: M7 — meeting management (rename, delete, search UI, tags/projects)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal
@@ -127,20 +127,65 @@ enough safety).
 
 ## Decisions
 
-(fill in: exact delete-confirmation UI pattern chosen — shadcn
-`AlertDialog` if available/added, or reusing `Dialog`; whether renaming
-happens inline on the detail screen or via a small dialog; how tag
-chips are laid out.)
+- Delete confirmation reuses the existing shadcn `Dialog` (no
+  `AlertDialog` component in web/src/components/ui and none was added);
+  destructive-styled confirm button, plain Cancel, disabled while the
+  DELETE request is in flight.
+- Renaming happens via a small `Dialog` opened from a pencil-icon ghost
+  button next to the title on the detail screen (not inline editing) —
+  it mirrors the NewMeetingDialog form pattern already in the codebase.
+- DELETE of an active meeting returns 409 (mirrors handleRefine's
+  active-meeting conflict); 404 when the id is unknown, 204 on success
+  after stopping any live pipeline for that id.
+- PATCH body uses pointer-field semantics (`{"title"?, "tags"?}`, both
+  optional, at-least-one-present ⇒ 400) so tags can be set to `[]`
+  distinctly from "left alone"; a present-but-empty title is a 400.
+- Tag editing after creation goes through the same PATCH endpoint via a
+  new `Surface.SetMeetingTags` thin wrapper (title-only got
+  `Surface.RenameMeeting`), both on top of the existing `UpdateDoc`.
+- Tags entry in NewMeetingDialog is a plain comma-separated `Input`,
+  split/trim/deduped client-side on submit; no tag-picker dependency.
+- Tag chips row sits between the search input and the card list:
+  outline Badges for inactive, filled for the active filter, click
+  toggles (click again to clear), derived client-side from the loaded
+  meetings; per-card tags render as secondary Badges inline after the
+  decisions/action-items counts.
+- Search is server-side (`GET /api/meetings?q=`) debounced 300ms with
+  the timer cleared on unmount/re-type; tag filtering is pure
+  client-side over the already-fetched list, no extra API call.
+- Empty states: "Your burrow is quiet." kept for zero meetings total;
+  "No matches in the stash." shown only when meetings exist but the
+  search (or search + tag filter) yields none.
+- Responsive: kept `max-w-3xl mx-auto` — no redesign. Verified via
+  headless-browser screenshots at 800px and 1600px: column stays
+  centered, search bar/chips/cards render with no overlap or clipping.
+  No code change needed.
 
 ## Progress
 
-- [ ] Store.Delete + Surface.DeleteMeeting/RenameMeeting
-- [ ] DELETE/PATCH /api/meetings/{id} endpoints
-- [ ] Search input wired into MeetingList
-- [ ] Tags field end-to-end (Meeting struct, StartOptions, API, NewMeetingDialog, MeetingList badges + filter, MeetingDetail display)
-- [ ] Responsive check at wide viewport
-- [ ] tests
+- [x] Store.Delete + Surface.DeleteMeeting/RenameMeeting
+- [x] DELETE/PATCH /api/meetings/{id} endpoints
+- [x] Search input wired into MeetingList
+- [x] Tags field end-to-end (Meeting struct, StartOptions, API, NewMeetingDialog, MeetingList badges + filter, MeetingDetail display)
+- [x] Responsive check at wide viewport
+- [x] tests
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+- `go build ./...`, `go vet ./...`, `gofmt -l .` clean;
+  `go test ./... -count=1` all ok (incl. new TestDeleteMeeting,
+  TestDeleteEndpoint, TestRenameEndpoint, TestTagsRecordedAndReturned
+  alongside the pre-existing suite). `task web:install` and
+  `task web:build` succeed with no TypeScript errors.
+- Store-level: delete removes the directory, second delete and unknown
+  id return ErrNotFound; rename round-trips through Get.
+- HTTP-level: DELETE 404 unknown / 409 active / 204 success; PATCH 400
+  (bad json, empty/absent fields) / 404 unknown / 200 with updated doc;
+  tags present in POST and GET JSON and in the meeting.md frontmatter,
+  replaceable via PATCH.
+- Independently verified by the user via real headless-browser
+  screenshots against a real binary with curl-seeded meetings: search
+  filtering, tag badges + filter chips, and the ended-meeting detail
+  screen (rename pencil icon, red Delete button) all render and work;
+  the agent additionally screenshotted the list at 800px and 1600px
+  (centered column intact, no breakage).
