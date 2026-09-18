@@ -345,3 +345,73 @@ to assert `enable_speaker_diarization`/`stt-rt-v5`. Still no real API
 key available — this cross-check raises confidence well above "docs
 only" but a live smoke test remains the last step before production
 use.
+
+## Live e2e smoke test (2026-09-19) — real Soniox account, real speech audio
+
+Ran the actual production code path (`internal/pipeline.Start` +
+`internal/stt.SonioxEngine`, not a mock) against a real Soniox account
+with real English speech audio (Windows SAPI TTS, converted to 16kHz
+mono PCM), for both one-way (en→vi) and two-way modes. The account key
+used for this test has been discarded by the user after testing.
+
+**Found and fixed three real bugs that a live test — and only a live
+test — could catch:**
+
+1. **Wrong WebSocket URL.** `defaultSonioxURL` was
+   `wss://api.soniox.com/transcribe-websocket`; the real endpoint is
+   `wss://stt-rt.soniox.com/transcribe-websocket` (`api.soniox.com` is
+   the REST API host, `stt-rt.soniox.com` is real-time STT,
+   `tts-rt.soniox.com` is real-time TTS — three different subdomains).
+   Every prior test used a mock server so this never surfaced.
+2. **No real-time pacing + abrupt disconnect discarded all results.**
+   `capture.FileSource` dumped an entire audio file's chunks as fast as
+   the reader could consume them (no pacing), and `SonioxEngine.Stream`
+   force-closed the WebSocket connection immediately after the last
+   chunk was written. Combined, a real session got zero wall-clock time
+   to process anything before being cut off — the very first live test
+   produced 0 utterances despite a valid key and correct config. Fixed
+   both: `FileSource` now paces chunk delivery to the audio's real-time
+   duration (it exists specifically to "stand in for a microphone," and
+   a mic naturally paces itself), and `SonioxEngine` now signals
+   end-of-audio with an empty binary frame (matching a real Soniox
+   client's disconnect sequence) and waits for the server to close the
+   connection itself (flushing final results first) rather than forcing
+   it, with a bounded grace-period fallback so `Pipeline.Stop()` can
+   never hang indefinitely on an unresponsive server.
+3. **Original text and its translation arrive as separate WebSocket
+   messages.** Confirmed live: Soniox sends one message with only
+   `translation_status: "original"` tokens, then a *separate* following
+   message with only `translation_status: "translation"` tokens for the
+   same utterance — not combined in one message, which is what every
+   existing test's mock assumed. `Stream`'s reader loop now holds a
+   finalized original result until either a following translation-only
+   message arrives (merged in) or a new original message supersedes it
+   (flushed untranslated, so a missing/slow translation never drops the
+   transcript). Before this fix, every one-way-translated utterance
+   reached the pipeline with `Translated` always empty.
+
+**Confirmed correct as originally implemented** (no changes needed):
+the `pcm_s16le`/`sample_rate`/`num_channels` config fields, the
+`tokens[]` response shape and per-token field names
+(`text`/`is_final`/`speaker`/`translation_status`/`language`), the
+`one_way`/`two_way` translation config shapes, `enable_speaker_diarization`
+actually producing speaker labels, and (from the earlier M9 fix) sending
+`api_key` in the JSON config body.
+
+**Verified live, end-to-end, with real output:**
+- One-way (en→vi): 4 utterances, e.g. text `"Hello, this is a test
+  meeting"` → translated `"Xin chào, đây là một cuộc họp thử nghiệm"`,
+  each carrying `speaker: "1"` from diarization.
+- Two-way (en/vi pair, English-only audio): same 4 utterances, correct
+  translations, `Lang` left empty per the earlier native-engine fix
+  (confirmed: no incorrect language stamped).
+
+New regression test: `TestSonioxPairsSeparateOriginalAndTranslationMessages`
+(hermetic, mock WS server sending the two-message shape observed live).
+
+**Not tested live**: two-way with genuinely bilingual audio (both
+speakers actually switching languages) — only English-only audio was
+available for this session; the code path is the same as one-way for a
+native engine (Soniox resolves direction server-side regardless), so
+this is a low-risk gap, but worth a follow-up smoke test if bilingual
+audio becomes available.

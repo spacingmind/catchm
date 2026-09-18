@@ -35,7 +35,7 @@ type Config struct {
 const (
 	defaultEngine     = "whisper"
 	defaultWhisperURL = "http://127.0.0.1:8080"
-	defaultSonioxURL  = "wss://api.soniox.com/transcribe-websocket"
+	defaultSonioxURL  = "wss://stt-rt.soniox.com/transcribe-websocket"
 	defaultOllamaHost = "http://127.0.0.1:11434"
 	defaultLiveModel  = "translategemma:4b"
 	defaultBatchModel = "translategemma:12b"

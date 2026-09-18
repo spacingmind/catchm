@@ -284,6 +284,21 @@ func TestStartMeetingWithEngineWiresPipeline(t *testing.T) {
 		t.Fatalf("utterance = %+v", us[0])
 	}
 
+	// FileSource now paces chunks to real time (see its doc comment), so
+	// ending the meeting must wait for the full fixture to actually have
+	// been streamed — fakeEngine's buffered, drop-on-full result channel
+	// means waiting on utterance count isn't reliable here, but the
+	// audio.wav byte count is: it grows exactly once per chunk sent
+	// regardless of whether fakeEngine kept up.
+	audioPath := filepath.Join(store.Root(), id, "audio.wav")
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if pcm, err := audio.ReadFile(audioPath); err == nil && len(pcm) >= 3200 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	w = do(t, s, "POST", "/api/meetings/"+id+"/end", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("end: status = %d", w.Code)
@@ -295,7 +310,6 @@ func TestStartMeetingWithEngineWiresPipeline(t *testing.T) {
 		t.Fatal("pipeline still tracked after end")
 	}
 
-	audioPath := filepath.Join(store.Root(), id, "audio.wav")
 	pcm, err := audio.ReadFile(audioPath)
 	if err != nil {
 		t.Fatal(err)

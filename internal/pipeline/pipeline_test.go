@@ -163,7 +163,13 @@ func TestPipelineLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	waitForUtterances(t, store, m.ID, 1)
+	// FileSource now paces chunks to real time (see its doc comment), so
+	// Stop() must wait for every chunk (sampleBytes/800 = 4) to have
+	// actually been sent before asserting audio.wav has the full
+	// fixture — stopping right after the first chunk's utterance, as
+	// this used to, would now correctly capture only what had been
+	// streamed so far, not the whole file.
+	waitForUtterances(t, store, m.ID, sampleBytes/800)
 
 	if err := p.Stop(); err != nil {
 		t.Fatal(err)

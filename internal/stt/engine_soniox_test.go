@@ -336,3 +336,69 @@ func TestBuildResultSkipsEndSentinel(t *testing.T) {
 		t.Errorf("text = %q, want %q", res.Text, "done")
 	}
 }
+
+// TestSonioxPairsSeparateOriginalAndTranslationMessages proves the
+// engine merges an utterance's original text and its translation into
+// one Result even when Soniox sends them as two separate consecutive
+// WebSocket messages — confirmed live to be Soniox's actual behavior
+// (not the single-message-with-both-token-kinds shape
+// TestSonioxSpeakerAndTranslation's mock uses), which previously meant
+// every one-way-translated utterance reached the pipeline with an
+// empty Translated field.
+func TestSonioxPairsSeparateOriginalAndTranslationMessages(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		if _, _, err := conn.ReadMessage(); err != nil { // config frame
+			t.Errorf("read config: %v", err)
+			return
+		}
+		if _, _, err := conn.ReadMessage(); err != nil { // pcm frame
+			t.Errorf("read pcm: %v", err)
+			return
+		}
+
+		original, _ := json.Marshal(sonioxMessage{Tokens: []sonioxToken{
+			{Text: "hello there", TranslationStatus: "original", IsFinal: true},
+		}})
+		translation, _ := json.Marshal(sonioxMessage{Tokens: []sonioxToken{
+			{Text: "xin chao", TranslationStatus: "translation", IsFinal: true},
+		}})
+		if err := conn.WriteMessage(websocket.TextMessage, original); err != nil {
+			t.Errorf("write original: %v", err)
+			return
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, translation); err != nil {
+			t.Errorf("write translation: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	engine := NewSonioxEngine(wsURL, "test-key")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pcmCh, resultCh, err := engine.Stream(ctx, Options{TranslateTo: "vi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case pcmCh <- PCM{1, 2}:
+	case <-time.After(time.Second):
+		t.Fatal("timed out sending pcm chunk")
+	}
+
+	res := recvResult(t, resultCh)
+	if res.Text != "hello there" || res.Translated != "xin chao" || !res.Final {
+		t.Fatalf("result = %+v, want merged text+translation", res)
+	}
+	close(pcmCh)
+}

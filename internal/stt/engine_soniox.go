@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -20,7 +22,7 @@ type SonioxEngine struct {
 }
 
 // NewSonioxEngine returns an engine that connects to wsURL (e.g.
-// "wss://api.soniox.com/transcribe-websocket") authenticating with apiKey.
+// "wss://stt-rt.soniox.com/transcribe-websocket") authenticating with apiKey.
 func NewSonioxEngine(wsURL, apiKey string) *SonioxEngine {
 	return &SonioxEngine{url: wsURL, apiKey: apiKey, dialer: websocket.DefaultDialer}
 }
@@ -124,22 +126,72 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 
 	pcmCh := make(chan PCM)
 	resultCh := make(chan Result)
+	var closeOnce sync.Once
+	closeConn := func() { closeOnce.Do(func() { conn.Close() }) }
 
 	go func() {
-		defer conn.Close()
 		for chunk := range pcmCh {
 			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
 				return
 			}
 		}
-		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		// Signal end-of-audio the way a real Soniox client does
+		// (confirmed against phuc-nt/my-translator's disconnect()): an
+		// empty binary frame, not an abrupt WebSocket close. The server
+		// then finalizes and sends any remaining buffered results
+		// before closing the connection itself — closing conn here
+		// immediately, as this used to, discarded whatever the server
+		// hadn't yet had a chance to flush back to the reader goroutine.
+		_ = conn.WriteMessage(websocket.BinaryMessage, []byte{})
 	}()
 
+	readerDone := make(chan struct{})
 	go func() {
+		// If the caller cancels (Pipeline.Stop) before the server has
+		// finished flushing and closed the connection on its own,
+		// force-close after a grace period instead of leaking a reader
+		// goroutine blocked on ReadMessage forever. readerDone (not
+		// resultCh) is the wait target so this never races the
+		// pipeline's own consumption of real results off resultCh.
+		<-ctx.Done()
+		select {
+		case <-time.After(3 * time.Second):
+			closeConn()
+		case <-readerDone:
+		}
+	}()
+
+	// When translation is requested, Soniox delivers an utterance's
+	// original text and its translation as two separate consecutive
+	// messages (confirmed against a live session), not combined in one
+	// — pairPending holds a finalized original Result until either its
+	// translation-only follow-up message arrives (merged in) or a new
+	// original message supersedes it (flushed untranslated, so a
+	// missing/slow translation never drops the transcript text).
+	translationExpected := opts.TwoWay || opts.TranslateTo != ""
+
+	go func() {
+		defer close(readerDone)
 		defer close(resultCh)
+		defer closeConn()
+		var pending *Result
+		flush := func() bool {
+			if pending == nil {
+				return true
+			}
+			res := *pending
+			pending = nil
+			select {
+			case resultCh <- res:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
 		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
+				flush()
 				return
 			}
 			var msg sonioxMessage
@@ -150,10 +202,43 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 				continue
 			}
 			res := buildResult(msg.Tokens)
-			select {
-			case resultCh <- res:
-			case <-ctx.Done():
-				return
+			if !translationExpected {
+				select {
+				case resultCh <- res:
+				case <-ctx.Done():
+					return
+				}
+				continue
+			}
+			switch {
+			case res.Text != "" && res.Translated != "":
+				if !flush() {
+					return
+				}
+				select {
+				case resultCh <- res:
+				case <-ctx.Done():
+					return
+				}
+			case res.Text != "":
+				if !flush() {
+					return
+				}
+				pending = &res
+			case res.Translated != "" && pending != nil:
+				pending.Translated = res.Translated
+				if !flush() {
+					return
+				}
+			case res.Translated != "":
+				// A translation with nothing pending to attach it to
+				// (e.g. arrived after a flush); surface it standalone
+				// rather than drop it.
+				select {
+				case resultCh <- res:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()
