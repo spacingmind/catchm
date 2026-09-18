@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/spacingmind/catchm/internal/agent"
+	"github.com/spacingmind/catchm/internal/batch"
 	"github.com/spacingmind/catchm/internal/capture"
 	"github.com/spacingmind/catchm/internal/config"
 	"github.com/spacingmind/catchm/internal/meeting"
@@ -25,8 +28,10 @@ type Server struct {
 	cfg     *config.Config
 	mux     *http.ServeMux
 
-	newEngine func(name string, cfg *config.Config) (stt.StreamEngine, error)
-	newSource func(device string) (capture.Source, error)
+	newEngine      func(name string, cfg *config.Config) (stt.StreamEngine, error)
+	newSource      func(device string) (capture.Source, error)
+	newBatchEngine func(cfg *config.Config) (stt.BatchEngine, error)
+	enrichFinal    func(ctx context.Context, store *meeting.Store, id string) error
 
 	mu        sync.Mutex
 	pipelines map[string]*pipeline.Pipeline
@@ -39,12 +44,14 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		cfg = &config.Config{}
 	}
 	s := &Server{
-		surface:   surface,
-		cfg:       cfg,
-		mux:       http.NewServeMux(),
-		newEngine: newEngine,
-		newSource: func(device string) (capture.Source, error) { return capture.NewMicSource(device) },
-		pipelines: map[string]*pipeline.Pipeline{},
+		surface:        surface,
+		cfg:            cfg,
+		mux:            http.NewServeMux(),
+		newEngine:      newEngine,
+		newSource:      func(device string) (capture.Source, error) { return capture.NewMicSource(device) },
+		newBatchEngine: func(cfg *config.Config) (stt.BatchEngine, error) { return stt.NewWhisperEngine(cfg.WhisperURL), nil },
+		enrichFinal:    agent.EnrichMeetingFinal,
+		pipelines:      map[string]*pipeline.Pipeline{},
 	}
 	s.routes()
 	return s
@@ -61,6 +68,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/meetings/{id}/transcript", s.handleTranscript)
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
+	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +216,36 @@ func (s *Server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	err := s.surface.EndMeeting(id)
 	s.stopPipeline(id)
 	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	engine, err := s.newBatchEngine(s.cfg)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := batch.Refine(r.Context(), s.surface.Store(), id, engine); err != nil {
+		respondRefineErr(w, err)
+		return
+	}
+	if err := s.enrichFinal(r.Context(), s.surface.Store(), id); err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	m, err := s.surface.GetMeeting(id)
+	respond(w, m, err)
+}
+
+func respondRefineErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, meeting.ErrNotFound):
+		httpError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, batch.ErrMeetingActive), errors.Is(err, batch.ErrNoAudio):
+		httpError(w, http.StatusConflict, err.Error())
+	default:
+		httpError(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 func respond(w http.ResponseWriter, v any, err error) {

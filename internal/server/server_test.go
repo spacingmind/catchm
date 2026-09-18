@@ -314,6 +314,88 @@ func TestDevicesEndpoint(t *testing.T) {
 	decode(t, w, &devices)
 }
 
+func fakeWhisperBatchServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"segments": []map[string]any{
+				{"start": 0.0, "end": 1.0, "text": "final hello"},
+			},
+		})
+	}))
+}
+
+func TestRefineEndpoint(t *testing.T) {
+	s, store := newTestServer(t)
+
+	w := do(t, s, "POST", "/api/meetings/nope/refine", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown id: status = %d", w.Code)
+	}
+
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("active meeting: status = %d", w.Code)
+	}
+
+	if err := store.End(m.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	w = do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("no audio.wav: status = %d", w.Code)
+	}
+
+	audioPath := filepath.Join(store.Root(), m.ID, "audio.wav")
+	aw, err := audio.NewWriter(audioPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := aw.Write(make([]byte, 1600)); err != nil {
+		t.Fatal(err)
+	}
+	if err := aw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	whisper := fakeWhisperBatchServer(t)
+	defer whisper.Close()
+	s.cfg.WhisperURL = whisper.URL
+	s.enrichFinal = func(_ context.Context, store *meeting.Store, id string) error {
+		return store.UpdateDoc(id, func(mm *meeting.Meeting) error {
+			mm.Refined = true
+			mm.Summary = "fake enrichment"
+			return nil
+		})
+	}
+
+	w = do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("refine: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	if v["refined"] != true {
+		t.Fatalf("refined not set in response: %v", v)
+	}
+	if v["summary"] != "fake enrichment" {
+		t.Fatalf("summary not set in response: %v", v)
+	}
+
+	got, err := store.ReadBatchTranscript(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Text != "final hello" {
+		t.Fatalf("batch transcript = %+v", got)
+	}
+}
+
 func TestUnknownMeetingIs404(t *testing.T) {
 	s, _ := newTestServer(t)
 	for _, tc := range []struct {
