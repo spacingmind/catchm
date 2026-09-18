@@ -53,6 +53,7 @@ type Meeting struct {
 	Engine        string            `yaml:"engine,omitempty" json:"engine,omitempty"`
 	Lang          string            `yaml:"lang,omitempty" json:"lang,omitempty"`
 	TranslateTo   string            `yaml:"translate_to,omitempty" json:"translate_to,omitempty"`
+	TwoWay        bool              `yaml:"two_way,omitempty" json:"two_way,omitempty"`
 	Tags          []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
 	Decisions     []Decision        `yaml:"decisions,omitempty" json:"decisions,omitempty"`
 	ActionItems   []ActionItem      `yaml:"action_items,omitempty" json:"action_items,omitempty"`
@@ -111,6 +112,7 @@ type StartOptions struct {
 	Engine      string
 	Lang        string
 	TranslateTo string
+	TwoWay      bool
 	Tags        []string
 }
 
@@ -124,6 +126,7 @@ func (s *Store) Start(title string, startedAt time.Time, opts StartOptions) (*Me
 		Engine:        opts.Engine,
 		Lang:          opts.Lang,
 		TranslateTo:   opts.TranslateTo,
+		TwoWay:        opts.TwoWay,
 		Tags:          opts.Tags,
 	}
 	if err := os.MkdirAll(s.dir(m.ID), 0o700); err != nil {

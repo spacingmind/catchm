@@ -387,3 +387,37 @@ func TestSetActionItemStatusBoundsChecked(t *testing.T) {
 		t.Fatalf("unknown meeting: err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestTwoWayMeetingOptionRecorded verifies the two-way representation: a
+// meeting started with TwoWay records lang/translate_to as the two
+// conversation languages (language A/B) plus two_way: true, and all three
+// round-trip through Get both parsed and in the raw frontmatter.
+func TestTwoWayMeetingOptionRecorded(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Bilingual 1:1", time.Now().UTC(), StartOptions{
+		Lang:        "en",
+		TranslateTo: "vi",
+		TwoWay:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Get(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.TwoWay || got.Lang != "en" || got.TranslateTo != "vi" {
+		t.Fatalf("two-way options not recorded: %+v", got)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(s.Root(), m.ID, "meeting.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"lang: en", "translate_to: vi", "two_way: true"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("meeting.md missing %q:\n%s", want, raw)
+		}
+	}
+}

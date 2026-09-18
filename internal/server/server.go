@@ -128,6 +128,7 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		Engine      string   `json:"engine"`
 		Lang        string   `json:"lang"`
 		TranslateTo string   `json:"translate_to"`
+		TwoWay      bool     `json:"two_way"`
 		Tags        []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -142,6 +143,7 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		Engine:      req.Engine,
 		Lang:        req.Lang,
 		TranslateTo: req.TranslateTo,
+		TwoWay:      req.TwoWay,
 		Tags:        req.Tags,
 	})
 	if err != nil {
@@ -151,12 +153,17 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 	if req.Engine != "" {
 		// Best-effort: a meeting always gets created even if live capture
 		// can't start (e.g. no audio backend, or the engine can't connect).
-		s.startPipeline(m.ID, req.Device, req.Engine, req.Lang, req.TranslateTo)
+		s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
+			Lang:        req.Lang,
+			TranslateTo: req.TranslateTo,
+			LanguageB:   req.TranslateTo,
+			TwoWay:      req.TwoWay,
+		})
 	}
 	respond(w, m, nil)
 }
 
-func (s *Server) startPipeline(id, device, engineName, lang, translateTo string) {
+func (s *Server) startPipeline(id, device, engineName string, opts stt.Options) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
 		return
@@ -166,7 +173,7 @@ func (s *Server) startPipeline(id, device, engineName, lang, translateTo string)
 		return
 	}
 	var translator translate.Translator
-	if translateTo != "" {
+	if opts.TwoWay || opts.TranslateTo != "" {
 		// Best-effort: a translator that fails to construct just leaves
 		// the pipeline running untranslated rather than blocking capture.
 		if t, err := s.newTranslator(s.cfg, s.cfg.Translate.LiveModel); err == nil {
@@ -174,7 +181,7 @@ func (s *Server) startPipeline(id, device, engineName, lang, translateTo string)
 		}
 	}
 	audioPath := filepath.Join(s.surface.Store().Root(), id, "audio.wav")
-	p, err := pipeline.Start(s.surface.Store(), id, src, engine, stt.Options{Lang: lang, TranslateTo: translateTo}, audioPath, translator)
+	p, err := pipeline.Start(s.surface.Store(), id, src, engine, opts, audioPath, translator)
 	if err != nil {
 		_ = src.Close()
 		return

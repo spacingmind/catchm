@@ -27,6 +27,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
   const [engine, setEngine] = useState<SttEngine>("whisper")
   const [lang, setLang] = useState("")
   const [translateTo, setTranslateTo] = useState("")
+  const [twoWay, setTwoWay] = useState(false)
   const [tags, setTags] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +39,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
       setEngine("whisper")
       setLang("")
       setTranslateTo("")
+      setTwoWay(false)
       setTags("")
       setError(null)
       setSubmitting(false)
@@ -51,6 +53,10 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!title.trim() || submitting) return
+    if (twoWay && (!lang.trim() || !translateTo.trim())) {
+      setError("Two-way translation needs both the source language and language B.")
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -63,6 +69,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
         engine,
         lang: lang.trim() || undefined,
         translate_to: translateTo.trim() || undefined,
+        two_way: twoWay || undefined,
         tags: parsedTags.length > 0 ? parsedTags : undefined,
       })
       onStarted(meeting)
@@ -127,23 +134,40 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
             </div>
 
             <div className="grid gap-1.5">
-              <Label htmlFor="meeting-lang">Source language</Label>
+              <Label htmlFor="meeting-lang">
+                {twoWay ? "Language A" : "Source language"}
+              </Label>
               <Input
                 id="meeting-lang"
                 value={lang}
                 onChange={(e) => setLang(e.target.value)}
-                placeholder="Optional, e.g. en"
+                placeholder={twoWay ? "Required, e.g. en" : "Optional, e.g. en"}
+                required={twoWay}
               />
             </div>
 
             <div className="grid gap-1.5">
-              <Label htmlFor="meeting-translate-to">Translate to</Label>
+              <Label htmlFor="meeting-translate-to">
+                {twoWay ? "Language B" : "Translate to"}
+              </Label>
               <Input
                 id="meeting-translate-to"
                 value={translateTo}
                 onChange={(e) => setTranslateTo(e.target.value)}
-                placeholder="Optional, e.g. es"
+                placeholder={twoWay ? "Required, e.g. vi" : "Optional, e.g. es"}
+                required={twoWay}
               />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                id="meeting-two-way"
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={twoWay}
+                onChange={(e) => setTwoWay(e.target.checked)}
+              />
+              <Label htmlFor="meeting-two-way">Two-way translation</Label>
             </div>
 
             <div className="grid gap-1.5">

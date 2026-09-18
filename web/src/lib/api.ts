@@ -74,6 +74,8 @@ export interface StartMeetingRequest {
   engine?: SttEngine | ""
   lang?: string
   translate_to?: string
+  /** When true, lang and translate_to are the two conversation languages. */
+  two_way?: boolean
   tags?: string[]
 }
 
