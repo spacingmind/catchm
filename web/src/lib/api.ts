@@ -118,6 +118,38 @@ export interface TestTranslateResponse {
   translated: string
 }
 
+
+/** Sanitized config shape shared by GET and PUT /api/config responses. */
+export interface AppConfig {
+  engine: string
+  lang: string
+  whisper_url: string
+  soniox: { url: string }
+  /** True when a Soniox API key is stored; the key itself is never sent. */
+  soniox_api_key_set: boolean
+  translate: {
+    host: string
+    live_model: string
+    batch_model: string
+  }
+}
+
+/** Body for PUT /api/config — like AppConfig but with the write-only
+ *  soniox_api_key (optional; omitting/emptying it preserves the stored key). */
+export interface UpdateConfigRequest {
+  engine: string
+  lang?: string
+  whisper_url: string
+  soniox: { url: string }
+  /** Never present in responses. Omitted/empty preserves the stored key. */
+  soniox_api_key?: string
+  translate: {
+    host: string
+    live_model: string
+    batch_model: string
+  }
+}
+
 /** Thrown by every client function below on a non-2xx response. */
 export class ApiError extends Error {
   status: number
@@ -207,6 +239,20 @@ export function endMeeting(id: string): Promise<{ status: string }> {
 export function refineMeeting(id: string): Promise<Meeting> {
   return apiFetch(`/api/meetings/${encodeURIComponent(id)}/refine`, {
     method: "POST",
+  })
+}
+
+
+/** GET /api/config */
+export function getConfig(): Promise<AppConfig> {
+  return apiFetch("/api/config")
+}
+
+/** PUT /api/config — resolves to the sanitized, reloaded config. */
+export function updateConfig(body: UpdateConfigRequest): Promise<AppConfig> {
+  return apiFetch("/api/config", {
+    method: "PUT",
+    body: JSON.stringify(body),
   })
 }
 
