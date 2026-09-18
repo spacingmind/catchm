@@ -116,11 +116,12 @@ func (s *Server) handleDevices(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title       string `json:"title"`
-		Device      string `json:"device"`
-		Engine      string `json:"engine"`
-		Lang        string `json:"lang"`
-		TranslateTo string `json:"translate_to"`
+		Title       string   `json:"title"`
+		Device      string   `json:"device"`
+		Engine      string   `json:"engine"`
+		Lang        string   `json:"lang"`
+		TranslateTo string   `json:"translate_to"`
+		Tags        []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -134,6 +135,7 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		Engine:      req.Engine,
 		Lang:        req.Lang,
 		TranslateTo: req.TranslateTo,
+		Tags:        req.Tags,
 	})
 	if err != nil {
 		respond(w, nil, err)
@@ -245,23 +247,37 @@ func (s *Server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]string{"status": "ok"}, err)
 }
 
-// handleUpdateMeeting renames a meeting ({"title": "..."} in the body).
+// handleUpdateMeeting patches a meeting's title and/or tags (body
+// {"title"?: string, "tags"?: string[]}; at least one must be present).
 func (s *Server) handleUpdateMeeting(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title string `json:"title"`
+		Title *string   `json:"title"`
+		Tags  *[]string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	if req.Title == "" {
+	if req.Title == nil && req.Tags == nil {
+		httpError(w, http.StatusBadRequest, "title or tags is required")
+		return
+	}
+	if req.Title != nil && *req.Title == "" {
 		httpError(w, http.StatusBadRequest, "title is required")
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.surface.RenameMeeting(id, req.Title); err != nil {
-		respondErr(w, err)
-		return
+	if req.Title != nil {
+		if err := s.surface.RenameMeeting(id, *req.Title); err != nil {
+			respondErr(w, err)
+			return
+		}
+	}
+	if req.Tags != nil {
+		if err := s.surface.SetMeetingTags(id, *req.Tags); err != nil {
+			respondErr(w, err)
+			return
+		}
 	}
 	m, err := s.surface.GetMeeting(id)
 	respond(w, m, err)

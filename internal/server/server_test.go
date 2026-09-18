@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -860,5 +861,67 @@ func TestRenameEndpoint(t *testing.T) {
 	w = do(t, s, "PATCH", "/api/meetings/nope", `{"title":"X"}`)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("unknown id: status = %d, want 404", w.Code)
+	}
+}
+
+// TestTagsRecordedAndReturned proves tags given at start land in the
+// frontmatter on disk and round-trip through the POST and GET responses,
+// and that PATCH can replace them afterwards.
+func TestTagsRecordedAndReturned(t *testing.T) {
+	s, store := newTestServer(t)
+
+	w := do(t, s, "POST", "/api/meetings", `{"title":"Design Crit","tags":["acme","q3"]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("start: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var v struct {
+		ID   string   `json:"id"`
+		Tags []string `json:"tags"`
+	}
+	decode(t, w, &v)
+	if len(v.Tags) != 2 || v.Tags[0] != "acme" || v.Tags[1] != "q3" {
+		t.Fatalf("tags in POST response = %v", v.Tags)
+	}
+
+	w = do(t, s, "GET", "/api/meetings/"+v.ID, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get: status = %d", w.Code)
+	}
+	v = struct {
+		ID   string   `json:"id"`
+		Tags []string `json:"tags"`
+	}{}
+	decode(t, w, &v)
+	if len(v.Tags) != 2 || v.Tags[0] != "acme" || v.Tags[1] != "q3" {
+		t.Fatalf("tags in GET response = %v", v.Tags)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(store.Root(), v.ID, "meeting.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "tags:\n    - acme\n    - q3") {
+		t.Fatalf("tags missing from frontmatter:\n%s", raw)
+	}
+
+	w = do(t, s, "PATCH", "/api/meetings/"+v.ID, `{"tags":["post-mortem"]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch tags: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	decode(t, w, &v)
+	if len(v.Tags) != 1 || v.Tags[0] != "post-mortem" {
+		t.Fatalf("tags after patch = %v", v.Tags)
+	}
+	got, err := store.Get(v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "post-mortem" {
+		t.Fatalf("patched tags not persisted: %v", got.Tags)
+	}
+
+	w = do(t, s, "PATCH", "/api/meetings/"+v.ID, `{}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("empty patch: status = %d, want 400", w.Code)
 	}
 }

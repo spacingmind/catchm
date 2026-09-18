@@ -126,3 +126,11 @@ func (s *Surface) RenameMeeting(id, title string) error {
 		return nil
 	})
 }
+
+// SetMeetingTags replaces a meeting's tags via UpdateDoc.
+func (s *Surface) SetMeetingTags(id string, tags []string) error {
+	return s.store.UpdateDoc(id, func(m *meeting.Meeting) error {
+		m.Tags = tags
+		return nil
+	})
+}
