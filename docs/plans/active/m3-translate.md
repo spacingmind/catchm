@@ -92,21 +92,101 @@ own native translation works.
 
 ## Decisions
 
-(fill in as the implementer makes calls — expected topics: exact Ollama
-request/response shape used, prompt wording, whether the live/batch
-model split needs two separate `Translator` instances or one struct with
-swappable model field, error-swallowing signature — return value vs
-logging vs silent.)
+- **Ollama request shape**: `{"model": ..., "prompt": ..., "stream": false}`
+  POSTed as JSON to `{host}/api/generate`. No other fields (no `options`,
+  no `system` field) — the prompt alone carries the instruction, matching
+  the "simplest reasonable call" posture used for the whisper.cpp HTTP
+  shape in M2.
+- **Prompt wording**: `"Translate the following text to %s. Respond with
+  only the translation, no commentary or explanation.\n\n%s"`, with the
+  target language and source text substituted in. Not tuned against a
+  real TranslateGemma model (none was available); documented here as a
+  placeholder for the same reason the model tag names are placeholders.
+- **Response shape**: `{"response": "..."}`, decoded and returned via
+  `strings.TrimSpace`. This is Ollama's documented non-streaming
+  `/api/generate` response envelope.
+- **`OllamaTranslator` shape**: a plain struct with exported `Host` and
+  `Model` string fields (per the spec's literal signature), constructed
+  directly with a struct literal — no `NewOllamaTranslator` constructor,
+  since there's no invariant to enforce and the struct has no unexported
+  state. `Translate` uses `http.DefaultClient` rather than holding a
+  `*http.Client` field, since there's no keep-alive/timeout tuning need
+  here unlike `WhisperEngine` (which disables keep-alives because chunks
+  are frequent and short-lived — a single translation call per utterance
+  doesn't have that pressure).
+- **Live vs batch model split**: one `Translator` implementation
+  (`OllamaTranslator`) with a `Model` field, not two types. The server
+  builds two separate instances via `newTranslator(cfg, model)` — one
+  with `cfg.Translate.LiveModel` in `startPipeline`, one with
+  `cfg.Translate.BatchModel` in `handleRefine` — rather than one
+  `Translator` juggling two models internally.
+- **Error-swallowing signature**: no signature change — `Translate`
+  still returns `(string, error)` like any other fallible call. Both
+  `pipeline.Start`'s result-handling goroutine and `batch.Refine`'s
+  per-utterance loop check the error inline and simply leave
+  `Translated` as `""` on failure (discarding the error), matching the
+  spec's "log is out of scope for this package" note. No retry.
+- **Nil-interface trap in tests**: pipeline tests pass a `*fakeTranslator`
+  through a `translate.Translator` variable that starts as a true nil
+  interface (only assigned when the test's `*fakeTranslator` pointer is
+  non-nil) — passing a typed-nil pointer directly would make `Start`'s
+  `translator != nil` check always true. Documented as a comment at the
+  call site (`internal/pipeline/pipeline_test.go`'s `startScripted`).
+- **`newTranslator` construction failures are non-fatal**: if
+  `s.newTranslator(...)` errors (e.g. malformed host), `startPipeline`
+  and `handleRefine` both proceed with a nil translator rather than
+  aborting — transcription must not fail just because translation setup
+  did, consistent with the spec's "a translation error must not drop the
+  utterance" intent applied one level up, and with `startPipeline`'s
+  existing best-effort posture (a meeting always gets created/captured
+  even if some optional piece can't start).
+- **`handleRefine` translator gating**: the meeting is fetched once via
+  `s.surface.GetMeeting(id)` purely to read `TranslateTo` before deciding
+  whether to construct a batch translator; `batch.Refine` still does its
+  own `store.Get` internally. This is a harmless duplicate read (no
+  mutation, no lock) traded for keeping the "don't construct a translator
+  unless requested" check outside of `batch.Refine`'s signature (which
+  takes a translator, not a boolean/meeting).
+- **Config defaults**: `host: http://127.0.0.1:11434`,
+  `live_model: translategemma:4b`, `batch_model: translategemma:12b` —
+  copied verbatim from the spec's YAML example. As the spec notes, these
+  tag names are unverified against a real Ollama library listing, same
+  posture as M2's whisper.cpp HTTP protocol shape.
 
 ## Progress
 
-- [ ] internal/translate Translator interface + OllamaTranslator
-- [ ] internal/pipeline translation wiring (skip when engine already translated)
-- [ ] internal/batch translation wiring
-- [ ] internal/config Translate section
-- [ ] internal/server newTranslator seam wired into startPipeline + handleRefine
-- [ ] tests
+- [x] internal/translate Translator interface + OllamaTranslator
+- [x] internal/pipeline translation wiring (skip when engine already translated)
+- [x] internal/batch translation wiring
+- [x] internal/config Translate section
+- [x] internal/server newTranslator seam wired into startPipeline + handleRefine
+- [x] tests
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+- `go build ./... && go vet ./... && gofmt -l $(git ls-files '*.go') &&
+  go test ./... -count=1` — clean (also verified with `-race`).
+- `task build && task test && task lint` — clean.
+- All 7 acceptance-criteria test scenarios implemented and passing:
+  `TestOllamaTranslate` (internal/translate), plus a
+  `TestOllamaTranslateServerError` companion for the non-200 path;
+  `TestPipelineTranslatesWhenEngineLacksNativeTranslation`,
+  `TestPipelineDoesNotDoubleTranslate`,
+  `TestPipelineNilTranslatorUnaffected`,
+  `TestPipelineTranslationErrorKeepsUtterance` (internal/pipeline,
+  including the `runtime.NumGoroutine` leak check reused from
+  `TestPipelineLifecycle`); `TestRefineTranslatesUtterances`
+  (internal/batch).
+- Extra coverage beyond the 7 named scenarios, exercising the
+  `newTranslator` server seam directly:
+  `TestStartPipelineOnlyConstructsTranslatorWhenRequested` and
+  `TestHandleRefineOnlyConstructsTranslatorWhenRequested`
+  (internal/server) — assert the translator factory is never invoked for
+  meetings with no `translate_to`, and is invoked with the right model
+  name (`LiveModel` / `BatchModel`) when one is set.
+- No real network, Ollama, or whisper dependency introduced by any new
+  test — all run against `httptest` fakes or in-process fakes.
+- All existing M1/M2/M2.5 tests still pass unmodified in behavior; only
+  call sites were updated for the new `translator` parameter
+  (`pipeline.Start`, `batch.Refine`, both production call sites in
+  `internal/server/server.go` and all test call sites).
