@@ -68,7 +68,8 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
                   {!m.ended_at && <Badge>Live</Badge>}
                 </div>
                 <CardDescription>
-                  {formatMeetingSpan(m)} · {m.engine || "whisper"}
+                  {formatMeetingSpan(m)}
+                  {m.engine ? ` · ${m.engine}` : ""}
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex gap-4 text-sm text-muted-foreground">
@@ -86,7 +87,12 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
 }
 
 function formatMeetingSpan(m: Meeting): string {
-  const started = new Date(m.started_at).toLocaleString()
-  if (!m.ended_at) return `Started ${started}`
-  return `${started} – ${new Date(m.ended_at).toLocaleString()}`
+  const start = new Date(m.started_at)
+  if (!m.ended_at) return `Started ${start.toLocaleString()}`
+
+  const end = new Date(m.ended_at)
+  if (start.toDateString() === end.toDateString()) {
+    return `${start.toLocaleDateString()}, ${start.toLocaleTimeString()} – ${end.toLocaleTimeString()}`
+  }
+  return `${start.toLocaleString()} – ${end.toLocaleString()}`
 }
