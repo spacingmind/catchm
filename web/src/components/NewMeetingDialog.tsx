@@ -27,6 +27,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
   const [engine, setEngine] = useState<SttEngine>("whisper")
   const [lang, setLang] = useState("")
   const [translateTo, setTranslateTo] = useState("")
+  const [tags, setTags] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,6 +38,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
       setEngine("whisper")
       setLang("")
       setTranslateTo("")
+      setTags("")
       setError(null)
       setSubmitting(false)
       return
@@ -52,12 +54,16 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
     setSubmitting(true)
     setError(null)
     try {
+      const parsedTags = [...new Set(
+        tags.split(",").map((t) => t.trim()).filter(Boolean),
+      )]
       const meeting = await startMeeting({
         title: title.trim(),
         device: device || undefined,
         engine,
         lang: lang.trim() || undefined,
         translate_to: translateTo.trim() || undefined,
+        tags: parsedTags.length > 0 ? parsedTags : undefined,
       })
       onStarted(meeting)
     } catch (err) {
@@ -137,6 +143,16 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
                 value={translateTo}
                 onChange={(e) => setTranslateTo(e.target.value)}
                 placeholder="Optional, e.g. es"
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label htmlFor="meeting-tags">Tags</Label>
+              <Input
+                id="meeting-tags"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="Optional, comma-separated, e.g. acme, q3"
               />
             </div>
           </div>
