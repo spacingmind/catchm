@@ -67,7 +67,12 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle>{m.title}</CardTitle>
-                  {!m.ended_at && <Badge>Live</Badge>}
+                  {!m.ended_at && (
+                    <Badge className="gap-1.5">
+                      <span className="size-1.5 animate-pulse rounded-full bg-current" />
+                      Live
+                    </Badge>
+                  )}
                 </div>
                 <CardDescription>
                   {formatMeetingSpan(m)}

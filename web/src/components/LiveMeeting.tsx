@@ -85,7 +85,11 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            <Radio className="size-5 text-primary" /> {meeting.title}
+            <span className="relative inline-flex">
+              <Radio className="size-5 text-primary" />
+              <span className="absolute -top-0.5 -right-0.5 size-1.5 animate-pulse rounded-full bg-primary" />
+            </span>{" "}
+            {meeting.title}
           </h1>
           <p className="text-sm text-muted-foreground">Live meeting — transcript updates automatically.</p>
         </div>
