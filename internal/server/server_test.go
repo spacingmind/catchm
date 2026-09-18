@@ -16,6 +16,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/tools"
+	"github.com/spacingmind/catchm/internal/translate"
 )
 
 func newTestServer(t *testing.T) (*Server, *meeting.Store) {
@@ -72,6 +73,24 @@ func withFakePipeline(t *testing.T, s *Server) {
 	fixture := fixtureWAV(t)
 	s.newEngine = func(string, *config.Config) (stt.StreamEngine, error) { return fakeEngine{}, nil }
 	s.newSource = func(string) (capture.Source, error) { return capture.NewFileSource(fixture, 800) }
+}
+
+// noopTranslator stands in for a real translate.Translator in HTTP-layer
+// tests: no Ollama, no network.
+type noopTranslator struct{}
+
+func (noopTranslator) Translate(_ context.Context, text, _ string) (string, error) { return text, nil }
+
+// countingNewTranslator rigs s.newTranslator to build a noopTranslator
+// while recording the model it was asked for, so tests can assert whether
+// a translator was constructed at all.
+func countingNewTranslator(s *Server) *[]string {
+	var models []string
+	s.newTranslator = func(_ *config.Config, model string) (translate.Translator, error) {
+		models = append(models, model)
+		return noopTranslator{}, nil
+	}
+	return &models
 }
 
 func do(t *testing.T, s *Server, method, target, body string) *httptest.ResponseRecorder {
@@ -302,6 +321,32 @@ func TestStartMeetingWithoutEngineHasNoPipeline(t *testing.T) {
 	}
 }
 
+// TestStartPipelineOnlyConstructsTranslatorWhenRequested proves the live
+// translator seam is only invoked when a meeting actually asks for
+// translation, so meetings that don't never introduce an Ollama dependency.
+func TestStartPipelineOnlyConstructsTranslatorWhenRequested(t *testing.T) {
+	s, _ := newTestServer(t)
+	withFakePipeline(t, s)
+	s.cfg.Translate.LiveModel = "translategemma:4b"
+	models := countingNewTranslator(s)
+
+	w := do(t, s, "POST", "/api/meetings", `{"title":"No Translate","engine":"whisper"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("start: status = %d", w.Code)
+	}
+	if len(*models) != 0 {
+		t.Fatalf("translator constructed without translate_to: %v", *models)
+	}
+
+	w = do(t, s, "POST", "/api/meetings", `{"title":"With Translate","engine":"whisper","translate_to":"vi"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("start: status = %d", w.Code)
+	}
+	if len(*models) != 1 || (*models)[0] != "translategemma:4b" {
+		t.Fatalf("translator not constructed with translate_to: %v", *models)
+	}
+}
+
 func TestDevicesEndpoint(t *testing.T) {
 	s, _ := newTestServer(t)
 	w := do(t, s, "GET", "/api/devices", "")
@@ -393,6 +438,53 @@ func TestRefineEndpoint(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Text != "final hello" {
 		t.Fatalf("batch transcript = %+v", got)
+	}
+}
+
+// TestHandleRefineOnlyConstructsTranslatorWhenRequested proves the batch
+// translator seam is only invoked for meetings that asked for translation.
+func TestHandleRefineOnlyConstructsTranslatorWhenRequested(t *testing.T) {
+	s, store := newTestServer(t)
+	s.cfg.Translate.BatchModel = "translategemma:12b"
+	models := countingNewTranslator(s)
+
+	whisper := fakeWhisperBatchServer(t)
+	defer whisper.Close()
+	s.cfg.WhisperURL = whisper.URL
+	s.enrichFinal = func(_ context.Context, _ *meeting.Store, _ string) error { return nil }
+
+	refine := func(translateTo string) {
+		m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{TranslateTo: translateTo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.End(m.ID, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		aw, err := audio.NewWriter(filepath.Join(store.Root(), m.ID, "audio.wav"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := aw.Write(make([]byte, 1600)); err != nil {
+			t.Fatal(err)
+		}
+		if err := aw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		w := do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("refine: status = %d, body = %s", w.Code, w.Body.String())
+		}
+	}
+
+	refine("")
+	if len(*models) != 0 {
+		t.Fatalf("translator constructed without translate_to: %v", *models)
+	}
+
+	refine("vi")
+	if len(*models) != 1 || (*models)[0] != "translategemma:12b" {
+		t.Fatalf("translator not constructed with translate_to: %v", *models)
 	}
 }
 
