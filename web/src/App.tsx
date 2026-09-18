@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button"
 import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
+import { SettingsConfig } from "@/components/SettingsConfig"
 import { SettingsTranslate } from "@/components/SettingsTranslate"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Meeting } from "@/lib/api"
 
 type View = "list" | "live" | "detail" | "settings"
@@ -50,7 +52,20 @@ function App() {
         {view === "detail" && selected && (
           <MeetingDetail meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
         )}
-        {view === "settings" && <SettingsTranslate />}
+        {view === "settings" && (
+          <Tabs defaultValue="engines">
+            <TabsList className="mx-auto mb-6 flex w-fit px-6">
+              <TabsTrigger value="engines">Engines</TabsTrigger>
+              <TabsTrigger value="translation">Translation</TabsTrigger>
+            </TabsList>
+            <TabsContent value="engines">
+              <SettingsConfig />
+            </TabsContent>
+            <TabsContent value="translation">
+              <SettingsTranslate />
+            </TabsContent>
+          </Tabs>
+        )}
       </main>
     </div>
   )
