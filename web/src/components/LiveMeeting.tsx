@@ -61,7 +61,7 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
     try {
       await addNote(meeting.id, text)
       setNote("")
-      setNoteStatus("Note added.")
+      setNoteStatus("Saved")
       setTimeout(() => setNoteStatus(null), 2000)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
