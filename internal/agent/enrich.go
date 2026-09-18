@@ -75,6 +75,53 @@ func EnrichMeeting(ctx context.Context, store *meeting.Store, id string) error {
 	})
 }
 
+// EnrichMeetingFinal runs one budget-capped Claude Code turn over a
+// meeting's batch (v2) transcript instead of the live one, marking the
+// resulting frontmatter Refined so callers can tell a final enrich pass
+// apart from a coarse live one. Otherwise identical to EnrichMeeting.
+func EnrichMeetingFinal(ctx context.Context, store *meeting.Store, id string) error {
+	if _, err := store.Get(id); err != nil {
+		return err
+	}
+
+	client, err := claudecode.New(store.Root(),
+		claudecode.WithPermissionMode("acceptEdits"),
+		claudecode.WithAllowedTools("mcp__"+mcpName+"__*"),
+		claudecode.WithPermissionPolicy(claudecode.AutoApprovePolicy{}),
+		claudecode.WithMaxBudgetUSD(maxBudgetUSD),
+		claudecode.WithMaxTurns(maxTurns),
+		claudecode.WithSDKMcpServer(NewMcpServer(tools.New(store))),
+	)
+	if err != nil {
+		return fmt.Errorf("enrich final %s: spawn agent: %w", id, err)
+	}
+	defer client.Close()
+
+	updates := make(chan claudecode.Message)
+	go func() {
+		for range updates {
+		}
+	}()
+
+	result, err := client.Prompt(ctx, enrichFinalPrompt(id), updates)
+	if err != nil {
+		return fmt.Errorf("enrich final %s: agent turn: %w", id, err)
+	}
+	if result.IsError {
+		return fmt.Errorf("enrich final %s: agent run failed: %s", id, result.Result)
+	}
+
+	ex, err := parseExtraction(result.Result)
+	if err != nil {
+		return fmt.Errorf("enrich final %s: %w", id, err)
+	}
+	return store.UpdateDoc(id, func(m *meeting.Meeting) error {
+		applyExtraction(m, ex)
+		m.Refined = true
+		return nil
+	})
+}
+
 // extraction is the JSON shape the agent is instructed to return.
 type extraction struct {
 	Summary      string               `json:"summary"`
@@ -88,6 +135,26 @@ func enrichPrompt(id string) string {
 
 Call the get_meeting tool to see its current document, then the
 read_live_transcript tool with id "%s" and cursor -1 to read the full
+transcript.
+
+Respond with ONLY a JSON object — no markdown fences, no prose outside
+the JSON — with exactly these keys:
+
+{
+  "summary": "2-3 sentence summary of the meeting",
+  "participants": ["speaker names mentioned in the transcript"],
+  "decisions": [{"text": "what was decided", "scope": "optional context"}],
+  "action_items": [{"text": "task", "owner": "name if stated", "due": "date if stated"}]
+}
+
+Use [] for empty arrays. Do not write or edit any files.`, id, id)
+}
+
+func enrichFinalPrompt(id string) string {
+	return fmt.Sprintf(`Enrich the meeting with id "%s" using its final, high-accuracy transcript.
+
+Call the get_meeting tool to see its current document, then the
+read_batch_transcript tool with id "%s" to read the full refined
 transcript.
 
 Respond with ONLY a JSON object — no markdown fences, no prose outside
@@ -164,6 +231,18 @@ func NewMcpServer(s *tools.Surface) *claudecode.SdkMcpServer {
 			},
 			handleReadLiveTranscript(s),
 		),
+		claudecode.NewMcpTool(
+			"read_batch_transcript",
+			"Read a meeting's final, high-accuracy transcript produced by batch refinement over the full recording.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{"type": "string", "description": "meeting id"},
+				},
+				"required": []string{"id"},
+			},
+			handleReadBatchTranscript(s),
+		),
 	)
 }
 
@@ -184,6 +263,16 @@ func handleReadLiveTranscript(s *tools.Surface) claudecode.McpToolHandler {
 			return nil, err
 		}
 		return jsonResult(map[string]any{"utterances": us, "cursor": next})
+	}
+}
+
+func handleReadBatchTranscript(s *tools.Surface) claudecode.McpToolHandler {
+	return func(_ context.Context, args map[string]any) (*claudecode.McpToolResult, error) {
+		us, err := s.ReadBatchTranscript(argString(args, "id"))
+		if err != nil {
+			return nil, err
+		}
+		return jsonResult(map[string]any{"utterances": us})
 	}
 }
 
