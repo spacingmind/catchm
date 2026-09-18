@@ -1,6 +1,6 @@
 # Plan: M6 — Settings UI for engine config (Soniox key, whisper/translate hosts)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal
@@ -95,16 +95,82 @@ security model); multi-user/profile config.
 
 ## Decisions
 
-(fill in: exact `App.tsx`/Settings restructuring approach chosen, mutex
-strategy for `s.cfg`, whether `tabs.tsx` already existed or was added.)
+- **Mutex strategy for `s.cfg`**: reused the existing `s.mu` (the same
+  `sync.Mutex` that already guards `s.pipelines`) rather than adding a
+  dedicated one — only two small critical sections were needed (a
+  pointer read in GET, a pointer swap after a successful PUT), so a
+  second lock would have been indirection without benefit. Noted in a
+  comment on `handleGetConfig`.
+- **PUT shape / key preservation**: PUT accepts the same JSON shape GET
+  returns, plus a write-only top-level `soniox_api_key`. The handler
+  starts from a shallow copy of the live config (`*s.cfg`) and only
+  overwrites `Soniox.APIKey` when the request's `soniox_api_key` is
+  non-empty, so an omitted or explicitly-empty key is preserved by
+  construction rather than by post-hoc fixup. It saves, re-loads from
+  disk (proving the round-trip), swaps the live pointer under `s.mu`,
+  and returns the sanitized shape.
+- **Sanitization**: responses are built by a `sanitizedConfig()`
+  helper — a `map[string]any` mirroring the YAML field names with the
+  key replaced by `soniox_api_key_set: bool` — so there is exactly one
+  code path that can leak the secret and GET/PUT share it.
+- **Validation on PUT**: minimal — `engine` must be `whisper`/`soniox`
+  when non-empty (mirroring `newEngine`'s switch); everything else is
+  stored as-is per the spec's "don't over-validate".
+- **App.tsx restructuring**: the `"settings"` view now renders a shadcn
+  `Tabs` with two tabs — "Engines" (`SettingsConfig`, new) and
+  "Translation" (the existing `SettingsTranslate`, unchanged),
+  `defaultValue="engines"`. The `TabsList` sits above the tab content;
+  each screen keeps its own `max-w-3xl` page wrapper so no double
+  padding.
+- **`tabs.tsx` did not exist** under `web/src/components/ui/` — added
+  it, hand-written in the same shadcn/radix-ui style as `select.tsx`
+  et al. (`Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`).
+- **UI details**: the API-key input is `type="password"` with
+  `autoComplete="off"`, placeholder "Currently set"/"Not set" driven by
+  `soniox_api_key_set`, and the field is cleared after a successful
+  save so a saved-but-invisible key can't be re-sent accidentally. The
+  "Saved" confirmation reuses LiveMeeting's exact pattern (local state
+  + `setTimeout(..., 2000)`, no toast library).
+- **`web/dist/index.html`**: repo convention is to keep the placeholder
+  tracked; a `bun run build` rewrites it, so it's reverted (`git
+  checkout -- web/dist/index.html`) before any commit that included a
+  build.
 
 ## Progress
 
-- [ ] internal/config.Save + round-trip test
-- [ ] GET/PUT /api/config endpoints with key-sanitization and preserve-on-omit semantics
-- [ ] web: SettingsConfig screen + Tabs restructuring of Settings entry point
-- [ ] tests
+- [x] internal/config.Save + round-trip test
+- [x] GET/PUT /api/config endpoints with key-sanitization and preserve-on-omit semantics
+- [x] web: SettingsConfig screen + Tabs restructuring of Settings entry point
+- [x] tests
+- [x] api.ts: typed `getConfig()`/`updateConfig()` + `AppConfig`/`UpdateConfigRequest`
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+1. `go build ./...`, `go vet ./...`, `gofmt -l .` clean;
+   `go test ./... -count=1` all green (2026-09-18).
+2. `task web:install && task web:build` clean, no TypeScript errors
+   (`tsc -b && vite build`).
+3. `TestConfigSaveLoadRoundTrip` green — Save→Load reproduces engine,
+   lang, whisper URL, soniox key+URL, and all translate fields; file
+   written 0o600 under a 0o700 parent.
+4. `TestConfigEndpointGetSanitizesKey` green — response body with a
+   configured key contains no trace of the literal key string;
+   `soniox_api_key_set` is true.
+5. `TestConfigEndpointPutPreservesKeyWhenOmitted` green — covers both
+   the omitted and the explicitly-empty `soniox_api_key` cases; both
+   the in-memory `s.cfg` and the on-disk file (via a fresh
+   `config.Load()`) still carry the original key after the second PUT.
+6. `TestConfigEndpointPutUpdatesFields` green — new `whisper_url`,
+   `soniox.url`, and all three `translate` fields round-trip into a
+   subsequent GET. (Plus `TestConfigEndpointPutRejectsUnknownEngine`
+   for the 400 path.)
+7. Manual end-to-end verified independently by the repo owner: real
+   binary built, endpoints curled with/without a key, and a headless-
+   browser screenshot of the Settings/Engines tab confirming the form
+   renders (fields, "Not set" placeholder for the unset Soniox key,
+   Save button).
+
+Deviations from spec: none material — one extra Go test
+(`TestConfigEndpointPutRejectsUnknownEngine`) and one extra Progress
+line (the api.ts client) beyond the four listed; both fall within the
+spec's own Scope section.
