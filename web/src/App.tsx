@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { Archive, Settings2 } from "lucide-react"
+import { Settings2 } from "lucide-react"
 
+import logo from "@/assets/logo.png"
 import { Button } from "@/components/ui/button"
 import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
@@ -28,7 +29,7 @@ function App() {
     <div className="min-h-svh bg-background text-foreground">
       <header className="flex items-center justify-between border-b border-border px-6 py-3">
         <button type="button" onClick={goToList} className="flex items-center gap-2 text-lg font-semibold">
-          <Archive className="size-5" /> CatchM
+          <img src={logo} alt="CatchM" className="size-6 rounded-md" /> CatchM
         </button>
         <Button variant="ghost" size="sm" onClick={() => setView("settings")}>
           <Settings2 /> Settings

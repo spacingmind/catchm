@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Mic } from "lucide-react"
 
+import logo from "@/assets/logo.png"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,6 +50,7 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : meetings.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border py-16 text-center">
+          <img src={logo} alt="" className="mx-auto mb-4 size-16 rounded-xl" />
           <p className="text-lg font-medium">Your burrow is quiet.</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Start a meeting to capture the conversation, decisions, and follow-ups in one place.
