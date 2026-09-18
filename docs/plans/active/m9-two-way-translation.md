@@ -296,3 +296,52 @@ this fix is desk-verified against documentation and covered by
 hermetic mock-WebSocket tests only. Recommend an actual live smoke test
 (one real session, one short utterance) the first time this ships to a
 user with a real Soniox account.
+
+## Cross-check against a real production client (2026-09-18)
+
+Cloned `phuc-nt/my-translator` (the reference app this whole project
+took inspiration from, per `docs/research-stt-translate.md`) and read
+its working `src/js/soniox.js` client to validate the desk research
+above against actual production code, not just docs. It confirmed the
+`pcm_s16le`/`sample_rate`/`num_channels` fix and both translation
+shapes, and also surfaced three more gaps, all fixed:
+
+- **Bug: diarization never enabled.** `SonioxEngine.SupportsDiarization()`
+  returns `true`, but the config never sent
+  `enable_speaker_diarization` — without it Soniox never returns
+  speaker labels at all, regardless of what the capability method
+  claims. Added `EnableSpeakerDiarization: true` to `sonioxConfig`.
+- **Model version.** Switched `stt-rt-v4` → `stt-rt-v5`, matching what
+  the working reference client currently uses (v4 was an unverified
+  guess; v5 is now backed by a real, running production app rather
+  than upgraded confidence on a guess).
+- **Bug: response parsing dropped finalized text whenever a message
+  mixed finalized and provisional tokens.** The reference client
+  builds separate `originalText`/`provisionalText`/`translationText`
+  buffers per message and only keeps `is_final` tokens in the ones it
+  emits — a single message legitimately mixes both. The previous
+  `buildResult` required *every* token in a message to be final before
+  emitting anything, which would have silently discarded already-final
+  text sitting alongside a still-provisional token in the same batch.
+  Rewrote `buildResult` to drop non-final tokens individually (not the
+  whole batch) and to skip the reference client's `"<end>"` end-of-turn
+  sentinel token, which was not previously handled and would otherwise
+  have leaked the literal string `"<end>"` into transcripts. Speaker is
+  now only captured from `translation_status == "original"` tokens,
+  matching the reference client exactly (previously any non-empty
+  `Speaker` field counted, which the real API's `translation_status:
+  "translation"` tokens might also carry echoed from the source).
+- **Also confirmed**: the reference client authenticates purely via
+  `api_key` inside the JSON config body and sends no `Authorization`
+  header at all on the WebSocket handshake — resolving the
+  previously-open question about header vs. body placement in favor of
+  body-only. `engine_soniox.go` still sends both (the header is
+  harmless if Soniox ignores it), but body-only is now the
+  higher-confidence, production-verified pattern.
+
+Three new tests added: `TestBuildResultKeepsFinalizedTextWhenBatchMixesProvisional`,
+`TestBuildResultSkipsEndSentinel`, plus `TestSonioxTwoWayConfig` extended
+to assert `enable_speaker_diarization`/`stt-rt-v5`. Still no real API
+key available — this cross-check raises confidence well above "docs
+only" but a live smoke test remains the last step before production
+use.

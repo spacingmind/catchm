@@ -31,10 +31,13 @@ func (e *SonioxEngine) SupportsTranslation() bool { return true }
 // sonioxConfig is the JSON shape of the first message Soniox's protocol
 // requires after the WebSocket handshake: a text frame sent before any
 // binary PCM. Confirmed against Soniox's WebSocket API reference
-// (https://soniox.com/docs/api-reference/stt/websocket-api): raw PCM
-// audio formats require sample_rate/num_channels alongside
-// audio_format, and both the one_way and two_way translation shapes
-// are documented (previously only two_way had been verified).
+// (https://soniox.com/docs/api-reference/stt/websocket-api) and
+// cross-checked against phuc-nt/my-translator's working production
+// client (src/js/soniox.js): raw PCM audio formats require
+// sample_rate/num_channels alongside audio_format, diarization must be
+// explicitly requested (SupportsDiarization()'s claim was previously
+// not backed by any config field), and "stt-rt-v5" is the model a real
+// client currently uses (v4 was an unverified guess).
 type sonioxConfig struct {
 	APIKey                       string             `json:"api_key"`
 	Model                        string             `json:"model"`
@@ -42,6 +45,7 @@ type sonioxConfig struct {
 	SampleRate                   int                `json:"sample_rate"`
 	NumChannels                  int                `json:"num_channels"`
 	EnableLanguageIdentification bool               `json:"enable_language_identification"`
+	EnableSpeakerDiarization     bool               `json:"enable_speaker_diarization"`
 	Translation                  *sonioxTranslation `json:"translation,omitempty"`
 }
 
@@ -82,7 +86,7 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 
 	cfg := sonioxConfig{
 		APIKey: e.apiKey,
-		Model:  "stt-rt-v4",
+		Model:  "stt-rt-v5",
 		// The pipeline streams raw headerless 16-bit LE mono PCM
 		// (see stt.PCM's doc comment), so audio_format must be the
 		// explicit pcm_s16le format rather than "auto" — Soniox
@@ -92,6 +96,9 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 		SampleRate:                   16000,
 		NumChannels:                  1,
 		EnableLanguageIdentification: true,
+		// SupportsDiarization() claims speaker labels; without this
+		// flag Soniox never populates them.
+		EnableSpeakerDiarization: true,
 	}
 	if opts.TwoWay {
 		cfg.Translation = &sonioxTranslation{
@@ -154,20 +161,25 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 	return pcmCh, resultCh, nil
 }
 
-// buildResult reduces one server message's tokens into a single Result:
-// "original"/"none"/unset tokens concatenate into Text, "translation"
-// tokens concatenate into Translated, and the message counts as final
-// only once every one of its tokens has been finalized.
+// buildResult reduces one server message's tokens into a single Result.
+// A single message can mix finalized and still-provisional tokens
+// (confirmed against phuc-nt/my-translator's working client) — only
+// finalized ("is_final") tokens are kept, matching the pipeline's own
+// contract of only ever persisting Result.Final results; provisional
+// tokens are dropped rather than blocking the finalized text in the
+// same batch from being emitted. "original"/"none"/unset-status
+// finalized tokens concatenate into Text, "translation"-status ones
+// into Translated. The literal "<end>" token some responses include is
+// an end-of-turn marker, not transcript text, and is skipped.
 func buildResult(tokens []sonioxToken) Result {
 	var text, translated strings.Builder
 	var speaker string
-	final := true
 	for _, tok := range tokens {
-		if tok.Speaker != "" {
-			speaker = tok.Speaker
+		if tok.Text == "<end>" || !tok.IsFinal {
+			continue
 		}
-		if !tok.IsFinal {
-			final = false
+		if tok.Speaker != "" && tok.TranslationStatus == "original" {
+			speaker = tok.Speaker
 		}
 		if tok.TranslationStatus == "translation" {
 			translated.WriteString(tok.Text)
@@ -175,5 +187,5 @@ func buildResult(tokens []sonioxToken) Result {
 			text.WriteString(tok.Text)
 		}
 	}
-	return Result{Text: text.String(), Translated: translated.String(), Speaker: speaker, Final: final}
+	return Result{Text: text.String(), Translated: translated.String(), Speaker: speaker, Final: text.Len() > 0}
 }

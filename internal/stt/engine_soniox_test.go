@@ -50,7 +50,7 @@ func TestSonioxSpeakerAndTranslation(t *testing.T) {
 
 		out, _ := json.Marshal(sonioxMessage{
 			Tokens: []sonioxToken{
-				{Text: "hello there", Speaker: "spk_1", IsFinal: true},
+				{Text: "hello there", Speaker: "spk_1", TranslationStatus: "original", IsFinal: true},
 				{Text: "xin chao", TranslationStatus: "translation", IsFinal: true},
 			},
 		})
@@ -124,6 +124,7 @@ func TestSonioxTwoWayConfig(t *testing.T) {
 			SampleRate                   int    `json:"sample_rate"`
 			NumChannels                  int    `json:"num_channels"`
 			EnableLanguageIdentification bool   `json:"enable_language_identification"`
+			EnableSpeakerDiarization     bool   `json:"enable_speaker_diarization"`
 			Translation                  struct {
 				Type      string `json:"type"`
 				LanguageA string `json:"language_a"`
@@ -137,8 +138,8 @@ func TestSonioxTwoWayConfig(t *testing.T) {
 		if cfg.APIKey != "test-key" {
 			t.Errorf("api_key = %q, want %q", cfg.APIKey, "test-key")
 		}
-		if cfg.Model != "stt-rt-v4" {
-			t.Errorf("model = %q, want stt-rt-v4", cfg.Model)
+		if cfg.Model != "stt-rt-v5" {
+			t.Errorf("model = %q, want stt-rt-v5", cfg.Model)
 		}
 		if cfg.AudioFormat != "pcm_s16le" {
 			t.Errorf("audio_format = %q, want pcm_s16le", cfg.AudioFormat)
@@ -151,6 +152,9 @@ func TestSonioxTwoWayConfig(t *testing.T) {
 		}
 		if !cfg.EnableLanguageIdentification {
 			t.Error("enable_language_identification = false, want true")
+		}
+		if !cfg.EnableSpeakerDiarization {
+			t.Error("enable_speaker_diarization = false, want true")
 		}
 		if cfg.Translation.Type != "two_way" {
 			t.Errorf("translation.type = %q, want two_way", cfg.Translation.Type)
@@ -271,13 +275,14 @@ func TestSonioxOneWayConfigStillSent(t *testing.T) {
 
 // TestBuildResultGroupsTokensByTranslationStatus proves buildResult
 // concatenates original and translated tokens into their own fields
-// regardless of interleaving order, keeps the last non-empty speaker,
-// and only reports Final once every token in the batch is finalized.
+// regardless of interleaving order, only captures speaker from
+// "original"-status tokens (matching a real Soniox client), and marks
+// the result Final once it has any finalized original text.
 func TestBuildResultGroupsTokensByTranslationStatus(t *testing.T) {
 	res := buildResult([]sonioxToken{
-		{Text: "hello ", Speaker: "spk_1", IsFinal: true},
+		{Text: "hello ", Speaker: "spk_1", TranslationStatus: "original", IsFinal: true},
 		{Text: "xin ", TranslationStatus: "translation", IsFinal: true},
-		{Text: "world", IsFinal: true},
+		{Text: "world", TranslationStatus: "original", IsFinal: true},
 		{Text: "chao", TranslationStatus: "translation", IsFinal: true},
 	})
 	if res.Text != "hello world" {
@@ -290,13 +295,44 @@ func TestBuildResultGroupsTokensByTranslationStatus(t *testing.T) {
 		t.Errorf("speaker = %q, want spk_1", res.Speaker)
 	}
 	if !res.Final {
-		t.Error("final = false, want true (all tokens finalized)")
+		t.Error("final = false, want true (has finalized original text)")
 	}
 
 	partial := buildResult([]sonioxToken{
-		{Text: "hel", IsFinal: false},
+		{Text: "hel", TranslationStatus: "original", IsFinal: false},
 	})
-	if partial.Final {
-		t.Error("final = true, want false (non-final token present)")
+	if partial.Final || partial.Text != "" {
+		t.Errorf("partial-only result = %+v, want empty and not final", partial)
+	}
+}
+
+// TestBuildResultKeepsFinalizedTextWhenBatchMixesProvisional proves a
+// single message that mixes a finalized token with a still-provisional
+// one doesn't lose the finalized text — a real Soniox response batches
+// both together, and the previous "all tokens must be final" rule would
+// have silently dropped the finalized part.
+func TestBuildResultKeepsFinalizedTextWhenBatchMixesProvisional(t *testing.T) {
+	res := buildResult([]sonioxToken{
+		{Text: "hello", TranslationStatus: "original", IsFinal: true},
+		{Text: " there", TranslationStatus: "original", IsFinal: false},
+	})
+	if res.Text != "hello" {
+		t.Errorf("text = %q, want %q (provisional tail dropped, final head kept)", res.Text, "hello")
+	}
+	if !res.Final {
+		t.Error("final = false, want true")
+	}
+}
+
+// TestBuildResultSkipsEndSentinel proves the literal "<end>" token
+// (an end-of-turn marker some Soniox responses include) never leaks
+// into transcript text.
+func TestBuildResultSkipsEndSentinel(t *testing.T) {
+	res := buildResult([]sonioxToken{
+		{Text: "done", TranslationStatus: "original", IsFinal: true},
+		{Text: "<end>", IsFinal: true},
+	})
+	if res.Text != "done" {
+		t.Errorf("text = %q, want %q", res.Text, "done")
 	}
 }
