@@ -84,8 +84,8 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
     <div className="mx-auto flex max-w-3xl flex-col px-6 py-8">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            <span className="relative inline-flex">
+          <h1 className="flex items-start gap-2 text-2xl font-semibold">
+            <span className="relative mt-1.5 inline-flex shrink-0">
               <Radio className="size-5 text-primary" />
               <span className="absolute -top-0.5 -right-0.5 size-1.5 animate-pulse rounded-full bg-primary" />
             </span>{" "}
