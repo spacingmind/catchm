@@ -88,3 +88,21 @@ func Load() (*Config, error) {
 	}
 	return c, nil
 }
+
+// Save writes cfg as YAML to the path Path() resolves, creating the
+// parent directory (0o700) if needed. The file is written 0o600 because
+// it contains the Soniox API key.
+func Save(cfg *Config) error {
+	path, err := Path()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	raw, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}

@@ -52,3 +52,28 @@ translate:
 		t.Fatalf("defaults not preserved alongside overrides: %+v", c)
 	}
 }
+
+func TestConfigSaveLoadRoundTrip(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	want := &Config{
+		Engine:     "soniox",
+		Lang:       "vi",
+		WhisperURL: "http://localhost:9999",
+		Soniox:     SonioxConfig{APIKey: "sk-secret", URL: "wss://example.com/ws"},
+		Translate: TranslateConfig{
+			Host:       "http://localhost:1234",
+			LiveModel:  "custom-live",
+			BatchModel: "custom-batch",
+		},
+	}
+	if err := Save(want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got != *want {
+		t.Fatalf("round trip mismatch:\ngot  %+v\nwant %+v", got, want)
+	}
+}
