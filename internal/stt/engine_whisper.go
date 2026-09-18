@@ -23,9 +23,14 @@ type WhisperEngine struct {
 }
 
 // NewWhisperEngine returns an engine that calls the whisper.cpp server
-// rooted at baseURL (e.g. "http://127.0.0.1:8080").
+// rooted at baseURL (e.g. "http://127.0.0.1:8080"). Keep-alives are
+// disabled: chunks are infrequent enough that pooling connections just
+// leaves idle goroutines around after the session ends.
 func NewWhisperEngine(baseURL string) *WhisperEngine {
-	return &WhisperEngine{baseURL: baseURL, client: http.DefaultClient}
+	return &WhisperEngine{
+		baseURL: baseURL,
+		client:  &http.Client{Transport: &http.Transport{DisableKeepAlives: true}},
+	}
 }
 
 func (e *WhisperEngine) SupportsDiarization() bool { return false }
