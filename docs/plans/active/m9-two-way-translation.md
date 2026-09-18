@@ -245,3 +245,54 @@ All acceptance criteria confirmed on 2026-09-18:
    "Two-way translation" it shows optional "Source language" /
    "Translate to"; after checking it, the fields relabel to required
    "Language A" / "Language B" with the right placeholders.
+
+## Post-landing follow-up: Soniox protocol deep-dive (2026-09-18)
+
+The one-way config shape and the response-message shape were both
+flagged above as unverified guesses. A deep-research pass against
+Soniox's actual docs (`api-reference/stt/websocket-api`,
+`translation/stt-translation`, `sdk/node-SDK/reference/types`) resolved
+both, and two real correctness bugs were found and fixed on top of the
+work above:
+
+- **One-way shape confirmed correct as guessed**:
+  `{"type": "one_way", "target_language": "..."}` — no code change
+  needed here, just confidence upgraded from "guess" to "confirmed".
+- **Bug found and fixed: `audio_format`**. The config sent `"auto"`,
+  but the pipeline streams raw headerless 16-bit LE mono PCM — Soniox
+  requires the explicit format `"pcm_s16le"` plus `sample_rate: 16000`
+  and `num_channels: 1` alongside it for any raw PCM format (these two
+  fields were missing entirely). Without this fix a real Soniox
+  connection would likely have rejected the session or misinterpreted
+  the audio. Fixed in `engine_soniox.go`, covered by extending
+  `TestSonioxTwoWayConfig`'s assertions.
+- **Bug found and fixed: response message shape**. The implementation
+  assumed a flat `{text, speaker, translation, is_final}` object per
+  server message. Soniox actually sends `{"tokens": [...]}`, an array
+  of per-token objects each carrying `text`, `is_final`, `speaker`,
+  `translation_status` ("original"/"translation"/"none"), and
+  `language`. Rewrote `sonioxMessage`/added `sonioxToken` to match, and
+  added `buildResult()` to reduce one message's tokens into a `Result`
+  (original-status tokens concatenate into `Text`, translation-status
+  tokens into `Translated`, `Final` requires every token in the batch
+  finalized). Without this fix, parsing every real Soniox response
+  would have silently failed (`json.Unmarshal` into the old flat struct
+  wouldn't error on the mismatched shape, it would just leave `Text`
+  empty on every message) — the engine would have looked like it
+  connected successfully but produced no transcript at all. Covered by
+  a new `TestBuildResultGroupsTokensByTranslationStatus` unit test plus
+  the updated integration-style test's fixture.
+- **Still not fully resolved**: whether Soniox real-time STT expects
+  `api_key` in the JSON config body (what's implemented) versus an
+  `Authorization` header (what's also sent, redundantly, for the HTTP
+  upgrade request) — the docs describe both patterns in different
+  places and the research pass couldn't disambiguate which applies to
+  this specific endpoint. Both are currently sent, which is harmless if
+  one is simply ignored; this is the one remaining thing to confirm
+  with a real API key before relying on Soniox in production.
+
+No real Soniox API key was available to run an actual live smoke test;
+this fix is desk-verified against documentation and covered by
+hermetic mock-WebSocket tests only. Recommend an actual live smoke test
+(one real session, one short utterance) the first time this ships to a
+user with a real Soniox account.

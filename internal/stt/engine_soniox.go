@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -29,13 +30,17 @@ func (e *SonioxEngine) SupportsTranslation() bool { return true }
 
 // sonioxConfig is the JSON shape of the first message Soniox's protocol
 // requires after the WebSocket handshake: a text frame sent before any
-// binary PCM. The overall shape and the two_way translation object are
-// confirmed against Soniox's docs; the one_way translation object below
-// is a best guess (the docs only showed two_way).
+// binary PCM. Confirmed against Soniox's WebSocket API reference
+// (https://soniox.com/docs/api-reference/stt/websocket-api): raw PCM
+// audio formats require sample_rate/num_channels alongside
+// audio_format, and both the one_way and two_way translation shapes
+// are documented (previously only two_way had been verified).
 type sonioxConfig struct {
 	APIKey                       string             `json:"api_key"`
 	Model                        string             `json:"model"`
 	AudioFormat                  string             `json:"audio_format"`
+	SampleRate                   int                `json:"sample_rate"`
+	NumChannels                  int                `json:"num_channels"`
 	EnableLanguageIdentification bool               `json:"enable_language_identification"`
 	Translation                  *sonioxTranslation `json:"translation,omitempty"`
 }
@@ -47,14 +52,24 @@ type sonioxTranslation struct {
 	LanguageB      string `json:"language_b,omitempty"`
 }
 
-// sonioxMessage is the JSON shape of one server message: a recognized
-// utterance, optionally carrying a diarized speaker label and, when
-// translation was requested, the translated text.
+// sonioxMessage is the JSON shape of one server response: a batch of
+// recognized tokens, per Soniox's documented shape (not the flat
+// text/speaker/translation object previously assumed here).
 type sonioxMessage struct {
-	Text        string `json:"text"`
-	Speaker     string `json:"speaker,omitempty"`
-	Translation string `json:"translation,omitempty"`
-	IsFinal     bool   `json:"is_final"`
+	Tokens []sonioxToken `json:"tokens"`
+}
+
+// sonioxToken is one recognized (or translated) token. TranslationStatus
+// is "none"/"" for a non-translation session, "original" for the
+// spoken-language token, and "translation" for its translated
+// counterpart — both kinds interleave in the same token stream when
+// translation is enabled.
+type sonioxToken struct {
+	Text              string `json:"text"`
+	IsFinal           bool   `json:"is_final"`
+	Speaker           string `json:"speaker,omitempty"`
+	TranslationStatus string `json:"translation_status,omitempty"`
+	Language          string `json:"language,omitempty"`
 }
 
 func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-chan Result, error) {
@@ -66,9 +81,16 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 	}
 
 	cfg := sonioxConfig{
-		APIKey:                       e.apiKey,
-		Model:                        "stt-rt-v4",
-		AudioFormat:                  "auto",
+		APIKey: e.apiKey,
+		Model:  "stt-rt-v4",
+		// The pipeline streams raw headerless 16-bit LE mono PCM
+		// (see stt.PCM's doc comment), so audio_format must be the
+		// explicit pcm_s16le format rather than "auto" — Soniox
+		// requires sample_rate/num_channels alongside it for any
+		// raw PCM format.
+		AudioFormat:                  "pcm_s16le",
+		SampleRate:                   16000,
+		NumChannels:                  1,
 		EnableLanguageIdentification: true,
 	}
 	if opts.TwoWay {
@@ -117,10 +139,10 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			res := Result{Text: msg.Text, Speaker: msg.Speaker, Final: msg.IsFinal}
-			if opts.TranslateTo != "" {
-				res.Translated = msg.Translation
+			if len(msg.Tokens) == 0 {
+				continue
 			}
+			res := buildResult(msg.Tokens)
 			select {
 			case resultCh <- res:
 			case <-ctx.Done():
@@ -130,4 +152,28 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 	}()
 
 	return pcmCh, resultCh, nil
+}
+
+// buildResult reduces one server message's tokens into a single Result:
+// "original"/"none"/unset tokens concatenate into Text, "translation"
+// tokens concatenate into Translated, and the message counts as final
+// only once every one of its tokens has been finalized.
+func buildResult(tokens []sonioxToken) Result {
+	var text, translated strings.Builder
+	var speaker string
+	final := true
+	for _, tok := range tokens {
+		if tok.Speaker != "" {
+			speaker = tok.Speaker
+		}
+		if !tok.IsFinal {
+			final = false
+		}
+		if tok.TranslationStatus == "translation" {
+			translated.WriteString(tok.Text)
+		} else {
+			text.WriteString(tok.Text)
+		}
+	}
+	return Result{Text: text.String(), Translated: translated.String(), Speaker: speaker, Final: final}
 }

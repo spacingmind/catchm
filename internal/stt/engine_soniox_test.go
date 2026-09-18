@@ -49,10 +49,10 @@ func TestSonioxSpeakerAndTranslation(t *testing.T) {
 		gotFrame = data
 
 		out, _ := json.Marshal(sonioxMessage{
-			Text:        "hello there",
-			Speaker:     "spk_1",
-			Translation: "xin chao",
-			IsFinal:     true,
+			Tokens: []sonioxToken{
+				{Text: "hello there", Speaker: "spk_1", IsFinal: true},
+				{Text: "xin chao", TranslationStatus: "translation", IsFinal: true},
+			},
 		})
 		if err := conn.WriteMessage(websocket.TextMessage, out); err != nil {
 			t.Errorf("write: %v", err)
@@ -121,6 +121,8 @@ func TestSonioxTwoWayConfig(t *testing.T) {
 			APIKey                       string `json:"api_key"`
 			Model                        string `json:"model"`
 			AudioFormat                  string `json:"audio_format"`
+			SampleRate                   int    `json:"sample_rate"`
+			NumChannels                  int    `json:"num_channels"`
 			EnableLanguageIdentification bool   `json:"enable_language_identification"`
 			Translation                  struct {
 				Type      string `json:"type"`
@@ -138,8 +140,14 @@ func TestSonioxTwoWayConfig(t *testing.T) {
 		if cfg.Model != "stt-rt-v4" {
 			t.Errorf("model = %q, want stt-rt-v4", cfg.Model)
 		}
-		if cfg.AudioFormat != "auto" {
-			t.Errorf("audio_format = %q, want auto", cfg.AudioFormat)
+		if cfg.AudioFormat != "pcm_s16le" {
+			t.Errorf("audio_format = %q, want pcm_s16le", cfg.AudioFormat)
+		}
+		if cfg.SampleRate != 16000 {
+			t.Errorf("sample_rate = %d, want 16000", cfg.SampleRate)
+		}
+		if cfg.NumChannels != 1 {
+			t.Errorf("num_channels = %d, want 1", cfg.NumChannels)
 		}
 		if !cfg.EnableLanguageIdentification {
 			t.Error("enable_language_identification = false, want true")
@@ -259,4 +267,36 @@ func TestSonioxOneWayConfigStillSent(t *testing.T) {
 		t.Fatal("timed out sending pcm chunk")
 	}
 	close(pcmCh)
+}
+
+// TestBuildResultGroupsTokensByTranslationStatus proves buildResult
+// concatenates original and translated tokens into their own fields
+// regardless of interleaving order, keeps the last non-empty speaker,
+// and only reports Final once every token in the batch is finalized.
+func TestBuildResultGroupsTokensByTranslationStatus(t *testing.T) {
+	res := buildResult([]sonioxToken{
+		{Text: "hello ", Speaker: "spk_1", IsFinal: true},
+		{Text: "xin ", TranslationStatus: "translation", IsFinal: true},
+		{Text: "world", IsFinal: true},
+		{Text: "chao", TranslationStatus: "translation", IsFinal: true},
+	})
+	if res.Text != "hello world" {
+		t.Errorf("text = %q, want %q", res.Text, "hello world")
+	}
+	if res.Translated != "xin chao" {
+		t.Errorf("translated = %q, want %q", res.Translated, "xin chao")
+	}
+	if res.Speaker != "spk_1" {
+		t.Errorf("speaker = %q, want spk_1", res.Speaker)
+	}
+	if !res.Final {
+		t.Error("final = false, want true (all tokens finalized)")
+	}
+
+	partial := buildResult([]sonioxToken{
+		{Text: "hel", IsFinal: false},
+	})
+	if partial.Final {
+		t.Error("final = true, want false (non-final token present)")
+	}
 }
