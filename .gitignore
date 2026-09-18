@@ -2,3 +2,5 @@ bin/
 tmp/
 refs/
 .DS_Store
+cmd/catchm-desktop/bindings/
+cmd/catchm-desktop/build/
