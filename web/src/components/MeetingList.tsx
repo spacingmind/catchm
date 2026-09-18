@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react"
-import { Mic } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Mic, Search } from "lucide-react"
 
 import logo from "@/assets/logo.png"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { NewMeetingDialog } from "@/components/NewMeetingDialog"
 import { listMeetings, type Meeting } from "@/lib/api"
 
@@ -16,6 +17,8 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
   const [meetings, setMeetings] = useState<Meeting[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const [activeTag, setActiveTag] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
     listMeetings()
@@ -30,10 +33,55 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
     refresh()
   }, [refresh])
 
+  // Debounced server-side search: the free-text `q` param hits the API,
+  // while tag filtering below stays client-side over the fetched list.
+  const searchTimer = useRef<number | null>(null)
+  const [searchResults, setSearchResults] = useState<Meeting[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  useEffect(() => {
+    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current)
+    const q = query.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    searchTimer.current = window.setTimeout(() => {
+      listMeetings(q)
+        .then((ms) => {
+          setSearchResults(ms)
+          setError(null)
+        })
+        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setSearching(false))
+    }, 300)
+    return () => {
+      if (searchTimer.current !== null) window.clearTimeout(searchTimer.current)
+    }
+  }, [query])
+
+  const tagUniverse = useMemo(() => {
+    const tags = new Set<string>()
+    for (const m of meetings ?? []) for (const t of m.tags ?? []) tags.add(t)
+    return [...tags].sort()
+  }, [meetings])
+
+  const trimmedQuery = query.trim()
+  const base = trimmedQuery ? (searchResults ?? []) : (meetings ?? [])
+  const visibleMeetings = useMemo(
+    () => (activeTag ? base.filter((m) => (m.tags ?? []).includes(activeTag)) : base),
+    [base, activeTag],
+  )
+
   const handleStarted = (meeting: Meeting) => {
     setDialogOpen(false)
     onOpenMeeting(meeting)
   }
+
+  const listEmpty = meetings !== null && meetings.length === 0 && !trimmedQuery
+  const noMatches =
+    meetings !== null && meetings.length > 0 && trimmedQuery !== "" && !searching && visibleMeetings.length === 0
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -44,11 +92,38 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
         </Button>
       </div>
 
+      <div className="relative mb-4">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search meetings…"
+          className="pl-9"
+          aria-label="Search meetings"
+        />
+      </div>
+
+      {tagUniverse.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {tagUniverse.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => setActiveTag(activeTag === tag ? null : tag)}
+              className="rounded-full transition-colors"
+              aria-pressed={activeTag === tag}
+            >
+              <Badge variant={activeTag === tag ? "default" : "outline"}>{tag}</Badge>
+            </button>
+          ))}
+        </div>
+      )}
+
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
       {meetings === null ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : meetings.length === 0 ? (
+      ) : listEmpty ? (
         <div className="rounded-xl border border-dashed border-border py-16 text-center">
           <img src={logo} alt="" className="mx-auto mb-4 size-16 rounded-xl" />
           <p className="text-lg font-medium">Your burrow is quiet.</p>
@@ -56,9 +131,11 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
             Start a meeting to capture the conversation, decisions, and follow-ups in one place.
           </p>
         </div>
+      ) : noMatches ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">No matches in the stash.</p>
       ) : (
         <div className="grid gap-3">
-          {meetings.map((m) => (
+          {visibleMeetings.map((m) => (
             <Card
               key={m.id}
               className="cursor-pointer transition-colors hover:bg-secondary/40"
@@ -79,9 +156,14 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
                   {m.engine ? ` · ${m.engine}` : ""}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex gap-4 text-sm text-muted-foreground">
+              <CardContent className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <span>{m.decisions?.length ?? 0} decisions</span>
                 <span>{m.action_items?.length ?? 0} action items</span>
+                {(m.tags ?? []).map((t) => (
+                  <Badge key={t} variant="secondary">
+                    {t}
+                  </Badge>
+                ))}
               </CardContent>
             </Card>
           ))}

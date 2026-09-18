@@ -45,6 +45,7 @@ export interface Meeting {
   engine?: string
   lang?: string
   translate_to?: string
+  tags?: string[]
   decisions?: Decision[]
   action_items?: ActionItem[]
   terms?: Record<string, string>
@@ -73,6 +74,13 @@ export interface StartMeetingRequest {
   engine?: SttEngine | ""
   lang?: string
   translate_to?: string
+  tags?: string[]
+}
+
+/** Body for PATCH /api/meetings/{id} — at least one field required. */
+export interface UpdateMeetingRequest {
+  title?: string
+  tags?: string[]
 }
 
 /** Response body for GET /api/meetings/{id}/transcript. */
@@ -210,6 +218,21 @@ export function startMeeting(body: StartMeetingRequest): Promise<Meeting> {
 /** GET /api/meetings/{id} */
 export function getMeeting(id: string): Promise<Meeting> {
   return apiFetch(`/api/meetings/${encodeURIComponent(id)}`)
+}
+
+/** PATCH /api/meetings/{id} — update title and/or tags. */
+export function updateMeeting(id: string, body: UpdateMeetingRequest): Promise<Meeting> {
+  return apiFetch(`/api/meetings/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
+
+/** DELETE /api/meetings/{id} — resolves on 204. */
+export function deleteMeeting(id: string): Promise<void> {
+  return apiFetch(`/api/meetings/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  })
 }
 
 /** GET /api/meetings/{id}/transcript?cursor=N */
