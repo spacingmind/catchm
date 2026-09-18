@@ -78,6 +78,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
 	s.mux.HandleFunc("POST /api/translate/pull", s.handleTranslatePull)
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
+
+	// Serves the embedded web UI for anything not matched above (with SPA
+	// fallback); see webui.go. Registered last for readability only — Go's
+	// ServeMux always prefers the most specific pattern regardless of
+	// registration order, so this can never shadow /healthz or /api/*.
+	s.mux.Handle("/", webUIHandler())
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
