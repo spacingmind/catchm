@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spacingmind/catchm/internal/config"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/server"
 	"github.com/spacingmind/catchm/internal/tools"
@@ -42,6 +43,11 @@ func serve() error {
 		return err
 	}
 
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
 	addr := os.Getenv("CATCHM_ADDR")
 	if addr == "" {
 		addr = ":4649"
@@ -49,7 +55,7 @@ func serve() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(tools.New(store)),
+		Handler:           server.New(tools.New(store), cfg),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

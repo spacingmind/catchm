@@ -20,6 +20,11 @@ func New(store *meeting.Store) *Surface {
 	return &Surface{store: store}
 }
 
+// Store returns the underlying meeting store, for callers (like the
+// pipeline wiring in internal/server) that need direct store access
+// beyond the tool surface.
+func (s *Surface) Store() *meeting.Store { return s.store }
+
 // ListMeetings returns all meetings, newest first.
 func (s *Surface) ListMeetings() ([]*meeting.Meeting, error) {
 	return s.store.List()
