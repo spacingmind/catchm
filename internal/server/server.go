@@ -71,6 +71,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/meetings", s.handleListMeetings)
 	s.mux.HandleFunc("POST /api/meetings", s.handleStartMeeting)
 	s.mux.HandleFunc("GET /api/meetings/{id}", s.handleGetMeeting)
+	s.mux.HandleFunc("PATCH /api/meetings/{id}", s.handleUpdateMeeting)
+	s.mux.HandleFunc("DELETE /api/meetings/{id}", s.handleDeleteMeeting)
 	s.mux.HandleFunc("GET /api/meetings/{id}/transcript", s.handleTranscript)
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
@@ -241,6 +243,49 @@ func (s *Server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	err := s.surface.EndMeeting(id)
 	s.stopPipeline(id)
 	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+// handleUpdateMeeting renames a meeting ({"title": "..."} in the body).
+func (s *Server) handleUpdateMeeting(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.Title == "" {
+		httpError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.surface.RenameMeeting(id, req.Title); err != nil {
+		respondErr(w, err)
+		return
+	}
+	m, err := s.surface.GetMeeting(id)
+	respond(w, m, err)
+}
+
+func (s *Server) handleDeleteMeeting(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, err := s.surface.GetMeeting(id)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	if m.EndedAt == nil {
+		// Mirrors handleRefine's active-meeting conflict: deleting a
+		// meeting that is still being captured would orphan its pipeline.
+		httpError(w, http.StatusConflict, "meeting is still active")
+		return
+	}
+	s.stopPipeline(id)
+	if err := s.surface.DeleteMeeting(id); err != nil {
+		respondErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {

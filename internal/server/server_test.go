@@ -787,3 +787,78 @@ func TestConfigEndpointPutRejectsUnknownEngine(t *testing.T) {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
+
+func TestDeleteEndpoint(t *testing.T) {
+	s, store := newTestServer(t)
+
+	w := do(t, s, "DELETE", "/api/meetings/nope", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown id: status = %d, want 404", w.Code)
+	}
+
+	m, err := store.Start("Planning", time.Now().UTC(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = do(t, s, "DELETE", "/api/meetings/"+m.ID, "")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("active meeting: status = %d, want 409", w.Code)
+	}
+	if _, err := store.Get(m.ID); err != nil {
+		t.Fatalf("active meeting was deleted: %v", err)
+	}
+
+	if err := store.End(m.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	w = do(t, s, "DELETE", "/api/meetings/"+m.ID, "")
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("delete: status = %d, want 204", w.Code)
+	}
+	if _, err := store.Get(m.ID); err != meeting.ErrNotFound {
+		t.Fatalf("meeting still on disk after delete: %v", err)
+	}
+
+	w = do(t, s, "DELETE", "/api/meetings/"+m.ID, "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("second delete: status = %d, want 404", w.Code)
+	}
+}
+
+func TestRenameEndpoint(t *testing.T) {
+	s, store := newTestServer(t)
+	m, err := store.Start("Planning", time.Now().UTC(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := do(t, s, "PATCH", "/api/meetings/"+m.ID, `{"title":"Q3 Roadmap Sync"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("rename: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	if v["title"] != "Q3 Roadmap Sync" {
+		t.Fatalf("title in response = %v", v["title"])
+	}
+	got, err := store.Get(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Q3 Roadmap Sync" {
+		t.Fatalf("rename not persisted: %q", got.Title)
+	}
+
+	w = do(t, s, "PATCH", "/api/meetings/"+m.ID, `{"title":""}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("empty title: status = %d, want 400", w.Code)
+	}
+	w = do(t, s, "PATCH", "/api/meetings/"+m.ID, `not json`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bad json: status = %d, want 400", w.Code)
+	}
+	w = do(t, s, "PATCH", "/api/meetings/nope", `{"title":"X"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown id: status = %d, want 404", w.Code)
+	}
+}
