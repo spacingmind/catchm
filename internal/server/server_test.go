@@ -925,3 +925,130 @@ func TestTagsRecordedAndReturned(t *testing.T) {
 		t.Fatalf("empty patch: status = %d, want 400", w.Code)
 	}
 }
+
+func TestActionItemsEndpoint(t *testing.T) {
+	s, store := newTestServer(t)
+	base := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+
+	m1, err := store.Start("Q3 Roadmap Sync", base, meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateDoc(m1.ID, func(m *meeting.Meeting) error {
+		m.ActionItems = append(m.ActionItems,
+			meeting.ActionItem{Text: "Freeze scope", Owner: "alex"},
+			meeting.ActionItem{Text: "Send recap", Status: "done"},
+		)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := store.Start("Weekly Design Crit", base.Add(time.Hour), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateDoc(m2.ID, func(m *meeting.Meeting) error {
+		m.ActionItems = append(m.ActionItems, meeting.ActionItem{Text: "Redraw dashboard"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := do(t, s, "GET", "/api/action-items", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var items []tools.ActionItemRef
+	decode(t, w, &items)
+	if len(items) != 3 {
+		t.Fatalf("len = %d, want 3: %+v", len(items), items)
+	}
+	want := []struct {
+		meetingID    string
+		meetingTitle string
+		index        int
+		text         string
+		status       string
+	}{
+		{m2.ID, "Weekly Design Crit", 0, "Redraw dashboard", ""},
+		{m1.ID, "Q3 Roadmap Sync", 0, "Freeze scope", ""},
+		{m1.ID, "Q3 Roadmap Sync", 1, "Send recap", "done"},
+	}
+	for i, w := range want {
+		got := items[i]
+		if got.MeetingID != w.meetingID || got.MeetingTitle != w.meetingTitle ||
+			got.Index != w.index || got.Text != w.text || got.Status != w.status {
+			t.Fatalf("items[%d] = %+v, want %+v", i, got, w)
+		}
+	}
+}
+
+func TestActionItemStatusEndpoint(t *testing.T) {
+	s, store := newTestServer(t)
+	m, err := store.Start("Planning", time.Now().UTC(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
+		mm.ActionItems = append(mm.ActionItems, meeting.ActionItem{Text: "Prepare demo", Owner: "alex"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Successful PATCH is reflected in a subsequent GET.
+	w := do(t, s, "PATCH", "/api/meetings/"+m.ID+"/action-items/0", `{"status":"done"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	w = do(t, s, "GET", "/api/action-items", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get: status = %d", w.Code)
+	}
+	var items []tools.ActionItemRef
+	decode(t, w, &items)
+	if len(items) != 1 || items[0].Status != "done" || items[0].Index != 0 || items[0].MeetingID != m.ID {
+		t.Fatalf("items = %+v", items)
+	}
+
+	// Non-numeric index is 400.
+	w = do(t, s, "PATCH", "/api/meetings/"+m.ID+"/action-items/zero", `{"status":"done"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bad index: status = %d, want 400", w.Code)
+	}
+
+	// Out-of-range index is 404, not 500, and says which of the two
+	// 404 causes it is.
+	w = do(t, s, "PATCH", "/api/meetings/"+m.ID+"/action-items/5", `{"status":"done"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("out-of-range index: status = %d, want 404", w.Code)
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	msg, _ := v["error"].(string)
+	if !strings.Contains(msg, "out of range") {
+		t.Fatalf("out-of-range error message = %q", msg)
+	}
+
+	// Unknown meeting is 404 with a distinct message.
+	w = do(t, s, "PATCH", "/api/meetings/nope/action-items/0", `{"status":"done"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown meeting: status = %d, want 404", w.Code)
+	}
+	v = map[string]any{}
+	decode(t, w, &v)
+	msg, _ = v["error"].(string)
+	if !strings.Contains(msg, "meeting not found") {
+		t.Fatalf("unknown-meeting error message = %q", msg)
+	}
+
+	// Bad body / missing status are 400s.
+	w = do(t, s, "PATCH", "/api/meetings/"+m.ID+"/action-items/0", `not json`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bad json: status = %d, want 400", w.Code)
+	}
+	w = do(t, s, "PATCH", "/api/meetings/"+m.ID+"/action-items/0", `{"status":""}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing status: status = %d, want 400", w.Code)
+	}
+}

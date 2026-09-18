@@ -77,6 +77,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
+	s.mux.HandleFunc("GET /api/action-items", s.handleListActionItems)
+	s.mux.HandleFunc("PATCH /api/meetings/{id}/action-items/{index}", s.handleSetActionItemStatus)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handlePutConfig)
 	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
@@ -102,6 +104,11 @@ func (s *Server) handleListMeetings(w http.ResponseWriter, r *http.Request) {
 	}
 	ms, err := s.surface.ListMeetings()
 	respond(w, ms, err)
+}
+
+func (s *Server) handleListActionItems(w http.ResponseWriter, _ *http.Request) {
+	items, err := s.surface.ListActionItems()
+	respond(w, items, err)
 }
 
 func (s *Server) handleDevices(w http.ResponseWriter, _ *http.Request) {
@@ -302,6 +309,39 @@ func (s *Server) handleDeleteMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSetActionItemStatus updates one action item's status in place.
+// Unknown meeting and out-of-range index are both 404s but with distinct
+// error messages so the two causes stay debuggable.
+func (s *Server) handleSetActionItemStatus(w http.ResponseWriter, r *http.Request) {
+	index, err := strconv.Atoi(r.PathValue("index"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "action item index must be a number")
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.Status == "" {
+		httpError(w, http.StatusBadRequest, "status is required")
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.surface.Store().SetActionItemStatus(id, index, req.Status); err != nil {
+		if errors.Is(err, meeting.ErrActionItemIndex) {
+			httpError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		respondErr(w, err)
+		return
+	}
+	m, err := s.surface.GetMeeting(id)
+	respond(w, m, err)
 }
 
 func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
