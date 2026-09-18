@@ -87,18 +87,67 @@ kanban/board layout (a flat list is enough for this milestone).
 
 ## Decisions
 
-(fill in: exact `ActionItemRef` shape/location, sort order chosen, nav
-entry styling, whether status is a checkbox (binary) or reuses a richer
-status vocabulary already present in `MeetingDetail`.)
+- `ActionItemRef` lives in `internal/tools` (defined alongside `Surface`):
+  an embedded `meeting.ActionItem` plus `MeetingID`/`MeetingTitle` string
+  fields and `Index int`, so its JSON keeps text/owner/due/status at the
+  top level of each row (no nested `item` object for the web client).
+- Sort order: `Surface.ListActionItems` keeps `Store.List`'s newest-meeting-
+  first order, in-document order within a meeting. The open-items-first
+  grouping the spec asked for happens client-side in `ActionItems.tsx`
+  (open rows first, then a "Done" section of struck-through rows) — the
+  API itself stays a stable flat list (agreed in the step-2 review:
+  "keep whatever sort order you already implemented").
+- Out-of-range index: `internal/meeting` exports a sentinel
+  `ErrActionItemIndex` (wrapped with meeting id/count context via `%w`);
+  `SetActionItemStatus` bounds-checks before mutating, so a failed call
+  leaves meeting.md byte-identical. The PATCH endpoint maps it to 404 and
+  `ErrNotFound` to a different-text 404 ("action item index out of range"
+  vs "meeting not found"), per spec — same code, distinct messages.
+- Status vocabulary: binary checkbox. MeetingDetail only renders raw
+  status text (no fixed vocabulary exists to reuse), so the screen treats
+  `status === "done"` as closed and anything else (including empty) as
+  open; toggling sets `"done"` or `""`. PATCH rejects an empty status with
+  400 only when it is the *only* thing wrong with the request body; a
+  successful PATCH responds with the updated meeting JSON.
+- Web: `ActionItems.tsx` toggles optimistically (revert + error banner on
+  PATCH failure); each row shows owner (Badge), due date, and a clickable
+  `MeetingTitle` label that GETs the meeting and routes through App.tsx's
+  existing `openMeeting`/View state machine; rows keyed by
+  `meeting_id:index`. Nav entry: a ghost `Button` with a `CheckSquare`
+  icon ("Action items"), styled exactly like the existing Settings button,
+  both wrapped in a flex container in the header.
 
 ## Progress
 
-- [ ] ActionItemRef type + Surface.ListActionItems
-- [ ] Store.SetActionItemStatus (bounds-checked)
-- [ ] GET /api/action-items + PATCH /api/meetings/{id}/action-items/{index}
-- [ ] web: ActionItems screen + nav entry
-- [ ] tests
+- [x] ActionItemRef type + Surface.ListActionItems
+- [x] Store.SetActionItemStatus (bounds-checked)
+- [x] GET /api/action-items + PATCH /api/meetings/{id}/action-items/{index}
+- [x] web: ActionItems screen + nav entry
+- [x] tests
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+1. Confirmed: `go build ./...`, `go vet ./...`, `gofmt -l .` clean,
+   `go test ./... -count=1` all green; `task web:install && task
+   web:build` succeeds with no TypeScript errors (also `bun run lint`
+   reports 0 errors).
+2. Confirmed: `TestListActionItemsAcrossMeetings` (internal/tools) — three
+   items across two meetings (plus one item-less meeting contributing
+   nothing) with correct `MeetingID`/`MeetingTitle`/`Index`, newest
+   meeting first.
+3. Confirmed: `TestSetActionItemStatusBoundsChecked` (internal/meeting) —
+   valid index updates and persists; index 2 and -1 both return
+   `ErrActionItemIndex` without panic and meeting.md is byte-identical
+   after the failed calls; unknown meeting still `ErrNotFound`.
+4. Confirmed: `TestActionItemsEndpoint` / `TestActionItemStatusEndpoint`
+   (internal/server) — GET aggregates 3 items from 2 meetings; bad index
+   path value 400; out-of-range index 404 (not 500) with "out of range"
+   in the message vs "meeting not found" for the unknown-meeting 404;
+   successful PATCH reflected in a subsequent GET.
+5. Confirmed by the task owner, independently of the implementer: real
+   binary built, two meetings seeded with action items via curl, and the
+   full flow verified in a headless browser with screenshots — open items
+   grouped first, a DONE section with strikethrough for completed ones,
+   checkbox toggling updating in real time (the item moved between
+   sections and persisted), meeting title/owner/due all rendered
+   correctly.
