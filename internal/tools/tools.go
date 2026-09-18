@@ -113,3 +113,16 @@ func (s *Surface) StartMeetingWithOptions(title string, opts meeting.StartOption
 func (s *Surface) EndMeeting(id string) error {
 	return s.store.End(id, time.Now().UTC())
 }
+
+// DeleteMeeting removes a meeting and its whole directory.
+func (s *Surface) DeleteMeeting(id string) error {
+	return s.store.Delete(id)
+}
+
+// RenameMeeting updates a meeting's title via UpdateDoc.
+func (s *Surface) RenameMeeting(id, title string) error {
+	return s.store.UpdateDoc(id, func(m *meeting.Meeting) error {
+		m.Title = title
+		return nil
+	})
+}

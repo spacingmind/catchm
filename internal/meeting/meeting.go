@@ -186,6 +186,19 @@ func (s *Store) End(id string, endedAt time.Time) error {
 	return s.WriteDoc(m)
 }
 
+// Delete removes the meeting's whole directory. It returns ErrNotFound
+// when no such meeting exists, so callers can distinguish "deleted"
+// from "already gone" (RemoveAll alone would silently no-op).
+func (s *Store) Delete(id string) error {
+	if _, err := os.Stat(s.dir(id)); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return os.RemoveAll(s.dir(id))
+}
+
 func sortMeetings(ms []*Meeting) {
 	for i := 1; i < len(ms); i++ {
 		for j := i; j > 0 && ms[j].StartedAt.After(ms[j-1].StartedAt); j-- {

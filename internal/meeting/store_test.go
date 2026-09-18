@@ -287,3 +287,39 @@ func TestUpdateDocPreservesID(t *testing.T) {
 		t.Fatalf("action items = %+v", got.ActionItems)
 	}
 }
+
+func TestDeleteMeeting(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Planning", time.Now().UTC(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(m.ID, Utterance{Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Delete(m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Root(), m.ID)); !os.IsNotExist(err) {
+		t.Fatalf("meeting dir still exists: %v", err)
+	}
+	if _, err := s.Get(m.ID); err != ErrNotFound {
+		t.Fatalf("get after delete: err = %v, want ErrNotFound", err)
+	}
+	ms, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms) != 0 {
+		t.Fatalf("list after delete = %+v", ms)
+	}
+
+	// A second delete, and an unknown id, both return ErrNotFound.
+	if err := s.Delete(m.ID); err != ErrNotFound {
+		t.Fatalf("second delete: err = %v, want ErrNotFound", err)
+	}
+	if err := s.Delete("nope"); err != ErrNotFound {
+		t.Fatalf("unknown id: err = %v, want ErrNotFound", err)
+	}
+}
