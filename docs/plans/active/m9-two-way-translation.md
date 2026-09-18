@@ -163,20 +163,85 @@ milestone's.
 
 ## Decisions
 
-(fill in: exact Soniox one-way config shape used and confidence level,
-frontmatter representation chosen for two-way, language-detection
-approach chosen (LLM-based vs heuristic) and why, whether per-utterance
-direction labels were added to LiveMeeting.)
+- **Soniox config shape.** The overall first-frame shape (api_key /
+  model "stt-rt-v4" / audio_format "auto" /
+  enable_language_identification true / translation object) and the
+  two_way translation object are confirmed from Soniox's docs. The
+  one_way translation object used is `{"type": "one_way",
+  "target_language": opts.TranslateTo}` — **still a best guess** (the
+  docs only showed two_way), marked as such in a comment on
+  `sonioxConfig`. Confidence: high for two_way, low-medium for one_way
+  field names. When no translation is requested at all, the
+  `translation` key is omitted rather than sent empty. Server-message
+  parsing was left on the existing flattened `sonioxMessage` assumption
+  (the confirmed per-token `language`/`translation_status` shape was
+  NOT adopted — that remains a documented simplification, since
+  Soniox's real per-token fields couldn't be re-verified hermetically).
+- **Frontmatter representation.** A single new `two_way: true` bool on
+  `Meeting` (+ `StartOptions.TwoWay`), reusing the existing `lang` /
+  `translate_to` fields as language A / language B in two-way mode — no
+  parallel storage invented. The API likewise reuses `translate_to` as
+  language B when `two_way: true` (no third language field);
+  `startPipeline` was changed to take the full `stt.Options` and maps
+  `LanguageB = translate_to` there.
+- **Language detection: heuristic, not LLM.** `translate.DetectLanguage`
+  (internal/translate/detect.go) counts runes that match one candidate's
+  script but not the other's (Vietnamese diacritics vs English ASCII)
+  and tie-breaks toward the more constrained script. Chosen over an LLM
+  classification call because it adds no extra round trip per utterance,
+  stays fully hermetic to test, and the primary pair (en/vi) is exactly
+  the case diacritics distinguish trivially. Documented as best-effort:
+  unknown language codes degrade to "first candidate" rather than
+  failing, and the scripts table only lists languages the heuristic can
+  actually distinguish.
+- **UI.** NewMeetingDialog adds a "Two-way translation" checkbox; when
+  checked, "Source language"/"Translate to" relabel to required
+  "Language A"/"Language B" (HTML required + a client-side guard that
+  shows the shared error line). LiveMeeting was reviewed and left as-is:
+  each utterance's `Translated` line is populated independently, which
+  reads correctly when the direction varies per utterance; no
+  per-utterance "→ xx" labels were added (each utterance already carries
+  its own `lang` field, and the labels felt like clutter for the small
+  ambiguity they'd remove).
 
 ## Progress
 
-- [ ] Soniox: send initial JSON config message (one-way and two-way)
-- [ ] stt.Options: TwoWay + LanguageB
-- [ ] Language detection helper for whisper path
-- [ ] Pipeline wiring for two-way translation
-- [ ] Meeting frontmatter representation + API + NewMeetingDialog UI
-- [ ] tests
+- [x] Soniox: send initial JSON config message (one-way and two-way)
+- [x] stt.Options: TwoWay + LanguageB
+- [x] Language detection helper for whisper path
+- [x] Pipeline wiring for two-way translation
+- [x] Meeting frontmatter representation + API + NewMeetingDialog UI
+- [x] tests
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+All acceptance criteria confirmed on 2026-09-18:
+
+1. `go build ./... && go vet ./... && gofmt -l .` and
+   `go test ./... -count=1` all pass, including the pre-existing M2/M3
+   one-way tests (`TestSonioxSpeakerAndTranslation` was extended to
+   read/assert the new config frame first — the only existing-test
+   change, and additive on the wire). Independently re-verified by the
+   reviewer: full Go test suite green, including the Soniox
+   config-frame tests.
+2. `TestSonioxTwoWayConfig` green — first frame is JSON text with
+   `translation.type == "two_way"`, `language_a == "en"`,
+   `language_b == "vi"`, ahead of any binary frame.
+3. `TestSonioxOneWayConfigStillSent` green — one-way sessions also open
+   with the JSON config frame (`type == "one_way"`,
+   `target_language == "es"`).
+4. `TestDetectLanguageBetweenTwoOptions` green — clearly-English and
+   clearly-Vietnamese samples both attributed correctly in both argument
+   orders.
+5. `TestPipelineTwoWayTranslatesBothDirections` green — an English and
+   a Vietnamese utterance each end up translated into the OTHER
+   language (asserted via a direction-recording fake translator).
+6. `TestTwoWayMeetingOptionRecorded` green — `two_way: true` with
+   `lang: en` / `translate_to: vi` round-trips through `Get`, both
+   parsed and in the raw meeting.md.
+7. Web build green (`task web:install && task web:build`). Independently
+   verified by the reviewer against the real binary via
+   headless-browser screenshots of NewMeetingDialog: before checking
+   "Two-way translation" it shows optional "Source language" /
+   "Translate to"; after checking it, the fields relabel to required
+   "Language A" / "Language B" with the right placeholders.
