@@ -102,7 +102,7 @@ export function SettingsConfig() {
                   id="config-soniox-url"
                   value={sonioxUrl}
                   onChange={(e) => setSonioxUrl(e.target.value)}
-                  placeholder="wss://api.soniox.com/transcribe-websocket"
+                  placeholder="wss://stt-rt.soniox.com/transcribe-websocket"
                 />
               </div>
               <div className="grid gap-1.5">

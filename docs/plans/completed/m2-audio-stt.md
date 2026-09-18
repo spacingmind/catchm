@@ -1,6 +1,6 @@
 # Plan: M2 — audio capture + realtime STT (default/free + Soniox paid)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal

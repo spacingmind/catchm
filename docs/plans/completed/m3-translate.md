@@ -1,6 +1,6 @@
 # Plan: M3 — translation layer (TranslateGemma via Ollama)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal

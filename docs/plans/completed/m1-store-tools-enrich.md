@@ -1,6 +1,6 @@
 # Plan: M1 — meeting store + tool surface + enrich job (no audio yet)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-17
 
 ## Goal

@@ -1,6 +1,6 @@
 # Plan: M8 — cross-meeting action items view
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal

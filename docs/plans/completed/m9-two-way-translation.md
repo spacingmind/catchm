@@ -1,6 +1,6 @@
 # Plan: M9 — two-way (bidirectional) live translation
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal

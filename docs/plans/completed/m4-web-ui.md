@@ -1,6 +1,6 @@
 # Plan: M4 — web UI (Tailwind + shadcn/ui)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal

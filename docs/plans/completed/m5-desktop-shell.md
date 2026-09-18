@@ -1,6 +1,6 @@
 # Plan: M5 — desktop shell (Wails, minimal native window)
 
-- Status: verified on Windows (see Validation)
+- Status: complete
 - Created: 2026-09-18
 
 ## Goal
