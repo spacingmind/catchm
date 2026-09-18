@@ -655,3 +655,135 @@ func TestUnknownMeetingIs404(t *testing.T) {
 		}
 	}
 }
+
+// TestConfigEndpointGetSanitizesKey proves GET /api/config never leaks
+// the raw Soniox API key: with a key configured, the response contains
+// no trace of it and reports soniox_api_key_set: true instead.
+func TestConfigEndpointGetSanitizesKey(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.Soniox.APIKey = "sk-top-secret"
+
+	w := do(t, s, "GET", "/api/config", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "sk-top-secret") {
+		t.Fatalf("response leaks the api key: %s", w.Body.String())
+	}
+	var v struct {
+		Engine          string `json:"engine"`
+		WhisperURL      string `json:"whisper_url"`
+		SonioxAPIKeySet bool   `json:"soniox_api_key_set"`
+		Soniox          struct {
+			URL string `json:"url"`
+		} `json:"soniox"`
+		Translate struct {
+			Host       string `json:"host"`
+			LiveModel  string `json:"live_model"`
+			BatchModel string `json:"batch_model"`
+		} `json:"translate"`
+	}
+	decode(t, w, &v)
+	if !v.SonioxAPIKeySet {
+		t.Fatal("soniox_api_key_set = false, want true")
+	}
+	if v.WhisperURL != s.cfg.WhisperURL || v.Soniox.URL != s.cfg.Soniox.URL {
+		t.Fatalf("sanitized fields not mirrored: %+v", v)
+	}
+}
+
+// TestConfigEndpointPutPreservesKeyWhenOmitted is the milestone's main
+// correctness trap: a PUT without soniox_api_key (or with it explicitly
+// empty) must not wipe a previously stored key — neither in the live
+// config nor in the file the next GET would reload from.
+func TestConfigEndpointPutPreservesKeyWhenOmitted(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+
+	w := do(t, s, "PUT", "/api/config", `{"engine":"soniox","soniox_api_key":"sk-keep-me","soniox":{"url":"wss://api.soniox.com/transcribe-websocket"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	for _, body := range []string{
+		`{"engine":"whisper","whisper_url":"http://127.0.0.1:8080"}`,
+		`{"engine":"whisper","whisper_url":"http://127.0.0.1:8080","soniox_api_key":""}`,
+	} {
+		w = do(t, s, "PUT", "/api/config", body)
+		if w.Code != http.StatusOK {
+			t.Fatalf("second put %s: status = %d, body = %s", body, w.Code, w.Body.String())
+		}
+		w = do(t, s, "GET", "/api/config", "")
+		var v struct {
+			SonioxAPIKeySet bool `json:"soniox_api_key_set"`
+		}
+		decode(t, w, &v)
+		if !v.SonioxAPIKeySet {
+			t.Fatalf("put %s wiped the stored key", body)
+		}
+	}
+
+	s.mu.Lock()
+	key := s.cfg.Soniox.APIKey
+	s.mu.Unlock()
+	if key != "sk-keep-me" {
+		t.Fatalf("stored key = %q, want %q", key, "sk-keep-me")
+	}
+	onDisk, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.Soniox.APIKey != "sk-keep-me" {
+		t.Fatalf("key on disk = %q, want %q", onDisk.Soniox.APIKey, "sk-keep-me")
+	}
+}
+
+// TestConfigEndpointPutUpdatesFields proves a PUT's non-secret fields
+// round-trip through the store into a subsequent GET (and that the saved
+// file, not just the in-memory copy, carries them).
+func TestConfigEndpointPutUpdatesFields(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+
+	w := do(t, s, "PUT", "/api/config", `{
+		"engine": "soniox",
+		"whisper_url": "http://localhost:9000",
+		"soniox": {"url": "wss://stt.example.com/ws"},
+		"translate": {"host": "http://localhost:11434", "live_model": "m-live", "batch_model": "m-batch"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = do(t, s, "GET", "/api/config", "")
+	var v struct {
+		Engine     string `json:"engine"`
+		WhisperURL string `json:"whisper_url"`
+		Soniox     struct {
+			URL string `json:"url"`
+		} `json:"soniox"`
+		Translate struct {
+			Host       string `json:"host"`
+			LiveModel  string `json:"live_model"`
+			BatchModel string `json:"batch_model"`
+		} `json:"translate"`
+	}
+	decode(t, w, &v)
+	if v.Engine != "soniox" || v.WhisperURL != "http://localhost:9000" || v.Soniox.URL != "wss://stt.example.com/ws" {
+		t.Fatalf("updated fields not reflected: %+v", v)
+	}
+	if v.Translate.Host != "http://localhost:11434" || v.Translate.LiveModel != "m-live" || v.Translate.BatchModel != "m-batch" {
+		t.Fatalf("translate fields not reflected: %+v", v.Translate)
+	}
+}
+
+// TestConfigEndpointPutRejectsUnknownEngine keeps the cheap validation
+// at the boundary: engine must be a known name when non-empty.
+func TestConfigEndpointPutRejectsUnknownEngine(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+	w := do(t, s, "PUT", "/api/config", `{"engine":"nonsense"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}

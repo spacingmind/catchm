@@ -75,6 +75,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
+	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	s.mux.HandleFunc("PUT /api/config", s.handlePutConfig)
 	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
 	s.mux.HandleFunc("POST /api/translate/pull", s.handleTranslatePull)
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
@@ -375,6 +377,92 @@ func (s *Server) handleTranslateTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"translated": translated})
+}
+
+// sanitizedConfig renders cfg in the JSON shape shared by GET and PUT
+// /api/config: the same field names as Config's YAML, except the Soniox
+// API key is replaced by a top-level soniox_api_key_set boolean so the
+// secret itself never appears in any response.
+func sanitizedConfig(cfg *config.Config) map[string]any {
+	return map[string]any{
+		"engine":             cfg.Engine,
+		"lang":               cfg.Lang,
+		"whisper_url":        cfg.WhisperURL,
+		"soniox":             map[string]any{"url": cfg.Soniox.URL},
+		"soniox_api_key_set": cfg.Soniox.APIKey != "",
+		"translate": map[string]any{
+			"host":        cfg.Translate.Host,
+			"live_model":  cfg.Translate.LiveModel,
+			"batch_model": cfg.Translate.BatchModel,
+		},
+	}
+}
+
+// configRequestBody mirrors sanitizedConfig's shape plus the write-only
+// soniox_api_key field, which never appears in responses.
+type configRequestBody struct {
+	Engine     string `json:"engine"`
+	Lang       string `json:"lang"`
+	WhisperURL string `json:"whisper_url"`
+	Soniox     struct {
+		URL string `json:"url"`
+	} `json:"soniox"`
+	SonioxAPIKey string `json:"soniox_api_key"`
+	Translate    struct {
+		Host       string `json:"host"`
+		LiveModel  string `json:"live_model"`
+		BatchModel string `json:"batch_model"`
+	} `json:"translate"`
+}
+
+// Config reads and writes are guarded by s.mu (the same mutex that
+// already guards s.pipelines): a PUT swaps the pointer while concurrent
+// requests may be reading it.
+func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	body := sanitizedConfig(s.cfg)
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, body)
+}
+
+func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
+	var req configRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.Engine != "" && req.Engine != "whisper" && req.Engine != "soniox" {
+		httpError(w, http.StatusBadRequest, `engine must be "whisper" or "soniox"`)
+		return
+	}
+
+	s.mu.Lock()
+	updated := *s.cfg // shallow copy is enough: Config holds no reference types
+	s.mu.Unlock()
+	updated.Engine = req.Engine
+	updated.Lang = req.Lang
+	updated.WhisperURL = req.WhisperURL
+	updated.Soniox.URL = req.Soniox.URL
+	if req.SonioxAPIKey != "" {
+		updated.Soniox.APIKey = req.SonioxAPIKey
+	}
+	updated.Translate.Host = req.Translate.Host
+	updated.Translate.LiveModel = req.Translate.LiveModel
+	updated.Translate.BatchModel = req.Translate.BatchModel
+
+	if err := config.Save(&updated); err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	reloaded, err := config.Load()
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.cfg = reloaded
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, sanitizedConfig(reloaded))
 }
 
 func respondRefineErr(w http.ResponseWriter, err error) {
