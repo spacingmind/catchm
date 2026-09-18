@@ -13,6 +13,7 @@ import (
 	"github.com/spacingmind/catchm/internal/capture"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
+	"github.com/spacingmind/catchm/internal/tools"
 )
 
 func fakeWhisperServer(t *testing.T) *httptest.Server {
@@ -138,5 +139,81 @@ func TestPipelineLifecycle(t *testing.T) {
 	}
 	if after > before {
 		t.Fatalf("goroutine leak: before=%d after=%d", before, after)
+	}
+}
+
+// TestEngineUtterancesCompatWithReadLiveTranscript proves M1's cursor-based
+// read_live_transcript path (internal/tools.Surface.ReadLiveTranscript)
+// works unchanged over a transcript mixing an M1-style fixture utterance
+// (appended directly) with utterances the M2 pipeline produced from a
+// streaming engine: same seq numbering, same cursor semantics.
+func TestEngineUtterancesCompatWithReadLiveTranscript(t *testing.T) {
+	srv := fakeWhisperServer(t)
+	defer srv.Close()
+
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{Engine: "whisper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	surface := tools.New(store)
+
+	// M1-style fixture utterance, appended the same way M1 tests do.
+	fixture, err := store.Append(m.ID, meeting.Utterance{Speaker: "alex", Text: "kicking off standup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	us, cursor, err := surface.ReadLiveTranscript(m.ID, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(us) != 1 || us[0].Seq != fixture.Seq || cursor != fixture.Seq {
+		t.Fatalf("pre-engine read = %+v cursor=%d", us, cursor)
+	}
+
+	src, err := capture.NewFileSource(fixtureWAV(t, 3200), 800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := stt.NewWhisperEngine(srv.URL)
+	audioPath := filepath.Join(store.Root(), m.ID, "audio.wav")
+	p, err := Start(store, m.ID, src, engine, stt.Options{}, audioPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForUtterances(t, store, m.ID, 2)
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	delta, newCursor, err := surface.ReadLiveTranscript(m.ID, cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(delta) == 0 {
+		t.Fatal("no engine-produced utterances read after the fixture's cursor")
+	}
+	for i, u := range delta {
+		if u.Seq <= cursor {
+			t.Fatalf("delta[%d] seq %d not greater than prior cursor %d", i, u.Seq, cursor)
+		}
+		if u.Text != "hello world" {
+			t.Fatalf("delta[%d] = %+v", i, u)
+		}
+	}
+	if newCursor != delta[len(delta)-1].Seq {
+		t.Fatalf("cursor = %d, want %d", newCursor, delta[len(delta)-1].Seq)
+	}
+
+	all, _, err := surface.ReadLiveTranscript(m.ID, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1+len(delta) || all[0].Text != "kicking off standup" {
+		t.Fatalf("full transcript = %+v", all)
 	}
 }
