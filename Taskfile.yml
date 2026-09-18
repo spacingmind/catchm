@@ -45,3 +45,23 @@ tasks:
     desc: go mod tidy
     cmds:
       - go mod tidy
+
+  desktop:dev:
+    desc: >
+      Run the desktop shell in dev mode (requires libgtk-3-dev,
+      libwebkit2gtk-4.1-dev/4.0-dev, pkg-config; not part of the default
+      build/test path)
+    deps: [web:build]
+    dir: cmd/catchm-desktop
+    cmds:
+      - wails dev -s -skipbindings
+
+  desktop:build:
+    desc: >
+      Build the desktop shell binary (requires libgtk-3-dev,
+      libwebkit2gtk-4.1-dev/4.0-dev, pkg-config; not part of the default
+      build/test path)
+    deps: [web:build]
+    dir: cmd/catchm-desktop
+    cmds:
+      - wails build -s -skipbindings

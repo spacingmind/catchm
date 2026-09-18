@@ -15,9 +15,29 @@ task test     # go test ./...
 task lint     # go vet + gofmt check
 ```
 
+### Desktop shell (optional)
+
+`cmd/catchm-desktop` opens the same UI/API in a native window instead of a
+browser tab, via [Wails v2](https://wails.io), reusing `internal/server`'s
+`http.Handler` directly (no separate frontend, no extra API). It's
+additive and opt-in — not part of `task build`/`task test`.
+
+Building it requires system webview packages (Linux):
+
+```sh
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+# (use libwebkit2gtk-4.0-dev instead on older distros)
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+task desktop:dev     # wails dev
+task desktop:build   # wails build
+```
+
 ## Layout
 
 - `cmd/catchm` — binary entrypoint (`catchm serve`).
+- `cmd/catchm-desktop` — optional native desktop shell (Wails v2), same
+  handler as `cmd/catchm`, no duplicate frontend/API.
 - `internal/meeting` — session model + store (JSONL transcript, markdown
   + frontmatter, FTS5).
 - `internal/tools` — meeting tool surface (web UI + MCP consumers).
