@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -486,6 +488,155 @@ func TestHandleRefineOnlyConstructsTranslatorWhenRequested(t *testing.T) {
 	if len(*models) != 1 || (*models)[0] != "translategemma:12b" {
 		t.Fatalf("translator not constructed with translate_to: %v", *models)
 	}
+}
+
+func fakeOllamaTagsServer(t *testing.T, installed ...string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		models := make([]map[string]any, len(installed))
+		for i, name := range installed {
+			models[i] = map[string]any{"name": name}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"models": models})
+	}))
+}
+
+func TestTranslateStatusEndpoint(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.Translate.LiveModel = "translategemma:4b"
+	s.cfg.Translate.BatchModel = "translategemma:12b"
+
+	ollama := fakeOllamaTagsServer(t, "translategemma:4b")
+	defer ollama.Close()
+	s.cfg.Translate.Host = ollama.URL
+
+	w := do(t, s, "GET", "/api/translate/status", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var v struct {
+		OllamaReachable bool `json:"ollama_reachable"`
+		LiveModel       struct {
+			Name      string `json:"name"`
+			Installed bool   `json:"installed"`
+		} `json:"live_model"`
+		BatchModel struct {
+			Name      string `json:"name"`
+			Installed bool   `json:"installed"`
+		} `json:"batch_model"`
+	}
+	decode(t, w, &v)
+	if !v.OllamaReachable {
+		t.Fatal("ollama_reachable = false, want true")
+	}
+	if !v.LiveModel.Installed {
+		t.Fatal("live_model.installed = false, want true")
+	}
+	if v.BatchModel.Installed {
+		t.Fatal("batch_model.installed = true, want false")
+	}
+
+	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	s.cfg.Translate.Host = unreachable.URL
+	unreachable.Close()
+
+	w = do(t, s, "GET", "/api/translate/status", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("unreachable: status = %d, want 200", w.Code)
+	}
+	decode(t, w, &v)
+	if v.OllamaReachable {
+		t.Fatal("ollama_reachable = true, want false")
+	}
+	if v.LiveModel.Installed || v.BatchModel.Installed {
+		t.Fatalf("expected both installed = false when unreachable, got live=%v batch=%v", v.LiveModel.Installed, v.BatchModel.Installed)
+	}
+}
+
+func TestTranslatePullEndpoint(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.Translate.LiveModel = "translategemma:4b"
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/pull" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if req["model"] != "translategemma:4b" {
+			t.Fatalf("model = %v", req["model"])
+		}
+		fmt.Fprintln(w, `{"status":"downloading 50%"}`)
+		fmt.Fprintln(w, `{"status":"success"}`)
+	}))
+	defer ollama.Close()
+	s.cfg.Translate.Host = ollama.URL
+
+	w := do(t, s, "POST", "/api/translate/pull", `{"target":"live"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/x-ndjson" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("body lines = %v", lines)
+	}
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("decode line: %v", err)
+	}
+	if first["status"] != "downloading 50%" {
+		t.Fatalf("first line = %v", first)
+	}
+
+	w = do(t, s, "POST", "/api/translate/pull", `{"target":"nonsense"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid target: status = %d, want 400", w.Code)
+	}
+}
+
+func TestTranslateTestEndpoint(t *testing.T) {
+	s, _ := newTestServer(t)
+	countingNewTranslator(s)
+
+	w := do(t, s, "POST", "/api/translate/test", `{"text":"hello","target_lang":"vi"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	if v["translated"] != "hello" {
+		t.Fatalf("translated = %v", v["translated"])
+	}
+
+	w = do(t, s, "POST", "/api/translate/test", `{"target_lang":"vi"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing text: status = %d, want 400", w.Code)
+	}
+	w = do(t, s, "POST", "/api/translate/test", `{"text":"hello"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing target_lang: status = %d, want 400", w.Code)
+	}
+
+	s.newTranslator = func(_ *config.Config, _ string) (translate.Translator, error) {
+		return failingTranslator{}, nil
+	}
+	w = do(t, s, "POST", "/api/translate/test", `{"text":"hello","target_lang":"vi"}`)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("translator error: status = %d, want 502", w.Code)
+	}
+}
+
+type failingTranslator struct{}
+
+func (failingTranslator) Translate(context.Context, string, string) (string, error) {
+	return "", errors.New("boom")
 }
 
 func TestUnknownMeetingIs404(t *testing.T) {

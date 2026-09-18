@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/spacingmind/catchm/internal/agent"
 	"github.com/spacingmind/catchm/internal/batch"
@@ -74,6 +75,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
+	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
+	s.mux.HandleFunc("POST /api/translate/pull", s.handleTranslatePull)
+	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +258,117 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := s.surface.GetMeeting(id)
 	respond(w, m, err)
+}
+
+// translateStatusTimeout bounds how long a status check waits on an
+// unreachable Ollama before reporting it as such, so the request doesn't
+// hang for the default HTTP client timeout.
+const translateStatusTimeout = 5 * time.Second
+
+// resolveTranslateModel maps a "live"/"batch" target to the configured
+// model name.
+func (s *Server) resolveTranslateModel(target string) (string, bool) {
+	switch target {
+	case "live":
+		return s.cfg.Translate.LiveModel, true
+	case "batch":
+		return s.cfg.Translate.BatchModel, true
+	default:
+		return "", false
+	}
+}
+
+func (s *Server) handleTranslateStatus(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), translateStatusTimeout)
+	defer cancel()
+
+	names, err := translate.ListModels(ctx, s.cfg.Translate.Host)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ollama_reachable": false,
+			"live_model":       map[string]any{"name": s.cfg.Translate.LiveModel, "installed": false},
+			"batch_model":      map[string]any{"name": s.cfg.Translate.BatchModel, "installed": false},
+		})
+		return
+	}
+	installed := make(map[string]bool, len(names))
+	for _, n := range names {
+		installed[n] = true
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ollama_reachable": true,
+		"live_model":       map[string]any{"name": s.cfg.Translate.LiveModel, "installed": installed[s.cfg.Translate.LiveModel]},
+		"batch_model":      map[string]any{"name": s.cfg.Translate.BatchModel, "installed": installed[s.cfg.Translate.BatchModel]},
+	})
+}
+
+func (s *Server) handleTranslatePull(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	model, ok := s.resolveTranslateModel(req.Target)
+	if !ok {
+		httpError(w, http.StatusBadRequest, `target must be "live" or "batch"`)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	enc := json.NewEncoder(w)
+
+	err := translate.Pull(r.Context(), s.cfg.Translate.Host, model, func(status string) {
+		_ = enc.Encode(map[string]string{"status": status})
+		if flusher != nil {
+			flusher.Flush()
+		}
+	})
+	if err != nil {
+		_ = enc.Encode(map[string]string{"error": err.Error()})
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *Server) handleTranslateTest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text       string `json:"text"`
+		TargetLang string `json:"target_lang"`
+		Target     string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.Text == "" || req.TargetLang == "" {
+		httpError(w, http.StatusBadRequest, "text and target_lang are required")
+		return
+	}
+	if req.Target == "" {
+		req.Target = "live"
+	}
+	model, ok := s.resolveTranslateModel(req.Target)
+	if !ok {
+		httpError(w, http.StatusBadRequest, `target must be "live" or "batch"`)
+		return
+	}
+
+	translator, err := s.newTranslator(s.cfg, model)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	translated, err := translator.Translate(r.Context(), req.Text, req.TargetLang)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"translated": translated})
 }
 
 func respondRefineErr(w http.ResponseWriter, err error) {
