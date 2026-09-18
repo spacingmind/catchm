@@ -20,6 +20,7 @@ import (
 	"github.com/spacingmind/catchm/internal/pipeline"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/tools"
+	"github.com/spacingmind/catchm/internal/translate"
 )
 
 // Server serves the CatchM HTTP API.
@@ -31,6 +32,7 @@ type Server struct {
 	newEngine      func(name string, cfg *config.Config) (stt.StreamEngine, error)
 	newSource      func(device string) (capture.Source, error)
 	newBatchEngine func(cfg *config.Config) (stt.BatchEngine, error)
+	newTranslator  func(cfg *config.Config, model string) (translate.Translator, error)
 	enrichFinal    func(ctx context.Context, store *meeting.Store, id string) error
 
 	mu        sync.Mutex
@@ -50,8 +52,11 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		newEngine:      newEngine,
 		newSource:      func(device string) (capture.Source, error) { return capture.NewMicSource(device) },
 		newBatchEngine: func(cfg *config.Config) (stt.BatchEngine, error) { return stt.NewWhisperEngine(cfg.WhisperURL), nil },
-		enrichFinal:    agent.EnrichMeetingFinal,
-		pipelines:      map[string]*pipeline.Pipeline{},
+		newTranslator: func(cfg *config.Config, model string) (translate.Translator, error) {
+			return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
+		},
+		enrichFinal: agent.EnrichMeetingFinal,
+		pipelines:   map[string]*pipeline.Pipeline{},
 	}
 	s.routes()
 	return s
@@ -137,8 +142,16 @@ func (s *Server) startPipeline(id, device, engineName, lang, translateTo string)
 	if err != nil {
 		return
 	}
+	var translator translate.Translator
+	if translateTo != "" {
+		// Best-effort: a translator that fails to construct just leaves
+		// the pipeline running untranslated rather than blocking capture.
+		if t, err := s.newTranslator(s.cfg, s.cfg.Translate.LiveModel); err == nil {
+			translator = t
+		}
+	}
 	audioPath := filepath.Join(s.surface.Store().Root(), id, "audio.wav")
-	p, err := pipeline.Start(s.surface.Store(), id, src, engine, stt.Options{Lang: lang, TranslateTo: translateTo}, audioPath)
+	p, err := pipeline.Start(s.surface.Store(), id, src, engine, stt.Options{Lang: lang, TranslateTo: translateTo}, audioPath, translator)
 	if err != nil {
 		_ = src.Close()
 		return
@@ -225,7 +238,13 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := batch.Refine(r.Context(), s.surface.Store(), id, engine); err != nil {
+	var translator translate.Translator
+	if m, err := s.surface.GetMeeting(id); err == nil && m.TranslateTo != "" {
+		if t, err := s.newTranslator(s.cfg, s.cfg.Translate.BatchModel); err == nil {
+			translator = t
+		}
+	}
+	if err := batch.Refine(r.Context(), s.surface.Store(), id, engine, translator); err != nil {
 		respondRefineErr(w, err)
 		return
 	}

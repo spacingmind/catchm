@@ -12,6 +12,7 @@ import (
 
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
+	"github.com/spacingmind/catchm/internal/translate"
 )
 
 // ErrMeetingActive is returned when Refine is called on a meeting that
@@ -23,8 +24,10 @@ var ErrNoAudio = errors.New("meeting has no audio.wav")
 
 // Refine transcribes a meeting's full audio.wav with engine and writes the
 // result as the meeting's batch transcript (see meeting.WriteBatchTranscript).
-// The meeting must have ended and have a recorded audio.wav.
-func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.BatchEngine) error {
+// The meeting must have ended and have a recorded audio.wav. translator may
+// be nil, in which case no translation step runs. When non-nil, it fills in
+// Translated only for utterances engine left untranslated.
+func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.BatchEngine, translator translate.Translator) error {
 	m, err := store.Get(id)
 	if err != nil {
 		return err
@@ -44,11 +47,16 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 	if err != nil {
 		return err
 	}
-	// TranscribeFile returns utterances with At relative to the zero
-	// time.Time value; shift them into the meeting's absolute wall-clock
-	// time before persisting.
 	for i := range us {
+		// TranscribeFile returns utterances with At relative to the zero
+		// time.Time value; shift them into the meeting's absolute
+		// wall-clock time before persisting.
 		us[i].At = m.StartedAt.Add(us[i].At.Sub(time.Time{}))
+		if translator != nil && m.TranslateTo != "" && us[i].Translated == "" {
+			if t, err := translator.Translate(ctx, us[i].Text, m.TranslateTo); err == nil {
+				us[i].Translated = t
+			}
+		}
 	}
 	return store.WriteBatchTranscript(id, us)
 }

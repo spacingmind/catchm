@@ -95,7 +95,7 @@ func TestPipelineLifecycle(t *testing.T) {
 	}
 	engine := stt.NewWhisperEngine(srv.URL)
 
-	p, err := Start(store, m.ID, src, engine, stt.Options{}, audioPath)
+	p, err := Start(store, m.ID, src, engine, stt.Options{}, audioPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestEngineUtterancesCompatWithReadLiveTranscript(t *testing.T) {
 	}
 	engine := stt.NewWhisperEngine(srv.URL)
 	audioPath := filepath.Join(store.Root(), m.ID, "audio.wav")
-	p, err := Start(store, m.ID, src, engine, stt.Options{}, audioPath)
+	p, err := Start(store, m.ID, src, engine, stt.Options{}, audioPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

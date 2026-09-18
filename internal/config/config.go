@@ -15,18 +15,30 @@ type SonioxConfig struct {
 	URL    string `yaml:"url"`
 }
 
+// TranslateConfig holds settings for the local Ollama translation layer
+// used by engines with no native translation support.
+type TranslateConfig struct {
+	Host       string `yaml:"host"`
+	LiveModel  string `yaml:"live_model"`
+	BatchModel string `yaml:"batch_model"`
+}
+
 // Config is CatchM's on-disk configuration.
 type Config struct {
-	Engine     string       `yaml:"engine"`
-	Lang       string       `yaml:"lang"`
-	WhisperURL string       `yaml:"whisper_url"`
-	Soniox     SonioxConfig `yaml:"soniox"`
+	Engine     string          `yaml:"engine"`
+	Lang       string          `yaml:"lang"`
+	WhisperURL string          `yaml:"whisper_url"`
+	Soniox     SonioxConfig    `yaml:"soniox"`
+	Translate  TranslateConfig `yaml:"translate"`
 }
 
 const (
 	defaultEngine     = "whisper"
 	defaultWhisperURL = "http://127.0.0.1:8080"
 	defaultSonioxURL  = "wss://api.soniox.com/transcribe-websocket"
+	defaultOllamaHost = "http://127.0.0.1:11434"
+	defaultLiveModel  = "translategemma:4b"
+	defaultBatchModel = "translategemma:12b"
 )
 
 func defaults() *Config {
@@ -34,6 +46,11 @@ func defaults() *Config {
 		Engine:     defaultEngine,
 		WhisperURL: defaultWhisperURL,
 		Soniox:     SonioxConfig{URL: defaultSonioxURL},
+		Translate: TranslateConfig{
+			Host:       defaultOllamaHost,
+			LiveModel:  defaultLiveModel,
+			BatchModel: defaultBatchModel,
+		},
 	}
 }
 

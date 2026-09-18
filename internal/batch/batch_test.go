@@ -38,7 +38,7 @@ func TestRefineRequiresEndedMeetingWithAudio(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Refine(context.Background(), s, m.ID, fakeBatchEngine{}); !errors.Is(err, ErrMeetingActive) {
+	if err := Refine(context.Background(), s, m.ID, fakeBatchEngine{}, nil); !errors.Is(err, ErrMeetingActive) {
 		t.Fatalf("err = %v, want ErrMeetingActive", err)
 	}
 
@@ -46,7 +46,7 @@ func TestRefineRequiresEndedMeetingWithAudio(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Refine(context.Background(), s, m.ID, fakeBatchEngine{}); !errors.Is(err, ErrNoAudio) {
+	if err := Refine(context.Background(), s, m.ID, fakeBatchEngine{}, nil); !errors.Is(err, ErrNoAudio) {
 		t.Fatalf("err = %v, want ErrNoAudio", err)
 	}
 
@@ -58,7 +58,7 @@ func TestRefineRequiresEndedMeetingWithAudio(t *testing.T) {
 	engine := fakeBatchEngine{us: []meeting.Utterance{
 		{Text: "hello", At: time.Time{}.Add(2 * time.Second)},
 	}}
-	if err := Refine(context.Background(), s, m.ID, engine); err != nil {
+	if err := Refine(context.Background(), s, m.ID, engine, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,7 +77,7 @@ func TestRefineRequiresEndedMeetingWithAudio(t *testing.T) {
 
 func TestRefineUnknownMeeting(t *testing.T) {
 	s := newTestStore(t)
-	if err := Refine(context.Background(), s, "nope", fakeBatchEngine{}); err != meeting.ErrNotFound {
+	if err := Refine(context.Background(), s, "nope", fakeBatchEngine{}, nil); err != meeting.ErrNotFound {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }

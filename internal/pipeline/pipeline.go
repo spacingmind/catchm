@@ -9,6 +9,7 @@ import (
 	"github.com/spacingmind/catchm/internal/capture"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
+	"github.com/spacingmind/catchm/internal/translate"
 )
 
 // Pipeline runs for the lifetime of one active meeting: capture -> engine
@@ -22,8 +23,11 @@ type Pipeline struct {
 }
 
 // Start begins streaming src through engine into store's transcript for
-// meeting id, while also writing raw audio to audioPath.
-func Start(store *meeting.Store, id string, src capture.Source, engine stt.StreamEngine, opts stt.Options, audioPath string) (*Pipeline, error) {
+// meeting id, while also writing raw audio to audioPath. translator may be
+// nil, in which case no translation step runs. When non-nil, it fills in
+// Translated only for results the engine left untranslated (an engine like
+// Soniox that translates natively is never overridden).
+func Start(store *meeting.Store, id string, src capture.Source, engine stt.StreamEngine, opts stt.Options, audioPath string, translator translate.Translator) (*Pipeline, error) {
 	wav, err := audio.NewWriter(audioPath)
 	if err != nil {
 		return nil, err
@@ -64,10 +68,16 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 			if !res.Final || res.Text == "" {
 				continue
 			}
+			translated := res.Translated
+			if translator != nil && opts.TranslateTo != "" && translated == "" {
+				if t, err := translator.Translate(ctx, res.Text, opts.TranslateTo); err == nil {
+					translated = t
+				}
+			}
 			_, _ = store.Append(id, meeting.Utterance{
 				Speaker:    res.Speaker,
 				Text:       res.Text,
-				Translated: res.Translated,
+				Translated: translated,
 				Lang:       opts.TranslateTo,
 			})
 		}
