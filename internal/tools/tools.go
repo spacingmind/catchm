@@ -90,7 +90,13 @@ func (s *Surface) AddNote(id, note string) error {
 
 // StartMeeting creates a new active meeting.
 func (s *Surface) StartMeeting(title string) (*meeting.Meeting, error) {
-	return s.store.Start(title, time.Now().UTC())
+	return s.store.Start(title, time.Now().UTC(), meeting.StartOptions{})
+}
+
+// StartMeetingWithOptions creates a new active meeting with STT engine/lang
+// settings recorded in its frontmatter.
+func (s *Surface) StartMeetingWithOptions(title string, opts meeting.StartOptions) (*meeting.Meeting, error) {
+	return s.store.Start(title, time.Now().UTC(), opts)
 }
 
 // EndMeeting marks a meeting ended.

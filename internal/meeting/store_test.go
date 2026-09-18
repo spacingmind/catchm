@@ -3,6 +3,7 @@ package meeting
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +20,7 @@ func newTestStore(t *testing.T) *Store {
 func TestStartEndMeeting(t *testing.T) {
 	s := newTestStore(t)
 	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
-	m, err := s.Start("Q3 Roadmap Sync", start)
+	m, err := s.Start("Q3 Roadmap Sync", start, StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestStartEndMeeting(t *testing.T) {
 
 func TestAppendAndReadSinceCursor(t *testing.T) {
 	s := newTestStore(t)
-	m, err := s.Start("Standup", time.Now().UTC())
+	m, err := s.Start("Standup", time.Now().UTC(), StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestListNewestFirst(t *testing.T) {
 	base := time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)
 	ids := make([]string, 3)
 	for i, title := range []string{"old", "newer", "newest"} {
-		m, err := s.Start(title, base.Add(time.Duration(i)*time.Hour))
+		m, err := s.Start(title, base.Add(time.Duration(i)*time.Hour), StartOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,6 +152,39 @@ func TestListNewestFirst(t *testing.T) {
 	}
 }
 
+// TestEngineSelectionRecorded verifies the acceptance criterion that a
+// meeting started with a given engine/lang records it in frontmatter, both
+// via the parsed Meeting and in the raw meeting.md on disk.
+func TestEngineSelectionRecorded(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Standup", time.Now().UTC(), StartOptions{
+		Engine:      "soniox",
+		Lang:        "en",
+		TranslateTo: "vi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Get(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Engine != "soniox" || got.Lang != "en" || got.TranslateTo != "vi" {
+		t.Fatalf("engine/lang not recorded: %+v", got)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(s.Root(), m.ID, "meeting.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"engine: soniox", "lang: en", "translate_to: vi"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("meeting.md missing %q:\n%s", want, raw)
+		}
+	}
+}
+
 func TestGetNotFound(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.Get("nope"); err != ErrNotFound {
@@ -160,7 +194,7 @@ func TestGetNotFound(t *testing.T) {
 
 func TestUpdateDocPreservesID(t *testing.T) {
 	s := newTestStore(t)
-	m, err := s.Start("Planning", time.Now().UTC())
+	m, err := s.Start("Planning", time.Now().UTC(), StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

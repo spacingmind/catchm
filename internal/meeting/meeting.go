@@ -50,6 +50,9 @@ type Meeting struct {
 	EndedAt       *time.Time        `yaml:"ended_at,omitempty" json:"ended_at,omitempty"`
 	Participants  []string          `yaml:"participants,omitempty" json:"participants,omitempty"`
 	Langs         []string          `yaml:"langs,omitempty" json:"langs,omitempty"`
+	Engine        string            `yaml:"engine,omitempty" json:"engine,omitempty"`
+	Lang          string            `yaml:"lang,omitempty" json:"lang,omitempty"`
+	TranslateTo   string            `yaml:"translate_to,omitempty" json:"translate_to,omitempty"`
 	Decisions     []Decision        `yaml:"decisions,omitempty" json:"decisions,omitempty"`
 	ActionItems   []ActionItem      `yaml:"action_items,omitempty" json:"action_items,omitempty"`
 	Terms         map[string]string `yaml:"terms,omitempty" json:"terms,omitempty"`
@@ -96,13 +99,23 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
+// StartOptions carries per-meeting STT settings recorded in frontmatter.
+type StartOptions struct {
+	Engine      string
+	Lang        string
+	TranslateTo string
+}
+
 // Start creates a new active meeting and writes its initial document.
-func (s *Store) Start(title string, startedAt time.Time) (*Meeting, error) {
+func (s *Store) Start(title string, startedAt time.Time, opts StartOptions) (*Meeting, error) {
 	m := &Meeting{
 		SchemaVersion: SchemaVersion,
 		ID:            newID(),
 		Title:         title,
 		StartedAt:     startedAt,
+		Engine:        opts.Engine,
+		Lang:          opts.Lang,
+		TranslateTo:   opts.TranslateTo,
 	}
 	if err := os.MkdirAll(s.dir(m.ID), 0o700); err != nil {
 		return nil, err

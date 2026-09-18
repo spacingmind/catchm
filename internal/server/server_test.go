@@ -105,7 +105,7 @@ func TestMeetingLifecycleOverHTTP(t *testing.T) {
 
 func TestTranscriptWithCursor(t *testing.T) {
 	s, store := newTestServer(t)
-	m, err := store.Start("Standup", time.Now().UTC())
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestTranscriptWithCursor(t *testing.T) {
 
 func TestAddNote(t *testing.T) {
 	s, store := newTestServer(t)
-	m, err := store.Start("Planning", time.Now().UTC())
+	m, err := store.Start("Planning", time.Now().UTC(), meeting.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

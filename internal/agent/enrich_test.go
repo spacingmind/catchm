@@ -23,7 +23,7 @@ func newTestStore(t *testing.T) *meeting.Store {
 
 func fixtureMeeting(t *testing.T, s *meeting.Store) *meeting.Meeting {
 	t.Helper()
-	m, err := s.Start("Q3 Roadmap Sync", time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC))
+	m, err := s.Start("Q3 Roadmap Sync", time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC), meeting.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

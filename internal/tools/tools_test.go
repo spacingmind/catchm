@@ -20,7 +20,7 @@ func TestListGetSearch(t *testing.T) {
 	s, store := newSurface(t)
 	base := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
 
-	m1, err := store.Start("Q3 Roadmap Sync", base)
+	m1, err := store.Start("Q3 Roadmap Sync", base, meeting.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestListGetSearch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Start("Weekly Design Crit", base.Add(time.Hour)); err != nil {
+	if _, err := store.Start("Weekly Design Crit", base.Add(time.Hour), meeting.StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,7 +69,7 @@ func TestListGetSearch(t *testing.T) {
 
 func TestReadLiveTranscriptAndAddNote(t *testing.T) {
 	s, store := newSurface(t)
-	m, err := store.Start("Standup", time.Now().UTC())
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
