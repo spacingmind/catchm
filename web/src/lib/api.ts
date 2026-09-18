@@ -265,6 +265,34 @@ export function refineMeeting(id: string): Promise<Meeting> {
   })
 }
 
+/** internal/tools.ActionItemRef: an ActionItem flattened together with the
+ *  meeting it came from and its index in that meeting's action_items list. */
+export interface ActionItemRef extends ActionItem {
+  meeting_id: string
+  meeting_title: string
+  index: number
+}
+
+/** GET /api/action-items — every meeting's action items in one flat list. */
+export async function listActionItems(): Promise<ActionItemRef[]> {
+  return (await apiFetch<ActionItemRef[] | null>("/api/action-items")) ?? []
+}
+
+/** PATCH /api/meetings/{id}/action-items/{index} — resolves to the updated meeting. */
+export function updateActionItemStatus(
+  meetingId: string,
+  index: number,
+  status: string,
+): Promise<Meeting> {
+  return apiFetch(
+    `/api/meetings/${encodeURIComponent(meetingId)}/action-items/${index}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+  )
+}
+
 
 /** GET /api/config */
 export function getConfig(): Promise<AppConfig> {

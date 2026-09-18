@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { Settings2 } from "lucide-react"
+import { CheckSquare, Settings2 } from "lucide-react"
 
 import logo from "@/assets/logo.png"
+import { ActionItems } from "@/components/ActionItems"
 import { Button } from "@/components/ui/button"
 import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
@@ -11,7 +12,7 @@ import { SettingsTranslate } from "@/components/SettingsTranslate"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Meeting } from "@/lib/api"
 
-type View = "list" | "live" | "detail" | "settings"
+type View = "list" | "live" | "detail" | "action-items" | "settings"
 
 function App() {
   const [view, setView] = useState<View>("list")
@@ -33,9 +34,14 @@ function App() {
         <button type="button" onClick={goToList} className="flex items-center gap-2 text-lg font-semibold">
           <img src={logo} alt="CatchM" className="size-6 rounded-md" /> CatchM
         </button>
-        <Button variant="ghost" size="sm" onClick={() => setView("settings")}>
-          <Settings2 /> Settings
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setView("action-items")}>
+            <CheckSquare /> Action items
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setView("settings")}>
+            <Settings2 /> Settings
+          </Button>
+        </div>
       </header>
 
       <main>
@@ -52,6 +58,7 @@ function App() {
         {view === "detail" && selected && (
           <MeetingDetail meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
         )}
+        {view === "action-items" && <ActionItems onOpenMeeting={openMeeting} />}
         {view === "settings" && (
           <Tabs defaultValue="engines">
             <TabsList className="mx-auto mb-6 flex w-fit px-6">
