@@ -2,9 +2,28 @@ version: "3"
 
 tasks:
   build:
-    desc: Build the catchm binary
+    desc: Build the catchm binary (always rebuilds the embedded web UI first)
+    deps: [web:build]
     cmds:
       - go build -buildvcs=false -o bin/catchm ./cmd/catchm
+
+  web:install:
+    desc: Install web/ dependencies
+    dir: web
+    cmds:
+      - bun install
+
+  web:build:
+    desc: Build the web UI into web/dist (embedded by `task build`)
+    dir: web
+    cmds:
+      - bun run build
+
+  web:dev:
+    desc: Run the Vite dev server (proxies /api and /healthz to a running `task run`)
+    dir: web
+    cmds:
+      - bun run dev
 
   run:
     desc: Run the daemon
