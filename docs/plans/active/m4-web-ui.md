@@ -169,24 +169,171 @@ only consumes the existing API, it doesn't add or change endpoints).
 
 ## Decisions
 
-(fill in as the implementer makes calls — expected topics: shadcn CLI
-vs hand-written components, exact CSS variable values chosen for
-secondary/muted, polling interval and cleanup approach, how pull
-progress percentage parsing handles lines with no `%`, SPA-fallback
-implementation detail.)
+- **shadcn CLI vs hand-written fallback**: the sandbox had outbound
+  internet access (verified with a direct `curl` to `ui.shadcn.com`
+  before scaffolding), so `bunx shadcn@latest init` / `add` was used —
+  the hand-written fallback was not needed. Note the current `shadcn`
+  CLI (v4.21, "radix-nova" preset family) is a newer generation than the
+  classic tutorials describe: it generates components against a combined
+  `radix-ui` package plus a `cn` npm package (tiny `clsx` +
+  `tailwind-merge` helper) rather than per-primitive `@radix-ui/react-*`
+  packages and a hand-rolled `src/lib/utils.ts`. This is still genuine,
+  current shadcn/ui output on Tailwind v4 and satisfies the spec's
+  "shadcn/ui components on Tailwind" requirement; it was kept as
+  generated rather than rewritten to the older style. Ran `init -t vite
+  -b radix -p nova -y` (non-interactive flags — the CLI's plain
+  `--defaults` assumes a Next.js template, so template/base/preset were
+  pinned explicitly), then `add dialog input select textarea card badge
+  progress scroll-area label` (`button` came from `init`).
+- **CSS variable values**: `--background`/`--card`/`--popover` →
+  `#FBF7EA`, `--foreground`/`--card-foreground`/`--popover-foreground` →
+  `#6C3524`, `--primary` → `#6C3524`, `--primary-foreground` → `#FBF7EA`
+  (all pinned by the spec). `--secondary`/`--muted`/`--accent` →
+  `#D9C4B4`, a lighter tint of the brand's secondary muted brown
+  (`#A9826D`) blended roughly 55–60% toward the cream surface — spec
+  said "a lighter tint derived from `#A9826D`" without pinning an exact
+  ratio, so this implementer picked one by eye for contrast against both
+  `#FBF7EA` and `#6C3524` text. `--muted-foreground` → `#A9826D` itself
+  (used verbatim as the "secondary muted brown" text color the brainstorm
+  doc calls out). `--accent` wasn't named in the spec's CSS variable list;
+  mapped it to the same tint as secondary/muted for palette consistency
+  rather than leaving it at shadcn's neutral gray. `--destructive`/
+  `--border`/`--input`/`--ring` left at shadcn's generated neutrals,
+  per spec. Dropped the generated `.dark` class and the unused
+  `--sidebar-*`/`--chart-*` tokens entirely from `index.css` (no dark
+  mode, no sidebar/chart components in this milestone) rather than
+  leaving dead CSS.
+- **Go embed location**: `//go:embed` patterns cannot use `..` to escape
+  their own source file's directory, so a package under `internal/`
+  cannot directly embed `web/dist` (and embedding across a symlink isn't
+  reliably supported by `go:embed`). The embed directive therefore lives
+  in a new one-file package `web/embed.go` (`package web`, import path
+  `github.com/spacingmind/catchm/web`), which embeds its own `dist`
+  subdirectory. `internal/server/webui.go` imports that package and
+  does the actual serving — this matches the spec's "or a webui.go file
+  directly in internal/server" alternative for the serving logic, while
+  the unavoidable embed-directive placement is the one deviation from
+  the spec's literal suggestion (`internal/webui` with `//go:embed
+  all:dist` over `web/dist` isn't achievable as literally described).
+- **SPA fallback implementation**: `webUIHandler()` wraps
+  `http.FileServer(http.FS(sub))`; before delegating, it does an
+  `fs.Stat` on the cleaned request path against the embedded FS, and if
+  that fails (path doesn't exist as a real built asset), it clones the
+  request and rewrites its URL path to `/` before calling the file
+  server, so unknown paths always resolve to `index.html`. Registered as
+  `s.mux.Handle("/", webUIHandler())`, the last line of `routes()` for
+  readability — Go's `net/http.ServeMux` (1.22+) always prefers the most
+  specific registered pattern regardless of registration order, so this
+  catch-all can never shadow `/healthz` or any `/api/*` route (verified
+  by `TestWebUIDoesNotShadowAPIRoutes`).
+- **`web/dist` gitignore shape**: `web/.gitignore` ignores `dist/*` with
+  a `!dist/index.html` exception, so the committed placeholder tracks
+  normally while every real build artifact (JS/CSS bundles, `assets/`,
+  and the real `index.html` once built) stays untracked. Running
+  `task web:build` overwrites the tracked `dist/index.html` on disk with
+  the real build output; that's an expected, normal "modified but
+  unstaged" state after a local build and was not committed — only the
+  placeholder content is checked in, matching the spec's "web/dist
+  doesn't exist in a fresh checkout" framing.
+- **`api.ts` scope**: added `getHealthz()` in addition to the spec's
+  named export list, since `GET /healthz` is also registered in
+  `routes()` and the deliverable asks for every endpoint covered 1:1;
+  it's otherwise unused by any screen. Also: `capture.Device` has no
+  `json` tags in Go, so its wire JSON keys are the exported field names
+  verbatim — `ID`, `Name`, `IsDefault` (capitalized) — the TS `Device`
+  type mirrors that exactly rather than the lowerCamelCase you'd expect
+  from most of this API; called out with a comment in `api.ts` so it
+  isn't "fixed" by a future editor. `getDevices`/`listMeetings`/
+  `getTranscript` normalize a possible JSON `null` (a nil Go slice
+  serializes as `null`, not `[]`) to `[]` inside the client so screens
+  never need a null-check.
+- **Polling interval and cleanup**: `LiveMeeting` polls
+  `getTranscript` every 1.5s via `setInterval` inside a `useEffect` keyed
+  on `meeting.id`; the cursor is held in a `useRef` (not state) to avoid
+  a render per poll tick, and the interval is cleared plus a `cancelled`
+  flag set on unmount/id-change to drop any in-flight response that
+  resolves after teardown.
+- **Pull progress percentage parsing**: `SettingsTranslate` matches each
+  NDJSON `status` string against `/(\d+)%/`. When a line matches, the
+  `Progress` bar's value updates and is shown; when a line has no `%`
+  (e.g. "verifying sha256 digest"), the bar keeps its last known percent
+  (or stays hidden if none has been seen yet) and only the status text
+  label below it updates — per the spec's "if a line has no percentage,
+  just update a status text label instead of the bar".
+- **View wiring / IA**: no router, per spec. `App.tsx` holds `view:
+  "list" | "live" | "detail" | "settings"` plus the selected `Meeting`.
+  A persistent header (logo → back to list, a "Settings" button) is the
+  only chrome outside each screen's own content — `MeetingList` itself
+  doesn't duplicate a settings entry point.
+- **New-meeting engine field**: the dialog always submits a concrete
+  `engine` (defaulting to `whisper`, per the `Select`'s default value)
+  rather than leaving it blank, since `handleStartMeeting` only attempts
+  to start a live capture pipeline when `engine` is non-empty — this
+  means every meeting created through the UI gets a best-effort pipeline
+  attempt, matching the M2 "best effort" design referenced in acceptance
+  criterion 5.
 
 ## Progress
 
-- [ ] web/ scaffold (Vite + React + TS + Tailwind + shadcn/ui)
-- [ ] lib/api.ts typed client for all endpoints
-- [ ] MeetingList + NewMeetingDialog
-- [ ] LiveMeeting (polling transcript, notes, end)
-- [ ] MeetingDetail (summary/decisions/actions, refine)
-- [ ] SettingsTranslate (status, pull with progress, test)
-- [ ] Go embed + SPA-fallback serving + placeholder dist
-- [ ] Taskfile web:install/web:build/web:dev + build dependency
-- [ ] tests
+- [x] web/ scaffold (Vite + React + TS + Tailwind + shadcn/ui)
+- [x] lib/api.ts typed client for all endpoints
+- [x] MeetingList + NewMeetingDialog
+- [x] LiveMeeting (polling transcript, notes, end)
+- [x] MeetingDetail (summary/decisions/actions, refine)
+- [x] SettingsTranslate (status, pull with progress, test)
+- [x] Go embed + SPA-fallback serving + placeholder dist
+- [x] Taskfile web:install/web:build/web:dev + build dependency
+- [x] tests
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+Verified in this run (see commits on `develop` for the exact diffs):
+
+- `task web:install && task web:build` succeeds and produces a real
+  `web/dist/index.html` + hashed JS/CSS bundles under `web/dist/assets/`
+  (criterion 1).
+- `bun run build` runs `tsc -b && vite build`; `tsc -b` performs a full
+  project type-check (the `react-ts` template's `tsconfig.app.json` has
+  `"noEmit": true`, so this is the equivalent of `tsc --noEmit`) and
+  passed with zero errors, confirmed both as part of `bun run build` and
+  standalone via `bunx tsc --noEmit -p tsconfig.app.json` (criterion 2).
+  `bun run lint` (oxlint) exits 0; it prints a handful of pre-existing
+  `react/only-export-components` and `react/set-state-in-effect`
+  *warnings* (not errors) on shadcn-generated files and on the
+  fetch-in-`useEffect` data-loading pattern used by every screen — these
+  are oxlint being conservative about a legitimate, common pattern and
+  aren't part of any acceptance criterion, so left as-is.
+- With the real built `web/dist` present: `go build ./...`,
+  `go vet ./...`, `gofmt -l .` (empty output), and `go test ./... -count=1`
+  all pass — every pre-existing package still reports `ok` (including
+  `internal/server`'s full existing suite, e.g.
+  `TestMeetingLifecycleOverHTTP`), and the new
+  `github.com/spacingmind/catchm/web` package (holding only the
+  `//go:embed`) reports `[no test files]`, i.e. it compiles cleanly with
+  either the placeholder or a real `web/dist` on disk (criterion 3, plus
+  the "must not touch existing API handler behavior" hard constraint —
+  `internal/server/server.go`'s only change is one appended
+  `s.mux.Handle("/", webUIHandler())` line in `routes()`).
+- `internal/server/webui_test.go` (`TestWebUIServesAppShellAtRoot`,
+  `TestWebUISPAFallbackForUnknownPaths`,
+  `TestWebUIDoesNotShadowAPIRoutes`) passes: `/` returns 200 with
+  HTML-shell markup, three different unknown/nested paths all return 200
+  with the same app-shell markup instead of 404, and `/healthz` +
+  `/api/meetings` (existing, 200) + `/api/meetings/does-not-exist`
+  (existing, 404) all keep their exact prior JSON behavior — proving the
+  catch-all doesn't shadow the API either for success or error responses
+  (criterion 4).
+- `task build`, `task test`, and `task lint` were each run directly (not
+  just their underlying commands) with the real `web/dist` on disk, and
+  all three passed; `task build` was confirmed to invoke `web:build`
+  first (its dependency) before compiling the Go binary.
+- **Not done in this run — left for whoever picks this up next**:
+  acceptance criterion 5, the manual browser walkthrough (`task run` +
+  `task web:dev`, click through record → live → end → detail → refine →
+  translate settings). This requires an actual browser and, per the
+  spec, wasn't expected to be completed here. Everything it depends on
+  (a working `task run` server, a working `task web:dev` proxy target of
+  `127.0.0.1:4649`, and every screen's error states for the "no
+  hardware"/"no Ollama"/"no audio.wav yet" cases described in criterion
+  5) is implemented and unit-tested at the HTTP-contract level, but the
+  actual click-through in a browser has not been performed.
