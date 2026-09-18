@@ -1,6 +1,6 @@
 # Plan: M5 — desktop shell (Wails, minimal native window)
 
-- Status: active
+- Status: verified on Windows (see Validation)
 - Created: 2026-09-18
 
 ## Goal
@@ -219,12 +219,19 @@ builds happen on their own OS or via CI later, not in this run).
   evidence the `wails.json`/Taskfile wiring is correct; only the actual
   window rendering (which needs the real gtk/webkit libraries) remains
   unverified.
-- **Not verified, and can't be from this sandbox**: that the native
-  window actually opens and renders the CatchM UI end-to-end
-  (`AssetServer.Handler` correctly serving `/`, `/api/*`, `/healthz`
-  inside the webview). This requires the system webview libraries above.
-  The Go-level wiring (constructing `store`/`cfg`/`server.New(...)`
-  identically to `cmd/catchm/main.go`, passing that as `AssetServer.
-  Handler`) is code-reviewed against `cmd/catchm/main.go` line by line
-  and against the real Wails v2 struct definitions, but not
-  runtime-verified.
+- **Update — verified on real Windows**: built and ran the actual
+  `catchm-desktop.exe` on a real Windows 11 machine (Go 1.27.0 + WinLibs
+  mingw-w64 GCC installed via `winget`, WebView2 already present;
+  `wails doctor` reported "Your system is ready for Wails development!").
+  `wails build` succeeded end-to-end (one harmless linker warning:
+  `.rsrc merge failure: multiple non-default manifests`, build still
+  completed). Launched the binary, confirmed the process and its
+  `MainWindowTitle` ("CatchM"), and captured the actual window contents
+  via the Win32 `PrintWindow` API (bypasses focus/z-order issues):
+  the native window renders the real CatchM UI — header with the mascot
+  logo, "Meetings" list, the empty-state mascot + "Your burrow is quiet."
+  copy, and the "Record a meeting" button — at the configured 1180×760
+  size, served entirely through `AssetServer.Handler` (no separate
+  frontend, no TCP port). The Go-level wiring is now runtime-verified,
+  not just code-reviewed, closing the one gap left after the Linux
+  sandbox attempt above.
