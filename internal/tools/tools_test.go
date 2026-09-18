@@ -106,3 +106,21 @@ func TestReadLiveTranscriptAndAddNote(t *testing.T) {
 	}
 	_ = cursor
 }
+
+func TestReadBatchTranscript(t *testing.T) {
+	s, store := newSurface(t)
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteBatchTranscript(m.ID, []meeting.Utterance{{Text: "refined line"}}); err != nil {
+		t.Fatal(err)
+	}
+	us, err := s.ReadBatchTranscript(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(us) != 1 || us[0].Text != "refined line" {
+		t.Fatalf("utterances = %+v", us)
+	}
+}

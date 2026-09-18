@@ -85,6 +85,11 @@ func (s *Surface) ReadLiveTranscript(id string, cursor int64) ([]meeting.Utteran
 	return s.store.ReadSince(id, cursor)
 }
 
+// ReadBatchTranscript returns a meeting's full batch (refined) transcript.
+func (s *Surface) ReadBatchTranscript(id string) ([]meeting.Utterance, error) {
+	return s.store.ReadBatchTranscript(id)
+}
+
 // AddNote appends a timestamped note to a meeting's document.
 func (s *Surface) AddNote(id, note string) error {
 	return s.store.UpdateDoc(id, func(m *meeting.Meeting) error {
