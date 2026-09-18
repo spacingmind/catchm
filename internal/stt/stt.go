@@ -16,6 +16,8 @@ type PCM []byte
 type Options struct {
 	Lang        string // source language hint, engine-specific; empty means auto-detect
 	TranslateTo string // target language for engines that support translation; empty disables it
+	LanguageB   string // two-way mode: the second conversation language, alongside Lang
+	TwoWay      bool   // translate each utterance into whichever of Lang/LanguageB it wasn't spoken in; when true, TranslateTo is unused
 }
 
 // Result is one recognized segment of speech, partial or final.

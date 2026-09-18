@@ -27,6 +27,26 @@ func NewSonioxEngine(wsURL, apiKey string) *SonioxEngine {
 func (e *SonioxEngine) SupportsDiarization() bool { return true }
 func (e *SonioxEngine) SupportsTranslation() bool { return true }
 
+// sonioxConfig is the JSON shape of the first message Soniox's protocol
+// requires after the WebSocket handshake: a text frame sent before any
+// binary PCM. The overall shape and the two_way translation object are
+// confirmed against Soniox's docs; the one_way translation object below
+// is a best guess (the docs only showed two_way).
+type sonioxConfig struct {
+	APIKey                       string             `json:"api_key"`
+	Model                        string             `json:"model"`
+	AudioFormat                  string             `json:"audio_format"`
+	EnableLanguageIdentification bool               `json:"enable_language_identification"`
+	Translation                  *sonioxTranslation `json:"translation,omitempty"`
+}
+
+type sonioxTranslation struct {
+	Type           string `json:"type"` // "one_way" or "two_way"
+	TargetLanguage string `json:"target_language,omitempty"`
+	LanguageA      string `json:"language_a,omitempty"`
+	LanguageB      string `json:"language_b,omitempty"`
+}
+
 // sonioxMessage is the JSON shape of one server message: a recognized
 // utterance, optionally carrying a diarized speaker label and, when
 // translation was requested, the translated text.
@@ -43,6 +63,34 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 	conn, _, err := e.dialer.DialContext(ctx, e.url, header)
 	if err != nil {
 		return nil, nil, fmt.Errorf("soniox: connect: %w", err)
+	}
+
+	cfg := sonioxConfig{
+		APIKey:                       e.apiKey,
+		Model:                        "stt-rt-v4",
+		AudioFormat:                  "auto",
+		EnableLanguageIdentification: true,
+	}
+	if opts.TwoWay {
+		cfg.Translation = &sonioxTranslation{
+			Type:      "two_way",
+			LanguageA: opts.Lang,
+			LanguageB: opts.LanguageB,
+		}
+	} else if opts.TranslateTo != "" {
+		cfg.Translation = &sonioxTranslation{
+			Type:           "one_way",
+			TargetLanguage: opts.TranslateTo,
+		}
+	}
+	cfgBytes, err := json.Marshal(cfg)
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("soniox: marshal config: %w", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, cfgBytes); err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("soniox: send config: %w", err)
 	}
 
 	pcmCh := make(chan PCM)
