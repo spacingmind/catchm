@@ -23,11 +23,12 @@ import (
 // pcm chunk it receives: no network, no audio hardware, fully controllable
 // output for exercising the pipeline's translation wiring.
 type scriptedEngine struct {
-	result stt.Result
+	result            stt.Result
+	nativeTranslation bool
 }
 
-func (scriptedEngine) SupportsDiarization() bool { return false }
-func (scriptedEngine) SupportsTranslation() bool { return false }
+func (scriptedEngine) SupportsDiarization() bool   { return false }
+func (e scriptedEngine) SupportsTranslation() bool { return e.nativeTranslation }
 
 func (e scriptedEngine) Stream(_ context.Context, _ stt.Options) (chan<- stt.PCM, <-chan stt.Result, error) {
 	pcmCh := make(chan stt.PCM)
@@ -356,6 +357,50 @@ func TestPipelineDoesNotDoubleTranslate(t *testing.T) {
 	}
 	if translator.calls != 0 {
 		t.Fatalf("translator called %d times, want 0", translator.calls)
+	}
+}
+
+// TestPipelineTwoWayNativeEngineLeavesLangUnset proves a two-way meeting
+// on an engine that already resolves translation direction itself (like
+// Soniox) doesn't stamp a fixed, potentially-wrong Lang on every
+// utterance — since the pipeline has no signal for which of the two
+// configured languages a given utterance actually ended up in, Lang
+// must be left empty rather than guessed.
+func TestPipelineTwoWayNativeEngineLeavesLangUnset(t *testing.T) {
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{TwoWay: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	engine := scriptedEngine{
+		result:            stt.Result{Text: "hello", Translated: "xin chao", Final: true},
+		nativeTranslation: true,
+	}
+	p := startScripted(t, store, m.ID, engine, stt.Options{Lang: "en", LanguageB: "vi", TwoWay: true}, nil)
+
+	waitForUtterances(t, store, m.ID, 1)
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	us, _, err := store.ReadSince(m.ID, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(us) == 0 {
+		t.Fatal("no utterances written")
+	}
+	for _, u := range us {
+		if u.Lang != "" {
+			t.Fatalf("utterance = %+v, want Lang unset for a native-translating two-way engine", u)
+		}
+		if u.Translated != "xin chao" {
+			t.Fatalf("utterance = %+v, want the engine's own translation untouched", u)
+		}
 	}
 }
 

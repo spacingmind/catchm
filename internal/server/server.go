@@ -139,6 +139,10 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "title is required")
 		return
 	}
+	if req.TwoWay && (req.Lang == "" || req.TranslateTo == "") {
+		httpError(w, http.StatusBadRequest, "two_way requires both lang and translate_to (language A and B)")
+		return
+	}
 	m, err := s.surface.StartMeetingWithOptions(req.Title, meeting.StartOptions{
 		Engine:      req.Engine,
 		Lang:        req.Lang,
@@ -533,6 +537,14 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
+// setIfNonEmpty overwrites *dst with v unless v is empty, so an omitted
+// (or explicitly blank) request field leaves the existing value alone.
+func setIfNonEmpty(dst *string, v string) {
+	if v != "" {
+		*dst = v
+	}
+}
+
 func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var req configRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -547,16 +559,17 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	updated := *s.cfg // shallow copy is enough: Config holds no reference types
 	s.mu.Unlock()
-	updated.Engine = req.Engine
-	updated.Lang = req.Lang
-	updated.WhisperURL = req.WhisperURL
-	updated.Soniox.URL = req.Soniox.URL
-	if req.SonioxAPIKey != "" {
-		updated.Soniox.APIKey = req.SonioxAPIKey
-	}
-	updated.Translate.Host = req.Translate.Host
-	updated.Translate.LiveModel = req.Translate.LiveModel
-	updated.Translate.BatchModel = req.Translate.BatchModel
+	// A field left empty in the request means "leave it as-is", not
+	// "clear it" — a partial PUT (e.g. {"engine":"soniox"} alone) must
+	// not blank out the rest of the config on disk.
+	setIfNonEmpty(&updated.Engine, req.Engine)
+	setIfNonEmpty(&updated.Lang, req.Lang)
+	setIfNonEmpty(&updated.WhisperURL, req.WhisperURL)
+	setIfNonEmpty(&updated.Soniox.URL, req.Soniox.URL)
+	setIfNonEmpty(&updated.Soniox.APIKey, req.SonioxAPIKey)
+	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)
+	setIfNonEmpty(&updated.Translate.LiveModel, req.Translate.LiveModel)
+	setIfNonEmpty(&updated.Translate.BatchModel, req.Translate.BatchModel)
 
 	if err := config.Save(&updated); err != nil {
 		httpError(w, http.StatusInternalServerError, err.Error())

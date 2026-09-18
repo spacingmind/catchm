@@ -325,6 +325,41 @@ func TestDeleteMeeting(t *testing.T) {
 	}
 }
 
+// TestStoreRejectsPathTraversalIDs proves an id containing a path
+// separator or ".." can never resolve outside the store root: it must
+// behave exactly like an unknown id (ErrNotFound), never touching
+// anything above root. A sibling directory outside root stands in for
+// something an attacker-controlled id might otherwise reach.
+func TestStoreRejectsPathTraversalIDs(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "meetings")
+	s, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canary := filepath.Join(parent, "canary")
+	if err := os.MkdirAll(canary, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(canary, "file.txt"), []byte("do not delete"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"../canary", "..", "../../canary", "sub/dir", `sub\dir`} {
+		if err := s.Delete(id); err != ErrNotFound {
+			t.Errorf("Delete(%q) = %v, want ErrNotFound", id, err)
+		}
+		if _, err := s.Get(id); err != ErrNotFound {
+			t.Errorf("Get(%q) = %v, want ErrNotFound", id, err)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(canary, "file.txt")); err != nil {
+		t.Fatalf("canary file outside root was affected: %v", err)
+	}
+}
+
 func TestSetActionItemStatusBoundsChecked(t *testing.T) {
 	s := newTestStore(t)
 	m, err := s.Start("Planning", time.Now().UTC(), StartOptions{})

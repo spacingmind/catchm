@@ -85,11 +85,21 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 					translated = t
 				}
 			}
+			lang := target
+			if opts.TwoWay && engine.SupportsTranslation() {
+				// A natively-translating engine (e.g. Soniox) resolves
+				// each utterance's direction itself; target is only a
+				// fixed fallback here (see the guard above), not a
+				// per-utterance signal, so stamping it as Lang would
+				// misrepresent whichever of the two languages this
+				// utterance actually ended up in.
+				lang = ""
+			}
 			_, _ = store.Append(id, meeting.Utterance{
 				Speaker:    res.Speaker,
 				Text:       res.Text,
 				Translated: translated,
-				Lang:       target,
+				Lang:       lang,
 			})
 		}
 	}()

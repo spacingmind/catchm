@@ -305,6 +305,30 @@ func TestStartMeetingWithEngineWiresPipeline(t *testing.T) {
 	}
 }
 
+// TestStartMeetingTwoWayRequiresBothLanguages proves POST /api/meetings
+// rejects two_way:true unless both lang and translate_to are present —
+// the API must not silently accept an incomplete two-way request just
+// because the web UI happens to validate this client-side.
+func TestStartMeetingTwoWayRequiresBothLanguages(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	for _, body := range []string{
+		`{"title":"Missing both","two_way":true}`,
+		`{"title":"Missing B","two_way":true,"lang":"en"}`,
+		`{"title":"Missing A","two_way":true,"translate_to":"vi"}`,
+	} {
+		w := do(t, s, "POST", "/api/meetings", body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d, want 400", body, w.Code)
+		}
+	}
+
+	w := do(t, s, "POST", "/api/meetings", `{"title":"Complete","two_way":true,"lang":"en","translate_to":"vi"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("complete two_way request: status = %d, body = %s", w.Code, w.Body.String())
+	}
+}
+
 func TestStartMeetingWithoutEngineHasNoPipeline(t *testing.T) {
 	s, _ := newTestServer(t)
 	w := do(t, s, "POST", "/api/meetings", `{"title":"Plain"}`)
@@ -736,6 +760,59 @@ func TestConfigEndpointPutPreservesKeyWhenOmitted(t *testing.T) {
 	}
 	if onDisk.Soniox.APIKey != "sk-keep-me" {
 		t.Fatalf("key on disk = %q, want %q", onDisk.Soniox.APIKey, "sk-keep-me")
+	}
+}
+
+// TestConfigEndpointPutPartialUpdateKeepsOtherFields proves the same
+// omit-means-keep rule already covered for soniox_api_key also applies
+// to every other field: a PUT carrying only {"engine":"soniox"} must
+// not blank out whisper_url/soniox.url/translate.* that were already
+// configured.
+func TestConfigEndpointPutPartialUpdateKeepsOtherFields(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+
+	w := do(t, s, "PUT", "/api/config", `{
+		"engine": "whisper",
+		"whisper_url": "http://127.0.0.1:9000",
+		"soniox": {"url": "wss://api.soniox.com/transcribe-websocket"},
+		"translate": {"host": "http://127.0.0.1:11434", "live_model": "translategemma:4b", "batch_model": "translategemma:12b"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = do(t, s, "PUT", "/api/config", `{"engine":"soniox"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("partial put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	var got struct {
+		Engine     string `json:"engine"`
+		WhisperURL string `json:"whisper_url"`
+		Soniox     struct {
+			URL string `json:"url"`
+		} `json:"soniox"`
+		Translate struct {
+			Host       string `json:"host"`
+			LiveModel  string `json:"live_model"`
+			BatchModel string `json:"batch_model"`
+		} `json:"translate"`
+	}
+	w = do(t, s, "GET", "/api/config", "")
+	decode(t, w, &got)
+
+	if got.Engine != "soniox" {
+		t.Errorf("engine = %q, want soniox (the field the partial put actually changed)", got.Engine)
+	}
+	if got.WhisperURL != "http://127.0.0.1:9000" {
+		t.Errorf("whisper_url = %q, want it preserved from the seed put", got.WhisperURL)
+	}
+	if got.Soniox.URL != "wss://api.soniox.com/transcribe-websocket" {
+		t.Errorf("soniox.url = %q, want it preserved", got.Soniox.URL)
+	}
+	if got.Translate.Host != "http://127.0.0.1:11434" || got.Translate.LiveModel != "translategemma:4b" || got.Translate.BatchModel != "translategemma:12b" {
+		t.Errorf("translate = %+v, want the seeded values preserved", got.Translate)
 	}
 }
 

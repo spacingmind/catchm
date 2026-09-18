@@ -94,8 +94,28 @@ func NewStore(dir string) (*Store, error) {
 // Root returns the store's root directory.
 func (s *Store) Root() string { return s.root }
 
+// dir resolves id to its meeting directory under root. ids ultimately
+// come from external callers (HTTP path segments, MCP tool arguments),
+// not just Store.Start's own generated newID() values, so an id
+// containing a path separator or ".." must never be allowed to resolve
+// outside root — e.g. via Store.Delete's os.RemoveAll. An invalid id
+// resolves to a path guaranteed not to exist, so every caller's
+// existing not-found handling covers it with no other code changes.
+// invalidIDSentinel is where an unsafe id resolves to: a name real ids
+// (hex-encoded newID() output) can never produce, so it behaves exactly
+// like an ordinary unknown id (a plain, valid path that simply doesn't
+// exist) rather than an OS-level error from an unrepresentable path.
+const invalidIDSentinel = ".invalid-id"
+
 func (s *Store) dir(id string) string {
+	if !validID(id) {
+		return filepath.Join(s.root, invalidIDSentinel)
+	}
 	return filepath.Join(s.root, id)
+}
+
+func validID(id string) bool {
+	return id != "" && id != "." && id != ".." && !strings.ContainsAny(id, `/\`)
 }
 
 func newID() string {
