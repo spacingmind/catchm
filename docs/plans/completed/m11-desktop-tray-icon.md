@@ -1,6 +1,6 @@
 # Plan: M11 — desktop shell system tray icon
 
-- Status: active
+- Status: verified on Windows (see Validation)
 - Created: 2026-09-20
 
 ## Goal

@@ -1,6 +1,6 @@
 # Plan: M10 — per-utterance translation direction label
 
-- Status: active
+- Status: complete
 - Created: 2026-09-20
 
 ## Goal
