@@ -60,6 +60,7 @@ func TestConfigSaveLoadRoundTrip(t *testing.T) {
 		Lang:       "vi",
 		WhisperURL: "http://localhost:9999",
 		Soniox:     SonioxConfig{APIKey: "sk-secret", URL: "wss://example.com/ws"},
+		Cloud:      CloudConfig{APIBaseURL: defaultCloudURL},
 		Translate: TranslateConfig{
 			Host:       "http://localhost:1234",
 			LiveModel:  "custom-live",

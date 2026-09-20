@@ -26,6 +26,11 @@ var (
 	// ErrNotFound is a 404: the blob does not exist, or exists but
 	// belongs to a different account — the server does not distinguish.
 	ErrNotFound = errors.New("cloudsync: not found")
+
+	// ErrConflict is a 409 on a JSON endpoint (e.g. signup with an
+	// already-registered email). PutBlob's 409 is not an error and is
+	// returned as its conflict value instead.
+	ErrConflict = errors.New("cloudsync: conflict")
 )
 
 // BlobMeta is one entry of GET /blobs, and the body of PUT /blobs/:id's
@@ -247,6 +252,8 @@ func (c *Client) doJSON(method, path, sessionToken string, body, out any) error 
 		return fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
+	case http.StatusConflict:
+		return fmt.Errorf("%w: %s", ErrConflict, strings.TrimSpace(string(raw)))
 	default:
 		return statusError(resp.StatusCode, raw)
 	}

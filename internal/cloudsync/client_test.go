@@ -333,8 +333,8 @@ func TestSignupDuplicateEmail(t *testing.T) {
 		Email: "dup@example.com", AuthHash: "h", AuthSalt: "s", KDFParams: "{}",
 		WrappedMasterKey: "w", KeyWrapParams: "{}", RecoveryBlob: "r", RecoveryKDFParams: "{}",
 	})
-	if err == nil || !strings.Contains(err.Error(), "409") {
-		t.Fatalf("duplicate signup err = %v, want 409", err)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate signup err = %v, want ErrConflict", err)
 	}
 }
 

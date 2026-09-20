@@ -183,6 +183,9 @@ func Sync(store *meeting.Store, client *Client, sessionToken string, masterKey [
 // automatic merging), then the remote content becomes the local truth
 // and the manifest moves to the remote version.
 func adoptRemote(store *meeting.Store, client *Client, sessionToken string, masterKey []byte, id string, state syncState, result *SyncResult) error {
+	if !validMeetingID(id) {
+		return fmt.Errorf("cloudsync: invalid meeting id %q", id)
+	}
 	ciphertext, remoteVersion, err := client.GetBlob(sessionToken, id)
 	if err != nil {
 		return err

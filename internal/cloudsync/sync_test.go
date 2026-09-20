@@ -280,3 +280,11 @@ func newStoreAt(t *testing.T, home string) *meeting.Store {
 	}
 	return store
 }
+
+func TestAdoptRemoteRejectsInvalidMeetingID(t *testing.T) {
+	f := newSyncFixture(t)
+	err := adoptRemote(f.storeA, f.client, f.token, f.masterKey, "../../etc", syncState{}, &SyncResult{})
+	if err == nil || !strings.Contains(err.Error(), "invalid meeting id") {
+		t.Fatalf("err = %v, want invalid-meeting-id rejection", err)
+	}
+}

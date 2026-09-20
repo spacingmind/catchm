@@ -23,6 +23,17 @@ type TranslateConfig struct {
 	BatchModel string `yaml:"batch_model"`
 }
 
+// CloudConfig holds the non-secret cloud-sync account parameters.
+// None of these unlock anything without the password-derived keys —
+// they identify the account and reproduce its KDF inputs. Secrets
+// (session token, master key, recovery code) are never written here.
+type CloudConfig struct {
+	Email      string `yaml:"email"`
+	AuthSalt   string `yaml:"auth_salt"`
+	KDFParams  string `yaml:"kdf_params"`
+	APIBaseURL string `yaml:"api_base_url"`
+}
+
 // Config is CatchM's on-disk configuration.
 type Config struct {
 	Engine     string          `yaml:"engine"`
@@ -30,6 +41,7 @@ type Config struct {
 	WhisperURL string          `yaml:"whisper_url"`
 	Soniox     SonioxConfig    `yaml:"soniox"`
 	Translate  TranslateConfig `yaml:"translate"`
+	Cloud      CloudConfig     `yaml:"cloud"`
 }
 
 const (
@@ -39,6 +51,10 @@ const (
 	defaultOllamaHost = "http://127.0.0.1:11434"
 	defaultLiveModel  = "translategemma:4b"
 	defaultBatchModel = "translategemma:12b"
+
+	// DefaultCloudURL is catchm-cloud's wrangler dev address; the real
+	// deployed URL replaces it once one exists.
+	defaultCloudURL = "http://127.0.0.1:8787"
 )
 
 func defaults() *Config {
@@ -51,6 +67,7 @@ func defaults() *Config {
 			LiveModel:  defaultLiveModel,
 			BatchModel: defaultBatchModel,
 		},
+		Cloud: CloudConfig{APIBaseURL: defaultCloudURL},
 	}
 }
 

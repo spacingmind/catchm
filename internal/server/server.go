@@ -16,6 +16,7 @@ import (
 	"github.com/spacingmind/catchm/internal/agent"
 	"github.com/spacingmind/catchm/internal/batch"
 	"github.com/spacingmind/catchm/internal/capture"
+	"github.com/spacingmind/catchm/internal/cloudsync"
 	"github.com/spacingmind/catchm/internal/config"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/pipeline"
@@ -38,6 +39,13 @@ type Server struct {
 
 	mu        sync.Mutex
 	pipelines map[string]*pipeline.Pipeline
+
+	// cloud is the in-memory-only cloud-sync session; nil when logged
+	// out. See cloud.go.
+	cloud   *cloudState
+	syncNow func() (*cloudsync.SyncResult, error)
+	// newCloudClient is a seam for tests to swap in a fake backend.
+	newCloudClient func() *cloudsync.Client
 }
 
 // New builds a Server over the tool surface. cfg may be nil, in which case
@@ -56,8 +64,9 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		newTranslator: func(cfg *config.Config, model string) (translate.Translator, error) {
 			return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
 		},
-		enrichFinal: agent.EnrichMeetingFinal,
-		pipelines:   map[string]*pipeline.Pipeline{},
+		enrichFinal:    agent.EnrichMeetingFinal,
+		pipelines:      map[string]*pipeline.Pipeline{},
+		newCloudClient: nil,
 	}
 	s.routes()
 	return s
@@ -84,6 +93,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
 	s.mux.HandleFunc("POST /api/translate/pull", s.handleTranslatePull)
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
+
+	s.mux.HandleFunc("POST /api/cloud/signup", s.handleCloudSignup)
+	s.mux.HandleFunc("POST /api/cloud/login", s.handleCloudLogin)
+	s.mux.HandleFunc("POST /api/cloud/logout", s.handleCloudLogout)
+	s.mux.HandleFunc("GET /api/cloud/status", s.handleCloudStatus)
+	s.mux.HandleFunc("POST /api/cloud/sync", s.handleCloudSync)
 
 	// Serves the embedded web UI for anything not matched above (with SPA
 	// fallback); see webui.go. Registered last for readability only — Go's

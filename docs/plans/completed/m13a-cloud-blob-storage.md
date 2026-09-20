@@ -1,6 +1,6 @@
 # Plan: M13a — catchm-cloud blob storage + auth-params lookup
 
-- Status: active
+- Status: complete
 - Created: 2026-09-20
 - Repo: `catchm-cloud` (not the main `catchm` Go repo).
 
