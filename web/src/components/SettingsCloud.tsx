@@ -1,18 +1,20 @@
 import { useEffect, useState, type FormEvent } from "react"
 
+import { RecoveryCodeDialog } from "@/components/RecoveryCodeDialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { cloudLogin, cloudLogout, cloudSignup, cloudStatus, cloudSync, type CloudStatus, type SyncResult } from "@/lib/api"
+import {
+  cloudLogin,
+  cloudLogout,
+  cloudRecover,
+  cloudSignup,
+  cloudStatus,
+  cloudSync,
+  type CloudStatus,
+  type SyncResult,
+} from "@/lib/api"
 
 const STATUS_POLL_MS = 30_000
 
@@ -34,8 +36,14 @@ export function SettingsCloud() {
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [authBusy, setAuthBusy] = useState<"signup" | "login" | null>(null)
+  const [authBusy, setAuthBusy] = useState<"signup" | "login" | "recover" | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
+
+  // "Forgot password?" recovery form: separate fields so a failed
+  // attempt never clears what the user typed.
+  const [mode, setMode] = useState<"auth" | "forgot">("auth")
+  const [recoveryCodeInput, setRecoveryCodeInput] = useState("")
+  const [newPassword, setNewPassword] = useState("")
 
   // Recovery code lives ONLY here, only until the user acknowledges the
   // dialog (or the component unmounts). Never localStorage, never
@@ -72,8 +80,27 @@ export function SettingsCloud() {
         await cloudLogin(email, password)
       }
       setPassword("")
+      setAuthError(null)
       refresh()
     } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAuthBusy(null)
+    }
+  }
+
+  const handleRecover = async () => {
+    setAuthBusy("recover")
+    setAuthError(null)
+    try {
+      const res = await cloudRecover(email, recoveryCodeInput, newPassword)
+      setRecoveryCode(res.recovery_code)
+      setRecoveryCodeInput("")
+      setNewPassword("")
+      setMode("auth")
+      refresh()
+    } catch (err) {
+      // Wrong code: inline error, typed values stay put.
       setAuthError(err instanceof Error ? err.message : String(err))
     } finally {
       setAuthBusy(null)
@@ -112,7 +139,7 @@ export function SettingsCloud() {
 
       {loadError && <p className="mb-4 text-sm text-destructive">{loadError}</p>}
 
-      {status && !loggedIn && (
+      {status && !loggedIn && mode === "auth" && (
         <Card>
           <CardHeader>
             <CardTitle>Account</CardTitle>
@@ -161,6 +188,87 @@ export function SettingsCloud() {
                   onClick={() => handleAuth("signup")}
                 >
                   {authBusy === "signup" ? "Signing up…" : "Sign up"}
+                </Button>
+              </div>
+            </form>
+            {authError && <p className="mt-3 text-sm text-destructive">{authError}</p>}
+            <button
+              type="button"
+              className="w-fit text-sm text-muted-foreground underline underline-offset-4"
+              onClick={() => {
+                setMode("forgot")
+                setAuthError(null)
+              }}
+            >
+              Forgot password?
+            </button>
+          </CardContent>
+        </Card>
+      )}
+
+      {status && !loggedIn && mode === "forgot" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recover account</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(e: FormEvent<HTMLFormElement>) => {
+                e.preventDefault()
+                handleRecover()
+              }}
+              className="grid gap-3"
+            >
+              <div className="grid gap-1.5">
+                <Label htmlFor="recover-email">Email</Label>
+                <Input
+                  id="recover-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="recover-code">Recovery code</Label>
+                <Input
+                  id="recover-code"
+                  value={recoveryCodeInput}
+                  onChange={(e) => setRecoveryCodeInput(e.target.value)}
+                  placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+                  className="font-mono"
+                  required
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="recover-new-password">New password</Label>
+                <Input
+                  id="recover-new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  className="w-fit"
+                  disabled={authBusy !== null || !email.trim() || !recoveryCodeInput.trim() || !newPassword.trim()}
+                >
+                  {authBusy === "recover" ? "Recovering…" : "Recover and set new password"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-fit"
+                  disabled={authBusy !== null}
+                  onClick={() => {
+                    setMode("auth")
+                    setAuthError(null)
+                  }}
+                >
+                  Back
                 </Button>
               </div>
             </form>
@@ -216,40 +324,7 @@ export function SettingsCloud() {
         </div>
       )}
 
-      <Dialog
-        open={recoveryCode !== null}
-        onOpenChange={(open) => {
-          // The only way out is the explicit acknowledgment button.
-          if (!open) return
-        }}
-      >
-        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle>Save your recovery code</DialogTitle>
-            <DialogDescription>
-              This code is shown only once. If you ever lose your password and have no linked device, it is the only way
-              to recover your meetings. Write it down or store it in a password manager now.
-            </DialogDescription>
-          </DialogHeader>
-          <p className="select-all rounded-md bg-muted px-4 py-3 text-center font-mono text-lg tracking-wider break-all">
-            {recoveryCode}
-          </p>
-          <DialogFooter>
-            <Button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard?.writeText(recoveryCode ?? "")
-              }}
-              variant="outline"
-            >
-              Copy
-            </Button>
-            <Button type="button" onClick={() => setRecoveryCode(null)}>
-              I've saved my recovery code
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RecoveryCodeDialog code={recoveryCode} onAcked={() => setRecoveryCode(null)} />
     </div>
   )
 }

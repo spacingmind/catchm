@@ -420,3 +420,15 @@ export function cloudStatus(): Promise<CloudStatus> {
 export function cloudSync(): Promise<SyncResult> {
   return apiFetch("/api/cloud/sync", { method: "POST" })
 }
+
+/** POST /api/cloud/recover — returns the NEW rotated recovery code (one-time display, same contract as signup). */
+export function cloudRecover(
+  email: string,
+  recoveryCode: string,
+  newPassword: string,
+): Promise<{ email: string; recovery_code: string }> {
+  return apiFetch("/api/cloud/recover", {
+    method: "POST",
+    body: JSON.stringify({ email, recovery_code: recoveryCode, new_password: newPassword }),
+  })
+}
