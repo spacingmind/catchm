@@ -1,0 +1,257 @@
+// Package cloudsync is the Go client for the catchm-cloud Worker:
+// the HTTP endpoints (this file), meeting-bundle encryption, and sync
+// orchestration. See docs/plans/active/m13c-cloud-sync-client.md.
+package cloudsync
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
+// Sentinel errors returned by Client methods; test with errors.Is.
+var (
+	// ErrUnauthorized is a 401: the session token is missing, malformed,
+	// or expired.
+	ErrUnauthorized = errors.New("cloudsync: unauthorized")
+
+	// ErrNotFound is a 404: the blob does not exist, or exists but
+	// belongs to a different account — the server does not distinguish.
+	ErrNotFound = errors.New("cloudsync: not found")
+)
+
+// BlobMeta is one entry of GET /blobs, and the body of PUT /blobs/:id's
+// 409 conflict response.
+type BlobMeta struct {
+	ID        string `json:"id"`
+	Version   int    `json:"version"`
+	Checksum  string `json:"checksum"`
+	SizeBytes int64  `json:"size_bytes"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+// SignupRequest is the POST /signup body. All crypto fields are opaque
+// strings to the server; the caller encodes bytes (base64) before
+// building this struct.
+type SignupRequest struct {
+	Email             string `json:"email"`
+	AuthHash          string `json:"auth_hash"`
+	AuthSalt          string `json:"auth_salt"`
+	KDFParams         string `json:"kdf_params"`
+	WrappedMasterKey  string `json:"wrapped_master_key"`
+	KeyWrapParams     string `json:"key_wrap_params"`
+	RecoveryBlob      string `json:"recovery_blob"`
+	RecoveryKDFParams string `json:"recovery_kdf_params"`
+}
+
+// Client talks to a catchm-cloud Worker. It holds no session state:
+// every method takes the session token explicitly, so one Client can
+// be shared across sessions.
+type Client struct {
+	baseURL string
+	http    *http.Client
+}
+
+// NewClient returns a Client for the Worker at baseURL.
+func NewClient(baseURL string) *Client {
+	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), http: http.DefaultClient}
+}
+
+// AuthParams fetches the auth_salt and kdf_params a login needs. The
+// server returns plausible fake values for unknown emails
+// (anti-enumeration); the result is opaque and a login with the wrong
+// derivation fails on its own.
+func (c *Client) AuthParams(email string) (salt, kdfParams string, err error) {
+	var out struct {
+		AuthSalt  string `json:"auth_salt"`
+		KDFParams string `json:"kdf_params"`
+	}
+	if err := c.doJSON(http.MethodGet, "/auth-params?email="+url.QueryEscape(email), "", nil, &out); err != nil {
+		return "", "", err
+	}
+	return out.AuthSalt, out.KDFParams, nil
+}
+
+// Signup creates an account and returns the session token and its
+// expiry (epoch milliseconds).
+func (c *Client) Signup(req SignupRequest) (sessionToken string, expiresAt int64, err error) {
+	var out struct {
+		SessionToken string `json:"session_token"`
+		ExpiresAt    int64  `json:"expires_at"`
+	}
+	if err := c.doJSON(http.MethodPost, "/signup", "", req, &out); err != nil {
+		return "", 0, err
+	}
+	return out.SessionToken, out.ExpiresAt, nil
+}
+
+// Login authenticates with the client-derived auth_hash and returns a
+// fresh session token plus the stored wrapped master key and its
+// params, which the caller unwraps locally.
+func (c *Client) Login(email, authHash string) (sessionToken string, wrappedMasterKey, keyWrapParams string, err error) {
+	var out struct {
+		SessionToken     string `json:"session_token"`
+		WrappedMasterKey string `json:"wrapped_master_key"`
+		KeyWrapParams    string `json:"key_wrap_params"`
+	}
+	body := struct {
+		Email    string `json:"email"`
+		AuthHash string `json:"auth_hash"`
+	}{email, authHash}
+	if err := c.doJSON(http.MethodPost, "/login", "", body, &out); err != nil {
+		return "", "", "", err
+	}
+	return out.SessionToken, out.WrappedMasterKey, out.KeyWrapParams, nil
+}
+
+// PutBlob uploads ciphertext with optimistic concurrency. On a 409 it
+// returns the server's current metadata as conflict with a nil error —
+// for every 409 shape, including "expected a version but no such blob"
+// (conflict.Version 0) — so all conflicts take one code path in the
+// caller.
+func (c *Client) PutBlob(sessionToken, id string, ciphertext []byte, expectedVersion int) (newVersion int, conflict *BlobMeta, err error) {
+	sum := sha256.Sum256(ciphertext)
+	req, err := http.NewRequest(http.MethodPut, c.baseURL+"/blobs/"+url.PathEscape(id), bytes.NewReader(ciphertext))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("X-Checksum", hex.EncodeToString(sum[:]))
+	req.Header.Set("X-Expected-Version", strconv.Itoa(expectedVersion))
+	req.Header.Set("Authorization", "Bearer "+sessionToken)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out struct {
+			Version int `json:"version"`
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return 0, nil, fmt.Errorf("cloudsync: malformed PUT response: %w", err)
+		}
+		return out.Version, nil, nil
+	case http.StatusConflict:
+		var meta BlobMeta
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			return 0, nil, fmt.Errorf("cloudsync: malformed 409 body: %w", err)
+		}
+		return 0, &meta, nil
+	default:
+		return 0, nil, statusError(resp.StatusCode, raw)
+	}
+}
+
+// GetBlob downloads a blob's ciphertext and its current version.
+func (c *Client) GetBlob(sessionToken, id string) ([]byte, int, error) {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/blobs/"+url.PathEscape(id), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+sessionToken)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		version, err := strconv.Atoi(resp.Header.Get("X-Version"))
+		if err != nil {
+			return nil, 0, fmt.Errorf("cloudsync: malformed X-Version header: %w", err)
+		}
+		return raw, version, nil
+	case http.StatusUnauthorized:
+		return nil, 0, fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
+	case http.StatusNotFound:
+		return nil, 0, fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
+	default:
+		return nil, 0, statusError(resp.StatusCode, raw)
+	}
+}
+
+// ListBlobs returns the authenticated account's blob metadata.
+func (c *Client) ListBlobs(sessionToken string) ([]BlobMeta, error) {
+	var out []BlobMeta
+	if err := c.doJSON(http.MethodGet, "/blobs", sessionToken, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteBlob removes a blob and its stored bytes.
+func (c *Client) DeleteBlob(sessionToken, id string) error {
+	return c.doJSON(http.MethodDelete, "/blobs/"+url.PathEscape(id), sessionToken, nil, nil)
+}
+
+// doJSON performs a JSON request/response round trip. A nil out means
+// no response body is expected.
+func (c *Client) doJSON(method, path, sessionToken string, body, out any) error {
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, c.baseURL+path, reader)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if sessionToken != "" {
+		req.Header.Set("Authorization", "Bearer "+sessionToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		if out == nil {
+			return nil
+		}
+		return json.Unmarshal(raw, out)
+	case http.StatusNoContent:
+		return nil
+	case http.StatusUnauthorized:
+		return fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
+	case http.StatusNotFound:
+		return fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
+	default:
+		return statusError(resp.StatusCode, raw)
+	}
+}
+
+func statusError(status int, body []byte) error {
+	return fmt.Errorf("cloudsync: unexpected status %d: %s", status, strings.TrimSpace(string(body)))
+}
