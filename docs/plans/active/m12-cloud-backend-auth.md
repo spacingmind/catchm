@@ -132,21 +132,126 @@ frontend in this repo).
 
 ## Decisions
 
-(fill in as the implementer makes calls — expected topics: opaque
-session tokens vs JWT and why, exact constant-time-compare
-implementation used since Web Crypto has no built-in string-compare
-primitive, file/router layout, D1 batch-transaction API specifics,
-UUID/random-ID generation approach for user/session IDs.)
+- **Opaque session tokens, not JWT.** Nothing in M12–M15 needs
+  claims, cross-service verification, or statelessness — the Worker is
+  the only consumer. A stateful random token (32 bytes hex, ~256-bit
+  entropy) stored in the `sessions` table is the simplest thing that
+  works and comes with free revocability (delete the row; a JWT needs
+  a denylist to get the same property, which reintroduces state
+  anyway) and free server-controlled TTL semantics (`expires_at`
+  column, no clock-skew tolerance games). This matches the spec's own
+  hint. Sessions last 30 days.
+- **Constant-time compare.** Web Crypto in Workers has no
+  string-compare primitive, so `src/crypto.ts` implements
+  `timingSafeEqual(a, b)`: UTF-8 encode both sides, XOR-accumulate
+  over the *longer* length (shorter side zero-padded via `?? 0`), fold
+  the length difference into the same accumulator, single `=== 0`
+  check at the end — no early exit on content or length. Login's
+  "no such user" path runs the same comparison against a fixed
+  64-char dummy hash before returning its 401 so both paths do
+  comparable work; both failure paths return the *same*
+  `invalidCredentials()` Response (same function ⇒ provably
+  byte-identical body).
+- **D1 batch API.** Signup inserts `users` + `e2ee_profiles` +
+  `sessions` via one `env.DB.batch([...])` call (D1 documents batch as
+  transactional, all-or-nothing). The pre-check `SELECT` for duplicate
+  email stays for the friendly 409, and the batch is wrapped in a
+  try/catch matching D1's actual UNIQUE-violation error text
+  (`UNIQUE constraint failed: users.email`, probed empirically) so a
+  TOCTOU race returns 409 instead of leaking a 500.
+- **File layout.** `src/index.ts` (router + signup + login — the API
+  is small enough that splitting per-route files would be
+  over-architecting), `src/crypto.ts` (constant-time compare, random
+  IDs/tokens), `src/auth.ts` (`requireSession(request, env):
+  Promise<{userId} | Response>` for M13+). Tests mirror this:
+  `test/{crypto,signup,login,auth}.test.ts` plus `test/setup.ts`
+  applying migrations.
+- **ID generation.** `crypto.getRandomValues`-based hex: user IDs are
+  128-bit random hex (not UUIDv4 — deliberately unstructured so the
+  format leaks nothing), session tokens are 256-bit hex.
+- **Test infrastructure.** vitest bumped 2.1.9 → 3.2.7:
+  `@cloudflare/vitest-pool-workers@0.7.8` crashes on vitest 2 despite
+  advertising peer support for `2.0.x`. Migrations are read Node-side
+  via `readD1Migrations()` in `vitest.config.ts` (async config
+  function) and injected as a `TEST_MIGRATIONS` binding; `test/setup.ts`
+  applies them via `applyD1Migrations(env.DB, env.TEST_MIGRATIONS)` —
+  `readD1Migrations` uses `node:fs` and cannot run inside the worker
+  isolate. Config keeps the `wrangler.toml` reference so D1/R2
+  bindings and compat date flow from one source of truth, with
+  `singleWorker: true` so test files share one migrated D1.
+  Local Miniflare falls back to compat date 2025-03-10 (installed
+  workerd caps below the 2026-09-20 in wrangler.toml) — warning only,
+  harmless for these tests.
 
 ## Progress
 
-- [ ] D1 migration (users, e2ee_profiles, sessions)
-- [ ] POST /signup
-- [ ] POST /login (indistinguishable failure modes)
-- [ ] Session auth middleware helper (unused by other endpoints yet, ready for M13)
-- [ ] Hermetic tests (vitest-pool-workers)
-- [ ] Local wrangler dev + curl smoke test
+- [x] D1 migration (users, e2ee_profiles, sessions)
+- [x] POST /signup
+- [x] POST /login (indistinguishable failure modes)
+- [x] Session auth middleware helper (unused by other endpoints yet, ready for M13)
+- [x] Hermetic tests (vitest-pool-workers)
+- [x] Local wrangler dev + curl smoke test
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+All confirmed 2026-09-20.
+
+**Hermetic tests** (`npm run typecheck && npm test` in `catchm-cloud`):
+typecheck clean; 17/17 tests pass across 4 files
+(crypto 6, signup 3, login 3, auth 5), real Miniflare-backed D1
+against the actual `0001_init.sql` migration. Login's two failure
+paths are asserted byte-identical (`await res.text()` equality), not
+just both-401.
+
+**Migration**: `npx wrangler d1 migrations apply catchm-cloud --local`
+applied `0001_init.sql` cleanly (4 commands, ✅). Remote equivalent
+(when a real database_id is set in wrangler.toml): `npx wrangler d1
+migrations apply catchm-cloud --remote`.
+
+**Live smoke test** (`npm run dev` → wrangler dev on localhost:8787,
+local D1/R2 emulation; opaque fields below are realistic-shaped
+dummy values — server never interprets them):
+
+```
+$ curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:8787/signup \
+    -H "content-type: application/json" -d '{...email smoke@example.com,
+    auth_hash a665a...27ae3, wrapped_master_key base64:6Lz+...G6hI=, ...}'
+{"session_token":"e27c8983497c52690f3bdbe45b28ceec6efb47b0d144c5761d168555a9ae7815","expires_at":1792496131799}
+HTTP 200
+
+$ # same body again
+{"error":"email already registered"}
+HTTP 409
+
+$ curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:8787/login \
+    -H "content-type: application/json" \
+    -d '{"email":"smoke@example.com","auth_hash":"a665a...27ae3"}'
+{"session_token":"6e45b0180eba75cef7703e1039cabf4415d3f8f385f288438ad8930f01649089","expires_at":1792496131839,"wrapped_master_key":"base64:6Lz+v7K7XyQwR9uM1oPq4sT8vW2xYzA5bC3dE1fG6hI=","key_wrap_params":"{\"algo\":\"aes-256-gcm\",\"nonce\":\"base64:QW5vdGhlck5vbmNl\"}"}
+HTTP 200
+  → wrapped_master_key / key_wrap_params byte-match what signup sent.
+
+$ # wrong auth_hash for known email:
+{"error":"invalid credentials"}
+HTTP 401
+
+$ # unknown email:
+{"error":"invalid credentials"}
+HTTP 401
+
+$ diff <(wrong-hash body) <(unknown-email body) && cmp ...
+DIFF: byte-identical
+CMP: byte-identical
+
+$ curl http://localhost:8787/healthz
+{"status":"ok"}
+HTTP 200
+```
+
+wrangler request log confirms the same: `POST /signup 200`, `POST
+/signup 409`, `POST /login 200`, `POST /login 401` ×4 (two smoke +
+two diff runs), `GET /healthz 200`.
+
+**Commits** (catchm-cloud, repo `spacingmind/catchm-cloud`):
+`7853008` migration · `105f152` crypto utils (+vitest 3 bump) ·
+`5cd888b` POST /signup · `cd99418` POST /login + signup race fix ·
+`2fc9736` session auth helper.
