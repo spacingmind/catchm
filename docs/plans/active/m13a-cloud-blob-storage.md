@@ -127,24 +127,39 @@ need in the architecture doc, not blocking here), pagination on
 
 ## Decisions
 
-(fill in: exact anti-enumeration fake-salt derivation used, R2 key
-naming confirmed, how "row doesn't exist" vs "checksum mismatch" vs
-"version mismatch" error precedence/ordering was decided, whether D1 +
-R2 writes in PUT needed any transaction/rollback handling for the case
-where the R2 write succeeds but the D1 upsert fails or vice versa —
-this is a real distributed-write edge case, note how you reasoned
-about it even if the simplest handling is "R2 write first, D1 second,
-and a failure after R2 write leaves an orphaned R2 object that a
-future cleanup job could sweep — acceptable for this milestone, note
-it rather than over-engineering two-phase commit here.)
+- **Anti-enumeration fake salt** (done): unknown email →
+  `hex(SHA-256(email + ":no-such-user-salt"))` via
+  `crypto.subtle.digest` (64-char hex, same shape as real salts);
+  deterministic per email, so repeated lookups are stable. Same 200
+  status and `{auth_salt, kdf_params}` shape as the registered path.
+- **Fake `kdf_params` default** (done):
+  `{"algo":"argon2id","memory_kib":19456,"iterations":2,"parallelism":1}`
+  (OWASP-recommended tier) — purely for shape-consistency of the fake
+  response; M13b independently chooses the real client-side KDF
+  parameters, no need to match.
+- **R2 key naming** (done, PUT): `<user_id>/<id>` exactly as specced.
+- **Error precedence** (done, PUT): header shape (400) → checksum-vs-body
+  (400) → version logic (409). Checksum before version so a corrupted
+  upload never 409s with metadata; all three 409 cases (exists+0,
+  missing+non-zero, version mismatch) use the same conflict shape —
+  existing rows return their real current metadata verbatim, the
+  missing-row case returns `{error: "no such blob", version: 0, ...}`.
+- **D1/R2 two-write ordering** (done, PUT): R2 write first, D1
+  upsert second, no two-phase commit. A failure after the R2 write
+  but before the D1 upsert leaves an orphaned R2 object unreachable
+  via the API (no D1 row references it) — acceptable for this
+  milestone, a future cleanup job could sweep unreferenced keys.
+  The ordering protects the invariant that matters: a D1 version is
+  never bumped without the new bytes already durable, so a stale D1
+  row still points at the previous intact R2 content.
 
 ## Progress
 
 - [ ] D1 migration 0002 (blobs table)
-- [ ] GET /auth-params (anti-enumeration)
-- [ ] PUT /blobs/:id (optimistic concurrency, checksum validation)
-- [ ] GET /blobs/:id
-- [ ] GET /blobs (list)
+- [x] GET /auth-params (anti-enumeration)
+- [x] PUT /blobs/:id (optimistic concurrency, checksum validation)
+- [x] GET /blobs/:id
+- [x] GET /blobs (list)
 - [ ] DELETE /blobs/:id
 - [ ] tests + live smoke test
 

@@ -1,6 +1,6 @@
 # Plan: M13b — Go E2EE crypto primitives
 
-- Status: active
+- Status: complete
 - Created: 2026-09-20
 - Repo: `catchm` (this repo, the Go client) — NOT `catchm-cloud`.
 
@@ -165,3 +165,23 @@ All ten acceptance criteria covered:
 10. TestDifferentSaltsProduceDifferentKeys
 
 Commits: 534f0f1 (GenerateMasterKey/KDFParams), ed23413 (DeriveAuthKey/HKDF), 8738dfb (WrapKey/UnwrapKey), c8f9721 (recovery code/key), cacdf1c (wiring).
+
+## Post-review fix (2026-09-21)
+
+Independent review of the wiring caught a real bug before this was
+marked done: `RecoverMasterKey(recoveryCode, salt, params,
+recoveryBlob)` accepted a `params KDFParams` argument but never used
+it — `DeriveRecoveryKey` hardcoded `DefaultKDFParams` internally
+instead of accepting `params`. This worked today only because
+`DefaultKDFParams` hasn't changed since signup; the entire reason
+`recovery_kdf_params` is stored server-side is to keep recovery
+reproducible even after a future code change to the default
+parameters, and that guarantee was silently broken. Fixed in `c9222c1`:
+`DeriveRecoveryKey` now takes `params` explicitly (matching
+`DeriveAuthKey`'s shape), `SetupAccount` passes `DefaultKDFParams`
+explicitly rather than it being hardcoded inside, and
+`RecoverMasterKey` passes through what it receives. New regression
+test `TestRecoverMasterKeyHonorsNonDefaultParams` proves recovery with
+explicit non-default params round-trips, and recovery with mismatched
+params correctly fails the AEAD open — the exact case the bug got
+wrong. Final: 18/18 tests pass.
