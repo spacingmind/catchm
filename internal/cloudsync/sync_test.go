@@ -288,3 +288,36 @@ func TestAdoptRemoteRejectsInvalidMeetingID(t *testing.T) {
 		t.Fatalf("err = %v, want invalid-meeting-id rejection", err)
 	}
 }
+
+// Regression: a meeting with no utterances yet has no transcript file
+// on disk; Sync must still push it (found by live wrangler-dev
+// verification, where a freshly created meeting failed to sync).
+func TestSyncPushesMeetingWithNoUtterances(t *testing.T) {
+	f := newSyncFixture(t)
+	m, err := f.storeA.Start("Silent meeting", time.Now().UTC(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.storeA.Root(), m.ID, transcriptFile)); !os.IsNotExist(err) {
+		t.Fatalf("precondition: transcript file unexpectedly exists")
+	}
+
+	result, err := f.syncA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pushed) != 1 || result.Pushed[0] != m.ID {
+		t.Fatalf("pushed = %v, err path silent-meeting broken", result.Pushed)
+	}
+	// The pulled copy materializes an empty transcript file.
+	result, err = f.syncB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pulled) != 1 || result.Pulled[0] != m.ID {
+		t.Fatalf("pulled = %v", result.Pulled)
+	}
+	if _, err := os.Stat(filepath.Join(f.storeB.Root(), m.ID, transcriptFile)); err != nil {
+		t.Fatalf("pulled meeting missing empty transcript: %v", err)
+	}
+}

@@ -250,22 +250,33 @@ func validMeetingID(id string) bool {
 }
 
 // readMeetingFiles loads the files a sync bundles for one meeting:
-// meeting.md and utterances.jsonl always, utterances.v2.jsonl when it
-// exists. A missing doc or transcript is an error — the store's List
-// only returns meetings whose doc parses, so a doc that vanished
-// between List and read is a genuine anomaly, not a normal state.
+// meeting.md always; utterances.jsonl always (a meeting started but
+// never spoken into has no transcript file yet — bundled as empty
+// content so the bundle shape stays stable); utterances.v2.jsonl when
+// it exists. A missing meeting.md is an error — the store's List only
+// returns meetings whose doc parses, so a doc that vanished between
+// List and read is a genuine anomaly, not a normal state.
 func readMeetingFiles(root, id string) (map[string][]byte, error) {
 	dir := filepath.Join(root, id)
 	files := map[string][]byte{}
-	for _, name := range []string{docFile, transcriptFile} {
+	data, err := os.ReadFile(filepath.Join(dir, docFile))
+	if err != nil {
+		return nil, err
+	}
+	files[docFile] = data
+	for _, name := range []string{transcriptFile, batchFile} {
 		data, err := os.ReadFile(filepath.Join(dir, name))
+		if os.IsNotExist(err) {
+			if name == transcriptFile {
+				files[transcriptFile] = []byte{}
+				continue
+			}
+			continue // v2 transcript is optional
+		}
 		if err != nil {
 			return nil, err
 		}
 		files[name] = data
-	}
-	if data, err := os.ReadFile(filepath.Join(dir, batchFile)); err == nil {
-		files[batchFile] = data
 	}
 	return files, nil
 }
