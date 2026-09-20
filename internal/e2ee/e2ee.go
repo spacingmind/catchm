@@ -174,6 +174,21 @@ func DeriveRecoveryKey(recoveryCode string, salt []byte, params KDFParams) []byt
 	return DeriveAuthKey(recoveryCode, salt, params)
 }
 
+// DeriveRecoveryAuthHash derives the value the Worker compares during
+// POST /recover, mirroring DeriveAuthHash's relationship to authKey.
+// It is never used to decrypt anything, so a server-side leak of it
+// does not help unwrap the recovery blob.
+func DeriveRecoveryAuthHash(recoveryKey []byte) []byte {
+	return deriveHKDF(recoveryKey, "catchm-cloud/recovery-auth-hash")
+}
+
+// DeriveRecoveryWrapKey derives the sub-key that actually wraps the
+// recovery blob. It never leaves the client, mirroring
+// DeriveKeyWrapKey.
+func DeriveRecoveryWrapKey(recoveryKey []byte) []byte {
+	return deriveHKDF(recoveryKey, "catchm-cloud/recovery-wrap")
+}
+
 // saltLen is the length of the random salts generated at signup
 // (auth_salt and recovery_salt). 16 bytes is comfortably above the
 // 8-byte minimum for Argon2id salts.
@@ -199,6 +214,7 @@ type AccountSecrets struct {
 	WrappedMasterKey  []byte
 	RecoveryCode      string
 	RecoverySalt      []byte
+	RecoveryAuthHash  []byte
 	RecoveryBlob      []byte
 	RecoveryKDFParams KDFParams
 }
@@ -209,17 +225,80 @@ type AccountSecrets struct {
 // the same Argon2id run (KDFParams) that produced auth_hash, so
 // UnlockWithPassword only needs AuthSalt + KDFParams.
 func SetupAccount(password string) (*AccountSecrets, error) {
+	masterKey := GenerateMasterKey()
+	pw, err := RewrapForPassword(masterKey, password)
+	if err != nil {
+		return nil, err
+	}
+	rw, err := RewrapForRecovery(masterKey)
+	if err != nil {
+		return nil, err
+	}
+	return &AccountSecrets{
+		MasterKey:         masterKey,
+		AuthSalt:          pw.AuthSalt,
+		AuthHash:          pw.AuthHash,
+		KDFParams:         pw.KDFParams,
+		WrappedMasterKey:  pw.WrappedMasterKey,
+		RecoveryCode:      rw.RecoveryCode,
+		RecoverySalt:      rw.RecoverySalt,
+		RecoveryAuthHash:  rw.RecoveryAuthHash,
+		RecoveryBlob:      rw.RecoveryBlob,
+		RecoveryKDFParams: rw.RecoveryKDFParams,
+	}, nil
+}
+
+// PasswordWrap is the password-derived half of an account: everything
+// a signup or reset-password call needs to store for the password
+// path. Produced by RewrapForPassword.
+type PasswordWrap struct {
+	AuthSalt         []byte
+	AuthHash         []byte
+	KDFParams        KDFParams
+	WrappedMasterKey []byte
+}
+
+// RewrapForPassword wraps masterKey under a fresh salt + the given
+// password's key_wrap_key, returning all values reset-password must
+// store. SetupAccount calls this; password reset calls it again with
+// the recovered master key (it already has a master key — no new one
+// is generated).
+func RewrapForPassword(masterKey []byte, password string) (*PasswordWrap, error) {
 	authSalt, err := randomSalt()
 	if err != nil {
 		return nil, err
 	}
-	authKey := DeriveAuthKey(password, authSalt, DefaultKDFParams)
-	masterKey := GenerateMasterKey()
+	params := DefaultKDFParams
+	authKey := DeriveAuthKey(password, authSalt, params)
 	wrappedMasterKey, err := WrapKey(masterKey, DeriveKeyWrapKey(authKey))
 	if err != nil {
 		return nil, err
 	}
+	return &PasswordWrap{
+		AuthSalt:         authSalt,
+		AuthHash:         DeriveAuthHash(authKey),
+		KDFParams:        params,
+		WrappedMasterKey: wrappedMasterKey,
+	}, nil
+}
 
+// RecoveryWrap is the recovery-code-derived half of an account: a
+// fresh code, its salt, the wrapped master key, and the
+// server-verifiable recovery auth hash. Produced by RewrapForRecovery.
+type RecoveryWrap struct {
+	RecoveryCode      string
+	RecoverySalt      []byte
+	RecoveryAuthHash  []byte
+	RecoveryBlob      []byte
+	RecoveryKDFParams KDFParams
+}
+
+// RewrapForRecovery generates a FRESH recovery code and wraps
+// masterKey under its derived wrap key. Reset-password rotates the
+// recovery code (after a real recovery the old code must stop working,
+// same reasoning as rotating a backup 2FA code after use), so this
+// never reuses inputs from a previous wrap.
+func RewrapForRecovery(masterKey []byte) (*RecoveryWrap, error) {
 	recoveryCode, err := GenerateRecoveryCode()
 	if err != nil {
 		return nil, err
@@ -228,23 +307,18 @@ func SetupAccount(password string) (*AccountSecrets, error) {
 	if err != nil {
 		return nil, err
 	}
-	recoveryParams := DefaultKDFParams
-	recoveryKey := DeriveRecoveryKey(recoveryCode, recoverySalt, recoveryParams)
-	recoveryBlob, err := WrapKey(masterKey, recoveryKey)
+	params := DefaultKDFParams
+	recoveryKey := DeriveRecoveryKey(recoveryCode, recoverySalt, params)
+	recoveryBlob, err := WrapKey(masterKey, DeriveRecoveryWrapKey(recoveryKey))
 	if err != nil {
 		return nil, err
 	}
-
-	return &AccountSecrets{
-		MasterKey:         masterKey,
-		AuthSalt:          authSalt,
-		AuthHash:          DeriveAuthHash(authKey),
-		KDFParams:         DefaultKDFParams,
-		WrappedMasterKey:  wrappedMasterKey,
+	return &RecoveryWrap{
 		RecoveryCode:      recoveryCode,
 		RecoverySalt:      recoverySalt,
+		RecoveryAuthHash:  DeriveRecoveryAuthHash(recoveryKey),
 		RecoveryBlob:      recoveryBlob,
-		RecoveryKDFParams: recoveryParams,
+		RecoveryKDFParams: params,
 	}, nil
 }
 
@@ -261,5 +335,5 @@ func UnlockWithPassword(password string, salt []byte, params KDFParams, wrappedM
 // the recovery code and the salt/params stored alongside it.
 func RecoverMasterKey(recoveryCode string, salt []byte, params KDFParams, recoveryBlob []byte) ([]byte, error) {
 	recoveryKey := DeriveRecoveryKey(recoveryCode, salt, params)
-	return UnwrapKey(recoveryBlob, recoveryKey)
+	return UnwrapKey(recoveryBlob, DeriveRecoveryWrapKey(recoveryKey))
 }

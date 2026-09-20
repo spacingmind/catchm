@@ -263,7 +263,7 @@ func TestRecoverMasterKeyHonorsNonDefaultParams(t *testing.T) {
 	}
 	salt := []byte("recovery-salt-123")
 	masterKey := GenerateMasterKey()
-	blob, err := WrapKey(masterKey, DeriveRecoveryKey(code, salt, custom))
+	blob, err := WrapKey(masterKey, DeriveRecoveryWrapKey(DeriveRecoveryKey(code, salt, custom)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,5 +301,144 @@ func TestDeriveSubKey(t *testing.T) {
 	}
 	if !bytes.Equal(DeriveSubKey(secret, "catchm-cloud/key-wrap"), DeriveKeyWrapKey(secret)) {
 		t.Fatal("DeriveSubKey disagrees with the fixed-info derivation it generalizes")
+	}
+}
+
+func TestRecoverySplitKeysAreIndependent(t *testing.T) {
+	recoveryKey := GenerateMasterKey()
+	authHash := DeriveRecoveryAuthHash(recoveryKey)
+	wrapKey := DeriveRecoveryWrapKey(recoveryKey)
+	if len(authHash) != 32 || len(wrapKey) != 32 {
+		t.Fatalf("lengths = %d/%d, want 32/32", len(authHash), len(wrapKey))
+	}
+	if bytes.Equal(authHash, wrapKey) {
+		t.Fatal("recovery_auth_hash and recovery wrap key are identical — split is cosmetic")
+	}
+	if bytes.Equal(authHash, recoveryKey) || bytes.Equal(wrapKey, recoveryKey) {
+		t.Fatal("sub-key equals raw recoveryKey")
+	}
+}
+
+// Regression proof the split changed real behavior: a blob wrapped
+// with the raw recoveryKey (M13b's old shape) must NOT unwrap with
+// DeriveRecoveryWrapKey, and vice versa. If this passes trivially,
+// the wrap-key change never took effect.
+func TestRawRecoveryKeyWrapIsRejected(t *testing.T) {
+	recoveryCode := "ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ"
+	salt := []byte("recovery-salt-123")
+	recoveryKey := DeriveRecoveryKey(recoveryCode, salt, DefaultKDFParams)
+	masterKey := GenerateMasterKey()
+
+	oldShapeBlob, err := WrapKey(masterKey, recoveryKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UnwrapKey(oldShapeBlob, DeriveRecoveryWrapKey(recoveryKey)); err == nil {
+		t.Fatal("blob wrapped with raw recoveryKey unwrapped with DeriveRecoveryWrapKey — split is not real")
+	}
+
+	newShapeBlob, err := WrapKey(masterKey, DeriveRecoveryWrapKey(recoveryKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UnwrapKey(newShapeBlob, recoveryKey); err == nil {
+		t.Fatal("blob wrapped with DeriveRecoveryWrapKey unwrapped with raw recoveryKey")
+	}
+}
+
+func TestSetupAccountNewShapeRoundTrips(t *testing.T) {
+	secrets, err := SetupAccount("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secrets.RecoveryAuthHash) != 32 {
+		t.Fatalf("RecoveryAuthHash length = %d, want 32", len(secrets.RecoveryAuthHash))
+	}
+
+	// Recovery path through the new shape.
+	masterKey, err := RecoverMasterKey(secrets.RecoveryCode, secrets.RecoverySalt, secrets.RecoveryKDFParams, secrets.RecoveryBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(masterKey, secrets.MasterKey) {
+		t.Fatal("recovery recovered a different master key than signup generated")
+	}
+
+	// RecoveryAuthHash is derivable from the code — what the server
+	// will compare during POST /recover.
+	recoveryKey := DeriveRecoveryKey(secrets.RecoveryCode, secrets.RecoverySalt, secrets.RecoveryKDFParams)
+	if !bytes.Equal(DeriveRecoveryAuthHash(recoveryKey), secrets.RecoveryAuthHash) {
+		t.Fatal("stored RecoveryAuthHash does not match an independent derivation")
+	}
+
+	// Password path still round-trips.
+	got, err := UnlockWithPassword("correct horse battery staple", secrets.AuthSalt, secrets.KDFParams, secrets.WrappedMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, secrets.MasterKey) {
+		t.Fatal("unlock recovered a different master key")
+	}
+}
+
+// RewrapForPassword/RewrapForRecovery are what password reset calls
+// with an already-recovered master key: the same master key must
+// unwrap under the new password, and the rotated recovery code must
+// supersede the old one.
+func TestRewrapRotateFlow(t *testing.T) {
+	secrets, err := SetupAccount("old password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterKey, err := RecoverMasterKey(secrets.RecoveryCode, secrets.RecoverySalt, secrets.RecoveryKDFParams, secrets.RecoveryBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pw, err := RewrapForPassword(masterKey, "new password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rw, err := RewrapForRecovery(masterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// New password unlocks the SAME master key.
+	got, err := UnlockWithPassword("new password", pw.AuthSalt, pw.KDFParams, pw.WrappedMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, masterKey) {
+		t.Fatal("rewrapped master key differs — data would be lost")
+	}
+	// Old password no longer unlocks it.
+	if _, err := UnlockWithPassword("old password", pw.AuthSalt, pw.KDFParams, pw.WrappedMasterKey); err == nil {
+		t.Fatal("old password still unlocks after rewrap")
+	}
+
+	// New recovery code recovers the same master key…
+	got, err = RecoverMasterKey(rw.RecoveryCode, rw.RecoverySalt, rw.RecoveryKDFParams, rw.RecoveryBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, masterKey) {
+		t.Fatal("rotated recovery blob holds a different master key")
+	}
+	// …and the old code no longer does.
+	if _, err := RecoverMasterKey(secrets.RecoveryCode, secrets.RecoverySalt, secrets.RecoveryKDFParams, rw.RecoveryBlob); err == nil {
+		t.Fatal("old recovery code still works against the rotated blob")
+	}
+	if rw.RecoveryCode == secrets.RecoveryCode {
+		t.Fatal("recovery code was not rotated")
+	}
+
+	// Rewrap outputs are independently derived from each other and
+	// from the old signup values.
+	if bytes.Equal(rw.RecoveryAuthHash, secrets.RecoveryAuthHash) {
+		t.Fatal("rotated recovery auth hash identical to the old one")
+	}
+	if bytes.Equal(pw.AuthSalt, secrets.AuthSalt) {
+		t.Fatal("rewrap reused the old auth salt")
 	}
 }
