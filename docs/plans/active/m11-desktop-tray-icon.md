@@ -57,7 +57,7 @@ coordinating window show/hide via Wails's own runtime package
     CatchM" (calls `runtime.WindowShow(ctx)` and brings it to front) and
     "Quit" (sets the real-quit flag and calls `runtime.Quit(ctx)`).
   - Store the Wails runtime context (`ctx context.Context` from
-    `options.App.OnStartup`) somewhere the tray's goroutine/callbacks can
+    `options.App.OnStartup`) stored somewhere the tray's goroutine/callbacks can
     reach it (a package-level variable guarded appropriately, or a small
     struct — this is a single-window desktop app, a simple approach is
     fine, don't over-engineer a DI framework for one context value).
@@ -68,8 +68,8 @@ coordinating window show/hide via Wails's own runtime package
     find out after the meeting ends. Cheaply address this: a background
     goroutine polls `GET /api/meetings` on the same handler this binary
     already serves (call the handler in-process — no real HTTP round
-    trip needed, or just hit `http://127.0.0.1:<port>` if that's
-    simpler given how the server is already wired here, your call) every
+    trip needed, or just hit `http://127.0.0.1:<port>` if that's simpler
+    given how the server is already wired here, your call) every
     few seconds; if any meeting has `ended_at == null` (still active),
     call `systray.SetTooltip("CatchM — Recording")`, otherwise
     `systray.SetTooltip("CatchM")`. No second icon asset, no animation —
@@ -113,7 +113,7 @@ blocker to finishing your part.
 ## Acceptance criteria
 
 1. Whatever subset of `go build ./... `/`go vet ./...`/`gofmt -l .`
-   *can* run without the cgo webview/tray link step stays clean; the
+   *can* run without the cgo/webview/tray link step stays clean; the
    rest of the module (everything except `cmd/catchm-desktop`) must be
    completely unaffected — confirm `task build && task test && task
    lint` (the non-desktop path) still passes exactly as before.
@@ -126,22 +126,102 @@ blocker to finishing your part.
 
 ## Decisions
 
-(fill in: exact systray API calls used and how you confirmed their real
-signatures, icon format/size/generation approach, how the
-close-to-tray vs. real-quit flag is implemented, Linux system package
-gap noted or resolved, whether `cmd/catchm-desktop` needed its own
-go.mod.)
+- **systray API calls, all read from the actual v1.0.3 source** at
+  `$(go env GOPATH)/pkg/mod/github.com/energye/systray@v1.0.3/` before
+  writing the call sites: `systray.Run(onReady, onExit func())`
+  (blocks until `systray.Quit()`; doc comment "Methods may be called
+  from any Goroutine" per README), `SetIcon(iconBytes []byte)` — with
+  the Windows implementation's own doc comment specifying "iconBytes
+  should be the content of .ico for windows", `SetTooltip(string)`,
+  `AddMenuItem(title, tooltip string) *MenuItem`, the fork's
+  `(*MenuItem).Click(fn func())` callback style (this fork replaced
+  upstream's `ClickedCh` channel), and `Quit()` — confirmed idempotent
+  via `quitOnce.Do(quit)` in the source. Wails side likewise read from
+  v2.16.0 source: `options.App.OnStartup func(ctx context.Context)`,
+  `options.App.OnBeforeClose func(ctx context.Context) (prevent bool)`
+  — return `true` prevents the close — and
+  `runtime.WindowShow/WindowHide/Quit(ctx context.Context)`. Note
+  v2.16.0's runtime package has no separate bring-to-front function;
+  `WindowShow` is the restore path.
+- **Icon**: `build/trayicon.ico`, generated once with Pillow 12.2.0
+  (available in this sandbox) from the existing 512×512
+  `build/appicon.png` — a two-size 16×16 + 32×32 ICO (verified via
+  `file`: "MS Windows icon resource - 2 icons"). Embedded via
+  `//go:embed build/trayicon.ico` rather than `os.ReadFile` so it can't
+  be missing at runtime. No separate PNG needed: the primary target is
+  Windows (real .ico), and systray's Linux backend decodes PNG-from-
+  ICO fine (`_ "image/png"` registered inside its own package, which
+  also decodes the PNG-compressed entries Pillow wrote into the ICO).
+- **Close-to-tray vs real quit**: a `reallyQuit` bool guarded by the
+  same `sync.Mutex` as the stored Wails context. `OnBeforeClose`
+  returns `prevent=true` + `runtime.WindowHide` unless `reallyQuit` is
+  set; only the tray's Quit item sets it (then `systray.Quit()` +
+  `runtime.Quit(ctx)`).
+- **Context storage**: single package-level `wailsCtx
+  context.Context` + `reallyQuit` under one mutex, read via a small
+  `appContext()` helper — deliberately minimal for a single-window app.
+- **Tooltip poll (scope addition)**: a goroutine started from
+  `onReady`, driven by `context.WithCancel` whose cancel is invoked
+  both as systray's `onExit` and via `defer` from `run()` — so the
+  poller stops on tray exit, app exit, or the run error path. It
+  re-serves `GET /api/meetings` through the same in-process
+  `http.Handler` via `httptest.NewRecorder` (no listener, no TCP port,
+  exactly the spec's "call the handler in-process" option) every 3s,
+  unmarshals `[]meeting.Meeting` (Go type, no duplicated JSON shape),
+  and sets `"CatchM — Recording"` if any `EndedAt == nil` else
+  `"CatchM"`. Fetch errors are skipped (tooltip stays at last-known
+  state; next tick retries) rather than crashing the loop.
+- **go.mod**: no separate module needed — root `go.mod` now carries
+  `github.com/energye/systray v1.0.3` (plus its lone transitive dep
+  `github.com/godbus/dbus/v5`) as a normal dependency, and since Go
+  compiles per-package, nothing but `cmd/catchm-desktop` imports it;
+  `cmd/catchm`'s build is untouched (verified below).
+- **Linux system package**: resolved by reading the actual v1.0.3
+  source rather than guessing — its go.mod requires only
+  `godbus/dbus/v5`, and `systray_unix.go` (build tag `linux || freebsd
+  || openbsd || netbsd`) implements the KDE StatusNotifierItem /
+  canonical DbusMenu protocols directly over pure-Go DBus; the only
+  `import "C"` in the repo is `systray_darwin.go`. So this fork has
+  **no appindicator/GTK build dependency at all** — the spec's
+  `libayatana-appindicator3-dev`/`libappindicator3-dev` premise
+  (true for upstream `getlantern/systray`) does not apply to
+  `energye/systray`. Runtime requirement on Linux is merely a DBus
+  session bus plus a StatusNotifierHost (any modern desktop shell
+  provides one); not verifiable in this headless sandbox, so the
+  README was not changed. Recorded here instead of guessing a package
+  name into the README.
 
 ## Progress
 
-- [ ] energye/systray dependency added
-- [ ] Tray icon asset prepared
-- [ ] OnBeforeClose hides window instead of quitting
-- [ ] Tray menu: Open (WindowShow) + Quit (real exit)
-- [ ] Non-desktop build/test/lint confirmed unaffected
-- [ ] Docs note on Linux tray system package (or gap recorded)
+- [x] energye/systray dependency added (go get, v1.0.3, root go.mod)
+- [x] Tray icon asset prepared (build/trayicon.ico, Pillow, 16+32px)
+- [x] OnBeforeClose hides window instead of quitting
+- [x] Tray menu: Open (WindowShow) + Quit (real exit via reallyQuit)
+- [x] Non-desktop build/test/lint confirmed unaffected
+- [x] Docs note on Linux tray system package (resolved from source: no
+      extra package needed; README untouched)
 
 ## Validation
 
-(to be filled honestly — including "not verified because X" where
-that's the true state, matching M5's approach)
+- **`go build ./...` / `go vet ./...` / `gofmt -l .`** (whole module,
+  including `cmd/catchm-desktop`): all pass cleanly. Better than M5's
+  situation — the only cgo in energye/systray v1.0.3 is in
+  `systray_darwin.go` (not built on Linux), and its Linux backend is
+  pure-Go DBus, so even the full `go build ./...` compiles the new
+  desktop package without any tray system library. What remains
+  unverified is only the runtime behavior (needs a real display/tray
+  host) and the `wails build` cgo-webview link step (same gtk/webkit
+  gap as M5, unchanged).
+- **`task build && task test && task lint`**: all pass exactly as
+  before — full `go test ./...` green across all internal packages
+  (agent, batch, capture, config, meeting, pipeline, server, stt,
+  tools, translate), `cmd/catchm` binary builds, web UI builds clean.
+  `web/dist/index.html` remained unchanged after the rebuild (same
+  content-hash build as pre-M11).
+- **Acceptance criterion 3 (live tray behavior)**: not verified in
+  this sandbox — needs the human Windows pass, same as M5's original
+  gap. Checklist for that pass: `wails build` succeeds; tray icon
+  appears; closing the window hides it and the process stays alive;
+  "Open CatchM" restores the window; "Quit" exits the process; tooltip
+  shows "CatchM — Recording" during a live capture and reverts to
+  "CatchM" after ending the meeting.
