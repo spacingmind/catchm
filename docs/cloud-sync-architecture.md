@@ -161,13 +161,14 @@ in this project has actually shipped.
 
 ## Open questions / risks worth flagging now (not blocking, but real)
 
-- **Repo layout**: the Worker is TypeScript, a different
-  language/runtime from the rest of CatchM (Go + a Vite web app). Does
-  it live in `cloud/` inside this repo, or a separate `catchm-cloud`
-  repo (matching how some of the user's other projects are split)?
-  Proposed default: `cloud/` in this repo for now, since it's small
-  and tightly coupled to the client's crypto assumptions — easy to
-  split out later if it grows. Flag for confirmation, not blocking M12.
+- **Repo layout — decided**: separate repo, `spacingmind/catchm-cloud`
+  (TypeScript Cloudflare Worker + D1 + R2), not a subdirectory of this
+  repo. Different language/runtime and deployment lifecycle from the
+  Go client, matching how other spacingmind projects are split by
+  repo rather than monorepo'd. The M12–M15 spec docs stay tracked here
+  in `catchm`'s `docs/plans/` (this repo remains the central planning
+  hub for the whole product, cloud included) while the actual Worker
+  code and its own tests/CI live in `catchm-cloud`.
 - **Ongoing hosting cost & limits**: Cloudflare's free tier covers a
   meaningful amount of D1/R2/Workers usage, but a "shared cloud service
   for everyone" has no natural ceiling — will need usage limits per
