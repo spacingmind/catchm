@@ -282,3 +282,24 @@ func TestRecoverMasterKeyHonorsNonDefaultParams(t *testing.T) {
 		t.Fatal("recovery with mismatched params unexpectedly succeeded — params are not being honored")
 	}
 }
+
+func TestDeriveSubKey(t *testing.T) {
+	secret := GenerateMasterKey()
+	a := DeriveSubKey(secret, "catchm-cloud/meeting/meet-1")
+	b := DeriveSubKey(secret, "catchm-cloud/meeting/meet-2")
+	if len(a) != 32 {
+		t.Fatalf("sub-key length = %d, want 32", len(a))
+	}
+	if bytes.Equal(a, b) {
+		t.Fatal("different info strings produced the same sub-key")
+	}
+	if bytes.Equal(a, secret) {
+		t.Fatal("sub-key equals the input secret")
+	}
+	if !bytes.Equal(a, DeriveSubKey(secret, "catchm-cloud/meeting/meet-1")) {
+		t.Fatal("DeriveSubKey is not deterministic")
+	}
+	if !bytes.Equal(DeriveSubKey(secret, "catchm-cloud/key-wrap"), DeriveKeyWrapKey(secret)) {
+		t.Fatal("DeriveSubKey disagrees with the fixed-info derivation it generalizes")
+	}
+}

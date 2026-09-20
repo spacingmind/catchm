@@ -86,6 +86,13 @@ func DeriveKeyWrapKey(authKey []byte) []byte {
 	return deriveHKDF(authKey, "catchm-cloud/key-wrap")
 }
 
+// DeriveSubKey expands a secret into an independent 32-byte sub-key
+// bound to the given context string. Callers compose their own info
+// (e.g. "catchm-cloud/meeting/<id>" for per-meeting keys).
+func DeriveSubKey(secret []byte, info string) []byte {
+	return deriveHKDF(secret, info)
+}
+
 // WrapKey seals plaintextKey under wrappingKey with XChaCha20-Poly1305.
 // The wire format is: 24-byte random nonce || AEAD ciphertext+tag
 // (ciphertext includes the 16-byte Poly1305 tag). M13c depends on this
