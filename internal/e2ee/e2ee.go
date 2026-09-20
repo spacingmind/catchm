@@ -8,9 +8,11 @@ package e2ee
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"io"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 )
 
@@ -81,4 +83,41 @@ func DeriveAuthHash(authKey []byte) []byte {
 // DeriveKeyWrapKey derives the local secret that wraps the master key.
 func DeriveKeyWrapKey(authKey []byte) []byte {
 	return deriveHKDF(authKey, "catchm-cloud/key-wrap")
+}
+
+// WrapKey seals plaintextKey under wrappingKey with XChaCha20-Poly1305.
+// The wire format is: 24-byte random nonce || AEAD ciphertext+tag
+// (ciphertext includes the 16-byte Poly1305 tag). M13c depends on this
+// exact byte layout — it is what gets stored server-side as
+// wrapped_master_key and recovery_blob.
+func WrapKey(plaintextKey, wrappingKey []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.NewX(wrappingKey)
+	if err != nil {
+		return nil, fmt.Errorf("e2ee: bad wrapping key: %w", err)
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("e2ee: nonce: %w", err)
+	}
+	return aead.Seal(nonce, nonce, plaintextKey, nil), nil
+}
+
+// UnwrapKey opens a value produced by WrapKey. It returns an error —
+// never panics — for a wrong wrappingKey, input shorter than the
+// 24-byte nonce, or any tampering with the ciphertext or tag (AEAD
+// authentication failure).
+func UnwrapKey(wrapped, wrappingKey []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.NewX(wrappingKey)
+	if err != nil {
+		return nil, fmt.Errorf("e2ee: bad wrapping key: %w", err)
+	}
+	if len(wrapped) < aead.NonceSize() {
+		return nil, fmt.Errorf("e2ee: wrapped value too short (%d bytes, minimum %d)", len(wrapped), aead.NonceSize())
+	}
+	nonce, ciphertext := wrapped[:aead.NonceSize()], wrapped[aead.NonceSize():]
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("e2ee: unwrap failed: %w", err)
+	}
+	return plaintext, nil
 }

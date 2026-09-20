@@ -3,6 +3,8 @@ package e2ee
 import (
 	"bytes"
 	"testing"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 func TestGenerateMasterKeyReturns32Bytes(t *testing.T) {
@@ -58,5 +60,72 @@ func TestDeriveAuthHashAndKeyWrapKeyAreIndependent(t *testing.T) {
 	}
 	if bytes.Equal(authHash, keyWrapKey) {
 		t.Fatal("auth_hash and key_wrap_key derived from same authKey are identical")
+	}
+}
+
+func TestWrapUnwrapRoundTrip(t *testing.T) {
+	masterKey := GenerateMasterKey()
+	wrappingKey := GenerateMasterKey()
+
+	wrapped, err := WrapKey(masterKey, wrappingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wrapped) != chacha20poly1305.NonceSizeX+len(masterKey)+chacha20poly1305.Overhead {
+		t.Fatalf("wrapped length = %d, want nonce+ciphertext+tag", len(wrapped))
+	}
+
+	got, err := UnwrapKey(wrapped, wrappingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, masterKey) {
+		t.Fatal("unwrapped key does not match original")
+	}
+}
+
+func TestUnwrapFailsWithWrongKey(t *testing.T) {
+	masterKey := GenerateMasterKey()
+	wrapped, err := WrapKey(masterKey, GenerateMasterKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UnwrapKey(wrapped, GenerateMasterKey()); err == nil {
+		t.Fatal("unwrap with wrong wrappingKey unexpectedly succeeded")
+	}
+}
+
+func TestUnwrapFailsOnTruncatedInput(t *testing.T) {
+	wrappingKey := GenerateMasterKey()
+	wrapped, err := WrapKey(GenerateMasterKey(), wrappingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{0, 1, 12, chacha20poly1305.NonceSizeX - 1} {
+		if _, err := UnwrapKey(wrapped[:n], wrappingKey); err == nil {
+			t.Fatalf("unwrap of %d-byte truncated input unexpectedly succeeded", n)
+		}
+	}
+}
+
+func TestUnwrapFailsOnTamperedCiphertext(t *testing.T) {
+	wrappingKey := GenerateMasterKey()
+	masterKey := GenerateMasterKey()
+	wrapped, err := WrapKey(masterKey, wrappingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, i := range []int{
+		chacha20poly1305.NonceSizeX, // first ciphertext byte
+		len(wrapped) / 2,            // middle
+		len(wrapped) - 1,            // last tag byte
+		chacha20poly1305.NonceSizeX + chacha20poly1305.Overhead/2, // inside ciphertext
+	} {
+		tampered := bytes.Clone(wrapped)
+		tampered[i] ^= 0x01
+		if _, err := UnwrapKey(tampered, wrappingKey); err == nil {
+			t.Fatalf("unwrap of input tampered at byte %d unexpectedly succeeded", i)
+		}
 	}
 }
