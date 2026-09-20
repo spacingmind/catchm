@@ -1,6 +1,6 @@
 # Plan: M13d — Cloud sync web UI
 
-- Status: draft (chưa bắt đầu code — chờ duyệt)
+- Status: active
 - Created: 2026-09-21
 - Repo: `catchm` (repo này). Dùng endpoints `/api/cloud/*` mà M13c
   đã ship; không đổi backend trừ khi spec này yêu cầu.
