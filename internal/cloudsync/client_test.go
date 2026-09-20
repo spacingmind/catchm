@@ -35,6 +35,8 @@ type fakeUser struct {
 	kdfParams         string
 	wrappedMasterKey  string
 	keyWrapParams     string
+	recoverySalt      string
+	recoveryAuthHash  string
 	recoveryBlob      string
 	recoveryKDFParams string
 }
@@ -55,6 +57,9 @@ func (f *fakeWorker) handler() http.Handler {
 	mux.HandleFunc("/signup", f.handleSignup)
 	mux.HandleFunc("/login", f.handleLogin)
 	mux.HandleFunc("/auth-params", f.handleAuthParams)
+	mux.HandleFunc("/recovery-params", f.handleRecoveryParams)
+	mux.HandleFunc("/recover", f.handleRecover)
+	mux.HandleFunc("/account/reset-password", f.handleResetPassword)
 	mux.HandleFunc("/blobs", f.handleList)
 	mux.HandleFunc("/blobs/", f.handleBlobItem)
 	return mux
@@ -74,6 +79,10 @@ func (f *fakeWorker) sessionUser(w http.ResponseWriter, r *http.Request) (string
 		return "", false
 	}
 	return email, true
+}
+
+func bearerToken(r *http.Request) string {
+	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 }
 
 func (f *fakeWorker) handleSignup(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +111,8 @@ func (f *fakeWorker) handleSignup(w http.ResponseWriter, r *http.Request) {
 		kdfParams:         req.KDFParams,
 		wrappedMasterKey:  req.WrappedMasterKey,
 		keyWrapParams:     req.KeyWrapParams,
+		recoverySalt:      req.RecoverySalt,
+		recoveryAuthHash:  req.RecoveryAuthHash,
 		recoveryBlob:      req.RecoveryBlob,
 		recoveryKDFParams: req.RecoveryKDFParams,
 	}
@@ -154,6 +165,84 @@ func (f *fakeWorker) handleAuthParams(w http.ResponseWriter, r *http.Request) {
 		"auth_salt":  hex.EncodeToString(sum[:]),
 		"kdf_params": `{"algo":"argon2id","memory_kib":19456,"iterations":2,"parallelism":1}`,
 	})
+}
+
+func (f *fakeWorker) handleRecoveryParams(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if user, ok := f.users[email]; ok && user.recoverySalt != "" {
+		writeJSON(w, http.StatusOK, map[string]any{"recovery_salt": user.recoverySalt, "recovery_kdf_params": user.recoveryKDFParams})
+		return
+	}
+	// Deterministic fake, distinct domain from auth-params' (mirrors the real Worker).
+	sum := sha256.Sum256([]byte(email + ":no-such-user-recovery-salt"))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"recovery_salt":       hex.EncodeToString(sum[:]),
+		"recovery_kdf_params": `{"algo":"argon2id","memory_kib":19456,"iterations":2,"parallelism":1}`,
+	})
+}
+
+func (f *fakeWorker) handleRecover(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email            string `json:"email"`
+		RecoveryAuthHash string `json:"recovery_auth_hash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":"invalid JSON body"}`)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	user, ok := f.users[req.Email]
+	if !ok || user.recoveryAuthHash != req.RecoveryAuthHash {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"error":"invalid credentials"}`)
+		return
+	}
+	token := strings.Repeat(fmt.Sprintf("%08x", f.nextSeq), 8)
+	f.nextSeq++
+	f.sessions[token] = req.Email
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_token":       token,
+		"expires_at":          int64(1 << 40),
+		"recovery_blob":       user.recoveryBlob,
+		"recovery_kdf_params": user.recoveryKDFParams,
+	})
+}
+
+func (f *fakeWorker) handleResetPassword(w http.ResponseWriter, r *http.Request) {
+	if _, ok := f.sessionUser(w, r); !ok {
+		return
+	}
+	var req ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":"invalid JSON body"}`)
+		return
+	}
+	for _, v := range []string{req.AuthHash, req.AuthSalt, req.KDFParams, req.WrappedMasterKey, req.RecoverySalt, req.RecoveryAuthHash, req.RecoveryBlob, req.RecoveryKDFParams} {
+		if v == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":"missing or empty field"}`)
+			return
+		}
+	}
+	email := f.sessions[bearerToken(r)]
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	user := f.users[email]
+	user.authHash = req.AuthHash
+	user.authSalt = req.AuthSalt
+	user.kdfParams = req.KDFParams
+	user.wrappedMasterKey = req.WrappedMasterKey
+	user.recoverySalt = req.RecoverySalt
+	user.recoveryAuthHash = req.RecoveryAuthHash
+	user.recoveryBlob = req.RecoveryBlob
+	user.recoveryKDFParams = req.RecoveryKDFParams
+	f.users[email] = user
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (f *fakeWorker) handleList(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +365,8 @@ func testSignup(t *testing.T, c *Client, email string) string {
 		KDFParams:         `{"time":2}`,
 		WrappedMasterKey:  "wmk-" + email,
 		KeyWrapParams:     `{"time":2}`,
+		RecoverySalt:      "rsalt-" + email,
+		RecoveryAuthHash:  "rhash-" + email,
 		RecoveryBlob:      "rb-" + email,
 		RecoveryKDFParams: `{"time":2}`,
 	})
@@ -477,5 +568,117 @@ func TestDeleteBlob(t *testing.T) {
 	}
 	if err := c.DeleteBlob(token, "meet-1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRecoveryParamsReturnsStoredValues(t *testing.T) {
+	c := newTestClient(t)
+	testSignup(t, c, "rp@example.com")
+
+	salt, params, err := c.RecoveryParams("rp@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if salt != "rsalt-rp@example.com" || params != `{"time":2}` {
+		t.Fatalf("recovery-params returned %q / %q", salt, params)
+	}
+}
+
+func TestRecoveryParamsUnknownEmailIsStillSuccess(t *testing.T) {
+	c := newTestClient(t)
+	salt, _, err := c.RecoveryParams("nobody@example.com")
+	if err != nil {
+		t.Fatalf("unknown email must not be a client-visible error: %v", err)
+	}
+	if len(salt) != 64 { // same fake-salt shape as the real anti-enumeration path
+		t.Fatalf("fake recovery salt shape = %q", salt)
+	}
+}
+
+func TestRecoverReturnsBlobAndSession(t *testing.T) {
+	c := newTestClient(t)
+	testSignup(t, c, "rec@example.com")
+
+	token, blob, params, err := c.Recover("rec@example.com", "rhash-rec@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" {
+		t.Fatal("no session token")
+	}
+	if blob != "rb-rec@example.com" || params != `{"time":2}` {
+		t.Fatalf("recover returned %q / %q", blob, params)
+	}
+	// The recovery session works like a login session.
+	if _, err := c.ListBlobs(token); err != nil {
+		t.Fatalf("recovery session not usable: %v", err)
+	}
+}
+
+func TestRecoverWrongHashFails(t *testing.T) {
+	c := newTestClient(t)
+	testSignup(t, c, "rec2@example.com")
+	if _, _, _, err := c.Recover("rec2@example.com", "wrong"); err == nil {
+		t.Fatal("recover with wrong hash unexpectedly succeeded")
+	}
+}
+
+func TestResetPasswordOverwritesAndRotates(t *testing.T) {
+	c := newTestClient(t)
+	testSignup(t, c, "reset@example.com")
+	_, _, _, err := c.Recover("reset@example.com", "rhash-reset@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Grab the recovery session token via the fake's deterministic scheme is
+	// not possible (counter-based); instead use Recover's returned token.
+	token, _, _, err := c.Recover("reset@example.com", "rhash-reset@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = c.ResetPassword(token, ResetPasswordRequest{
+		AuthHash: "new-hash", AuthSalt: "new-salt", KDFParams: `{"t":9}`,
+		WrappedMasterKey: "new-wmk",
+		RecoverySalt:     "new-rsalt", RecoveryAuthHash: "new-rhash",
+		RecoveryBlob: "new-rb", RecoveryKDFParams: `{"t":9}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Old password hash no longer logs in; new one does.
+	if _, _, _, err := c.Login("reset@example.com", "hash-reset@example.com"); err == nil {
+		t.Fatal("old auth_hash still logs in after reset")
+	}
+	if _, _, _, err := c.Login("reset@example.com", "new-hash"); err != nil {
+		t.Fatalf("new auth_hash rejected after reset: %v", err)
+	}
+	// Old recovery hash no longer recovers; new one returns the rotated blob.
+	if _, _, _, err := c.Recover("reset@example.com", "rhash-reset@example.com"); err == nil {
+		t.Fatal("old recovery hash still recovers after reset")
+	}
+	_, blob, _, err := c.Recover("reset@example.com", "new-rhash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blob != "new-rb" {
+		t.Fatalf("rotated blob = %q", blob)
+	}
+	// Recovery params serve the rotated salt.
+	salt, _, err := c.RecoveryParams("reset@example.com")
+	if err != nil || salt != "new-rsalt" {
+		t.Fatalf("recovery params after reset = %q, %v", salt, err)
+	}
+}
+
+func TestResetPasswordRequiresSession(t *testing.T) {
+	c := newTestClient(t)
+	req := ResetPasswordRequest{
+		AuthHash: "h", AuthSalt: "s", KDFParams: "{}", WrappedMasterKey: "w",
+		RecoverySalt: "rs", RecoveryAuthHash: "rh", RecoveryBlob: "rb", RecoveryKDFParams: "{}",
+	}
+	if err := c.ResetPassword("bogus-token", req); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
 }

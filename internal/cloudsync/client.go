@@ -43,6 +43,20 @@ type BlobMeta struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
+// ResetPasswordRequest is the POST /account/reset-password body: the
+// new password-path fields and the rotated recovery-path fields,
+// overwritten server-side in one transaction.
+type ResetPasswordRequest struct {
+	AuthHash          string `json:"auth_hash"`
+	AuthSalt          string `json:"auth_salt"`
+	KDFParams         string `json:"kdf_params"`
+	WrappedMasterKey  string `json:"wrapped_master_key"`
+	RecoverySalt      string `json:"recovery_salt"`
+	RecoveryAuthHash  string `json:"recovery_auth_hash"`
+	RecoveryBlob      string `json:"recovery_blob"`
+	RecoveryKDFParams string `json:"recovery_kdf_params"`
+}
+
 // SignupRequest is the POST /signup body. All crypto fields are opaque
 // strings to the server; the caller encodes bytes (base64) before
 // building this struct.
@@ -53,6 +67,8 @@ type SignupRequest struct {
 	KDFParams         string `json:"kdf_params"`
 	WrappedMasterKey  string `json:"wrapped_master_key"`
 	KeyWrapParams     string `json:"key_wrap_params"`
+	RecoverySalt      string `json:"recovery_salt"`
+	RecoveryAuthHash  string `json:"recovery_auth_hash"`
 	RecoveryBlob      string `json:"recovery_blob"`
 	RecoveryKDFParams string `json:"recovery_kdf_params"`
 }
@@ -115,6 +131,46 @@ func (c *Client) Login(email, authHash string) (sessionToken string, wrappedMast
 		return "", "", "", err
 	}
 	return out.SessionToken, out.WrappedMasterKey, out.KeyWrapParams, nil
+}
+
+// RecoveryParams fetches the recovery salt and kdf params a recover
+// attempt needs. Like AuthParams, the server returns plausible fake
+// values for unknown emails (anti-enumeration) — a wrong derivation
+// fails the /recover call on its own.
+func (c *Client) RecoveryParams(email string) (salt, kdfParams string, err error) {
+	var out struct {
+		RecoverySalt      string `json:"recovery_salt"`
+		RecoveryKDFParams string `json:"recovery_kdf_params"`
+	}
+	if err := c.doJSON(http.MethodGet, "/recovery-params?email="+url.QueryEscape(email), "", nil, &out); err != nil {
+		return "", "", err
+	}
+	return out.RecoverySalt, out.RecoveryKDFParams, nil
+}
+
+// Recover authenticates with the client-derived recovery_auth_hash
+// and returns a fresh session token plus the stored recovery blob and
+// its kdf params, which the caller unwraps locally.
+func (c *Client) Recover(email, recoveryAuthHash string) (sessionToken, recoveryBlob, recoveryKDFParams string, err error) {
+	var out struct {
+		SessionToken      string `json:"session_token"`
+		RecoveryBlob      string `json:"recovery_blob"`
+		RecoveryKDFParams string `json:"recovery_kdf_params"`
+	}
+	body := struct {
+		Email            string `json:"email"`
+		RecoveryAuthHash string `json:"recovery_auth_hash"`
+	}{email, recoveryAuthHash}
+	if err := c.doJSON(http.MethodPost, "/recover", "", body, &out); err != nil {
+		return "", "", "", err
+	}
+	return out.SessionToken, out.RecoveryBlob, out.RecoveryKDFParams, nil
+}
+
+// ResetPassword overwrites the account's password-path fields and
+// rotates the recovery-path fields server-side, atomically.
+func (c *Client) ResetPassword(sessionToken string, fields ResetPasswordRequest) error {
+	return c.doJSON(http.MethodPost, "/account/reset-password", sessionToken, fields, nil)
 }
 
 // PutBlob uploads ciphertext with optimistic concurrency. On a 409 it
