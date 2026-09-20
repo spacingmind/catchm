@@ -1,6 +1,6 @@
 # Plan: M13d — Cloud sync web UI
 
-- Status: active
+- Status: complete
 - Created: 2026-09-21
 - Repo: `catchm` (repo này). Dùng endpoints `/api/cloud/*` mà M13c
   đã ship; không đổi backend trừ khi spec này yêu cầu.
@@ -88,11 +88,51 @@ thái sau sync bằng cách nào.)
 
 ## Progress
 
-- [ ] api.ts typed client cho /api/cloud/*
-- [ ] SettingsCloud component + tab Settings
-- [ ] Manual verification với wrangler dev (criterion 3)
-- [ ] Decisions/Validation điền đầy đủ
-
+- [x] api.ts typed client cho /api/cloud/*
+- [x] SettingsCloud component + tab Settings
+- [x] Manual verification với wrangler dev (criterion 3 — curl-driven, see Validation method note)
+- [x] Decisions/Validation điền đầy đủ
 ## Validation
 
-(to be filled)
+2026-09-21. **Method note (honest scope)**: no browser automation is
+available in this environment, so acceptance criterion 3 was verified
+curl-driven — the exact same `/api/cloud/*` and `/api/meetings`
+endpoints the UI components call, in the same click-through sequence
+(Settings > Cloud > Sign up → create meeting → Sync now → status →
+conflict flow → logout), against a real `catchm-cloud` wrangler dev
+(:8787) and two real `catchm serve` instances (two CATCHM_HOME's =
+two devices, :14650/:14651). This proves the flows the UI's code
+paths rely on; it is not a literal browser click-through.
+
+```
+$ POST :14650/api/cloud/signup {"email":"ui@example.com","password":"ui-test-pass"}
+{"email":"ui@example.com","recovery_code":"2A9BM-K3HB9-3M9F3-NG9MJ-KS23W"}   ← exactly once
+
+$ GET :14650/api/cloud/status            (UI's 30s poll target)
+{"email":"ui@example.com","last_sync_at":"0001-01-01T00:00:00Z","logged_in":true,...}
+                                          ← no recovery_code anywhere; zero-time renders "never"
+
+$ POST :14651/api/cloud/login (device B)
+{"email":"ui@example.com"}               ← login never returns recovery_code either
+
+$ POST :14650/api/meetings {"title":"UI walkthrough meeting"} → id 9edb5ced3e3bfd7b
+
+$ POST :14650/api/cloud/sync  → {"pushed":["9edb5ced3e3bfd7b"],"pulled":null,"conflicted":null}
+$ POST :14651/api/cloud/sync  → {"pulled":["9edb5ced3e3bfd7b"],...}        (B receives A's meeting)
+
+# Conflict: PATCH title on BOTH devices before either syncs, then:
+$ POST :14650/api/cloud/sync  → pushed (A wins the race)
+$ POST :14651/api/cloud/sync  → {"conflicted":["9edb5ced3e3bfd7b"]}
+$ ls B's meeting dir → conflict-1789932996922.{md,jsonl} present
+$ GET :14651/api/meetings/<id> → title "Edit from A" (winner live)
+$ grep → conflict copy holds "Edit from B" (loser preserved — nothing dropped)
+
+$ POST :14650/api/cloud/logout → {"status":"ok"}; status → {"logged_in":false}
+```
+
+Builds: `bun run build` (tsc -b && vite build) clean; `go build ./...
+&& go vet ./... && gofmt -l . && go test ./...` all green with the
+rebuilt embedded web assets. No secret ever persisted client-side:
+recovery code lives only in React state until the acknowledgment
+button clears it (SettingsCloud.tsx), and the server returns it from
+signup alone.
