@@ -29,8 +29,9 @@ export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onA
         <DialogHeader>
           <DialogTitle>Save your recovery code</DialogTitle>
           <DialogDescription>
-            This code is shown only once. If you ever lose your password and have no linked device, it is the only way
-            to recover your meetings. Write it down or store it in a password manager now.
+            This code is shown only once. Without it or a trusted device, encrypted synced meetings may not be
+            recoverable — because CatchM cannot read them either. Write it down or store it in a password manager
+            now.
           </DialogDescription>
         </DialogHeader>
         <p className="select-all rounded-md bg-muted px-4 py-3 text-center font-mono text-lg tracking-wider break-all">

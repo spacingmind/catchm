@@ -145,6 +145,11 @@ export function SettingsCloud() {
             <CardTitle>Account</CardTitle>
           </CardHeader>
           <CardContent>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Your meetings stay on this device by default. Signing up only turns on encrypted sync across your
+              devices — your meetings are encrypted before they ever leave this computer, and CatchM cannot read
+              them.
+            </p>
             <form
               onSubmit={(e: FormEvent<HTMLFormElement>) => {
                 e.preventDefault()
@@ -212,6 +217,9 @@ export function SettingsCloud() {
             <CardTitle>Recover account</CardTitle>
           </CardHeader>
           <CardContent>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Setting a new password rotates your recovery code — the old code stops working once this succeeds.
+            </p>
             <form
               onSubmit={(e: FormEvent<HTMLFormElement>) => {
                 e.preventDefault()
