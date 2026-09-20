@@ -364,3 +364,59 @@ export function testTranslate(body: TestTranslateRequest): Promise<TestTranslate
     body: JSON.stringify(body),
   })
 }
+
+/**
+ * Cloud sync (M13c's /api/cloud/* routes). All crypto lives
+ * server-side in internal/server/cloud.go; these are plain calls.
+ */
+
+/** internal/cloudsync.SyncResult — Go marshals nil slices as null, not []. */
+export interface SyncResult {
+  pushed: string[] | null
+  pulled: string[] | null
+  conflicted: string[] | null
+}
+
+/**
+ * GET /api/cloud/status response. Union: when logged_in is false the
+ * other fields are absent (handler writes only logged_in).
+ * last_sync_at is the zero time ("0001-01-01T00:00:00Z") when no sync
+ * has run — render as "never".
+ */
+export interface CloudStatus {
+  logged_in: boolean
+  email?: string
+  logged_in_at?: string
+  last_sync_at?: string
+}
+
+/** POST /api/cloud/signup — recovery_code appears exactly once, in this response. */
+export function cloudSignup(email: string, password: string): Promise<{ email: string; recovery_code: string }> {
+  return apiFetch("/api/cloud/signup", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+/** POST /api/cloud/login */
+export function cloudLogin(email: string, password: string): Promise<{ email: string }> {
+  return apiFetch("/api/cloud/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+/** POST /api/cloud/logout */
+export function cloudLogout(): Promise<{ status: string }> {
+  return apiFetch("/api/cloud/logout", { method: "POST" })
+}
+
+/** GET /api/cloud/status */
+export function cloudStatus(): Promise<CloudStatus> {
+  return apiFetch("/api/cloud/status")
+}
+
+/** POST /api/cloud/sync */
+export function cloudSync(): Promise<SyncResult> {
+  return apiFetch("/api/cloud/sync", { method: "POST" })
+}
