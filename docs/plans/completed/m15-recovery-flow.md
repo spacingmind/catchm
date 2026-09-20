@@ -1,6 +1,6 @@
 # Plan: M15 — Recovery-code account recovery (`/recover` flow)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-21
 - Repos: **both** `catchm` (this repo — client crypto, HTTP client,
   server endpoint, web UI) and `catchm-cloud` (separate repo —
@@ -203,13 +203,54 @@ completed docs to reflect the crypto shape change here.)
 
 ## Progress
 
-- [ ] internal/e2ee: sub-key split, RewrapForPassword, RewrapForRecovery
-- [ ] catchm-cloud: migration + recovery-params + recover + reset-password
-- [ ] internal/cloudsync: RecoveryParams/Recover/ResetPassword client methods
-- [ ] internal/server: POST /api/cloud/recover orchestration
-- [ ] web UI: recovery form + reused recovery-code dialog
-- [ ] Live wrangler-dev verification (full recover→rotate→re-verify chain)
-
+- [x] internal/e2ee: sub-key split, RewrapForPassword, RewrapForRecovery
+- [x] catchm-cloud: migration + recovery-params + recover + reset-password
+- [x] internal/cloudsync: RecoveryParams/Recover/ResetPassword client methods
+- [x] internal/server: POST /api/cloud/recover orchestration
+- [x] web UI: recovery form + reused recovery-code dialog
+- [x] Live wrangler-dev verification (full recover→rotate→re-verify chain)
 ## Validation
 
-(to be filled as criteria are confirmed)
+All confirmed 2026-09-21. Hermetic: catchm `go build ./... && go vet
+./... && gofmt -l . && go test ./...` green (e2ee 24/24 with the
+raw-key-rejection regression; cloudsync 32/32; server cloud 12/12 incl.
+wrong-code-never-resets); catchm-cloud `npm run typecheck && npm test`
+52/52 across 7 files (recovery.test.ts 10); `bun run build` (web)
+clean. Migration 0003 applies cleanly on top of 0002
+(`wrangler d1 migrations apply catchm-cloud --local`).
+
+**Live verification (criterion 5)** — real wrangler dev (:8787) +
+real `catchm serve` (:14652, CATCHM_HOME=/tmp/catchm-m15):
+
+```
+$ POST :14652/api/cloud/signup {"email":"m15@example.com","password":"password-one"}
+{"email":"m15@example.com","recovery_code":"L2NLG-8ZFZ6-6FS7H-U8GZH-KQEU2"}      ← code_1 noted
+
+$ POST :14652/api/meetings {"title":"M15 recovery proof meeting"} → b09d968957e295d9
+$ POST :14652/api/cloud/sync → {"pushed":["b09d968957e295d9"]}                    ← blob lands (v1)
+
+# Lost password: /login with password-one is NEVER called. Straight to:
+$ POST :14652/api/cloud/recover {"recovery_code":"L2NLG-...-KQEU2","new_password":"password-two"}
+{"email":"m15@example.com","recovery_code":"7YQZR-X5YF3-84BH8-2X3HP-HRHN9"}      ← NEW rotated code_2
+
+$ POST :14652/api/cloud/login password-two → 200     (new password works)
+$ POST :14652/api/cloud/login password-one → 401     (old password dead)
+$ POST :14652/api/cloud/recover  code_1 again → 401  (old code dead — rotation)
+```
+
+**Master-key continuity proof**: a throwaway helper (deleted after the
+run) logged in with password-two, downloaded the blob pushed BEFORE
+recovery, and decrypted it with the password-two-derived master key:
+
+```
+$ go run ./cmd/tmplive15 :8787 m15@example.com password-two b09d968957e295d9
+login with NEW password: ok (token 32bf80cc...)
+blob: 303 bytes, version 1 (pushed pre-recovery)
+decrypt with password_2-derived master key: ok, 2 files
+title present: true
+```
+
+The blob encrypted under password-one's wrapping opens under
+password-two's — the master key itself never changed, only its
+wrapping. Post-recovery `/api/cloud/sync` would re-derive the same
+per-meeting keys from the same master key.
