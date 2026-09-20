@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
+import { SettingsCloud } from "@/components/SettingsCloud"
 import { SettingsConfig } from "@/components/SettingsConfig"
 import { SettingsTranslate } from "@/components/SettingsTranslate"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -64,12 +65,16 @@ function App() {
             <TabsList className="mx-auto mb-6 flex w-fit px-6">
               <TabsTrigger value="engines">Engines</TabsTrigger>
               <TabsTrigger value="translation">Translation</TabsTrigger>
+              <TabsTrigger value="cloud">Cloud</TabsTrigger>
             </TabsList>
             <TabsContent value="engines">
               <SettingsConfig />
             </TabsContent>
             <TabsContent value="translation">
               <SettingsTranslate />
+            </TabsContent>
+            <TabsContent value="cloud">
+              <SettingsCloud />
             </TabsContent>
           </Tabs>
         )}
