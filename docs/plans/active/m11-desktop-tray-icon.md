@@ -218,10 +218,28 @@ blocker to finishing your part.
   tools, translate), `cmd/catchm` binary builds, web UI builds clean.
   `web/dist/index.html` remained unchanged after the rebuild (same
   content-hash build as pre-M11).
-- **Acceptance criterion 3 (live tray behavior)**: not verified in
-  this sandbox — needs the human Windows pass, same as M5's original
-  gap. Checklist for that pass: `wails build` succeeds; tray icon
-  appears; closing the window hides it and the process stays alive;
-  "Open CatchM" restores the window; "Quit" exits the process; tooltip
-  shows "CatchM — Recording" during a live capture and reverts to
-  "CatchM" after ending the meeting.
+- **Acceptance criterion 3 (live tray behavior) — verified on real
+  Windows (2026-09-20)**:
+  - `wails build` succeeded end-to-end on a real Windows 11 machine
+    (same toolchain from M5: Go 1.27.0 + WinLibs mingw-w64 + Wails CLI
+    v2.16.0), pulling `energye/systray` and compiling cleanly.
+  - Launched the real `catchm-desktop.exe`; confirmed via `Get-Process`
+    the process started and was responding.
+  - Confirmed the close-hides-not-quits behavior programmatically
+    (rather than via more full-screen screenshots, to avoid capturing
+    unrelated content on the live desktop): sent `WM_CLOSE` to the main
+    window via `PostMessage`. Result: the process was still running
+    afterward (same PID) with `MainWindowTitle` now empty — i.e. the
+    window was hidden, not destroyed, and the app did not exit. This is
+    exactly `OnBeforeClose`'s intended behavior.
+  - **Not independently re-verified in this pass**: the tray icon's
+    visual appearance in the notification area, and clicking "Open
+    CatchM"/"Quit" from the tray menu directly (Windows hides new tray
+    icons in the overflow area by default, and reaching it interactively
+    risked more full-desktop screenshots of the user's active screen,
+    which was avoided). The close→hide behavior above is strong
+    evidence the tray/OnBeforeClose wiring initialized successfully
+    (a crash in `systray.Run` or its onReady callback would likely have
+    prevented the app from reaching a stable hidden state at all), but
+    the tooltip text and menu click paths specifically are still only
+    code-reviewed, not click-tested.
