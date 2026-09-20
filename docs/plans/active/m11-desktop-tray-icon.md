@@ -61,6 +61,22 @@ coordinating window show/hide via Wails's own runtime package
     reach it (a package-level variable guarded appropriately, or a small
     struct — this is a single-window desktop app, a simple approach is
     fine, don't over-engineer a DI framework for one context value).
+  - **Tooltip reflects active-meeting state.** Added after UX research
+    into similar apps (Granola, Fathom, Otter): the single most common
+    complaint/failure mode in this category is the app *looking* idle or
+    *looking* like it's recording when it actually isn't — users only
+    find out after the meeting ends. Cheaply address this: a background
+    goroutine polls `GET /api/meetings` on the same handler this binary
+    already serves (call the handler in-process — no real HTTP round
+    trip needed, or just hit `http://127.0.0.1:<port>` if that's
+    simpler given how the server is already wired here, your call) every
+    few seconds; if any meeting has `ended_at == null` (still active),
+    call `systray.SetTooltip("CatchM — Recording")`, otherwise
+    `systray.SetTooltip("CatchM")`. No second icon asset, no animation —
+    just the tooltip text, which is the cheapest possible way to make
+    the tray honestly reflect real state per the research's core lesson.
+    Stop this poll goroutine cleanly on app quit (tie it to the same
+    context/quit signal as everything else, don't leak it).
 - `Taskfile.yml`/`README.md`: no changes needed unless the new
   dependency requires an extra system package on Linux beyond what's
   already documented (energye/systray needs `libayatana-appindicator3-dev`
