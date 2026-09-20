@@ -192,3 +192,63 @@ func TestDeriveRecoveryKeyDifferentCodes(t *testing.T) {
 		t.Fatal("different recovery codes produced the same key")
 	}
 }
+
+func TestSetupAccountThenUnlockRoundTrips(t *testing.T) {
+	secrets, err := SetupAccount("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(DeriveAuthHash(DeriveAuthKey("correct horse battery staple", secrets.AuthSalt, secrets.KDFParams)), secrets.AuthHash) {
+		t.Fatal("AuthHash does not match an independent re-derivation")
+	}
+
+	masterKey, err := UnlockWithPassword("correct horse battery staple", secrets.AuthSalt, secrets.KDFParams, secrets.WrappedMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(masterKey, secrets.MasterKey) {
+		t.Fatal("unlock recovered a different master key than signup generated")
+	}
+}
+
+func TestUnlockFailsWithWrongPassword(t *testing.T) {
+	secrets, err := SetupAccount("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterKey, err := UnlockWithPassword("wrong horse battery staple", secrets.AuthSalt, secrets.KDFParams, secrets.WrappedMasterKey)
+	if err == nil {
+		t.Fatal("unlock with wrong password unexpectedly succeeded")
+	}
+	if masterKey != nil {
+		t.Fatal("failed unlock must not return key bytes")
+	}
+}
+
+func TestRecoveryRoundTrips(t *testing.T) {
+	secrets, err := SetupAccount("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterKey, err := RecoverMasterKey(secrets.RecoveryCode, secrets.RecoverySalt, secrets.RecoveryKDFParams, secrets.RecoveryBlob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(masterKey, secrets.MasterKey) {
+		t.Fatal("recovery recovered a different master key than signup generated")
+	}
+}
+
+func TestRecoveryFailsWithWrongCode(t *testing.T) {
+	secrets, err := SetupAccount("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	masterKey, err := RecoverMasterKey("VWXYZ-KLMNP-FGHIJ-ABCDE-QRSTU", secrets.RecoverySalt, secrets.RecoveryKDFParams, secrets.RecoveryBlob)
+	if err == nil {
+		t.Fatal("recovery with wrong code unexpectedly succeeded")
+	}
+	if masterKey != nil {
+		t.Fatal("failed recovery must not return key bytes")
+	}
+}

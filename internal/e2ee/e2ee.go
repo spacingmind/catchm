@@ -164,3 +164,92 @@ func DeriveRecoveryKey(recoveryCode string, salt []byte) ([]byte, KDFParams) {
 	params := DefaultKDFParams
 	return DeriveAuthKey(recoveryCode, salt, params), params
 }
+
+// saltLen is the length of the random salts generated at signup
+// (auth_salt and recovery_salt). 16 bytes is comfortably above the
+// 8-byte minimum for Argon2id salts.
+const saltLen = 16
+
+func randomSalt() ([]byte, error) {
+	salt := make([]byte, saltLen)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, fmt.Errorf("e2ee: salt: %w", err)
+	}
+	return salt, nil
+}
+
+// AccountSecrets bundles everything the signup flow produces: what
+// gets sent to the Worker, what stays local, and the recovery values.
+// MasterKey and RecoveryCode never leave the client; RecoveryCode is
+// shown to the user exactly once.
+type AccountSecrets struct {
+	MasterKey         []byte
+	AuthSalt          []byte
+	AuthHash          []byte
+	KDFParams         KDFParams
+	WrappedMasterKey  []byte
+	RecoveryCode      string
+	RecoverySalt      []byte
+	RecoveryBlob      []byte
+	RecoveryKDFParams KDFParams
+}
+
+// SetupAccount performs the full first-device signup derivation:
+// master key, password-derived wrapping, and the recovery blob. There
+// is no separate KeyWrapParams — the key_wrap_key is re-derived from
+// the same Argon2id run (KDFParams) that produced auth_hash, so
+// UnlockWithPassword only needs AuthSalt + KDFParams.
+func SetupAccount(password string) (*AccountSecrets, error) {
+	authSalt, err := randomSalt()
+	if err != nil {
+		return nil, err
+	}
+	authKey := DeriveAuthKey(password, authSalt, DefaultKDFParams)
+	masterKey := GenerateMasterKey()
+	wrappedMasterKey, err := WrapKey(masterKey, DeriveKeyWrapKey(authKey))
+	if err != nil {
+		return nil, err
+	}
+
+	recoveryCode, err := GenerateRecoveryCode()
+	if err != nil {
+		return nil, err
+	}
+	recoverySalt, err := randomSalt()
+	if err != nil {
+		return nil, err
+	}
+	recoveryKey, recoveryParams := DeriveRecoveryKey(recoveryCode, recoverySalt)
+	recoveryBlob, err := WrapKey(masterKey, recoveryKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AccountSecrets{
+		MasterKey:         masterKey,
+		AuthSalt:          authSalt,
+		AuthHash:          DeriveAuthHash(authKey),
+		KDFParams:         DefaultKDFParams,
+		WrappedMasterKey:  wrappedMasterKey,
+		RecoveryCode:      recoveryCode,
+		RecoverySalt:      recoverySalt,
+		RecoveryBlob:      recoveryBlob,
+		RecoveryKDFParams: recoveryParams,
+	}, nil
+}
+
+// UnlockWithPassword re-derives the key_wrap_key from the password and
+// the salt/params a login response carries, and unwraps the master
+// key. A wrong password yields a wrong key_wrap_key, which the AEAD
+// open rejects.
+func UnlockWithPassword(password string, salt []byte, params KDFParams, wrappedMasterKey []byte) ([]byte, error) {
+	authKey := DeriveAuthKey(password, salt, params)
+	return UnwrapKey(wrappedMasterKey, DeriveKeyWrapKey(authKey))
+}
+
+// RecoverMasterKey unwraps the master key from the recovery blob using
+// the recovery code and the salt/params stored alongside it.
+func RecoverMasterKey(recoveryCode string, salt []byte, params KDFParams, recoveryBlob []byte) ([]byte, error) {
+	recoveryKey, _ := DeriveRecoveryKey(recoveryCode, salt)
+	return UnwrapKey(recoveryBlob, recoveryKey)
+}
