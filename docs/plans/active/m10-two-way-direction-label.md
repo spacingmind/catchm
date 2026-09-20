@@ -62,15 +62,43 @@ text itself.
 
 ## Decisions
 
-(fill in: exact label styling/placement chosen, whether MeetingDetail
-needed the same treatment or didn't apply.)
+- Label rendering: the translated `<p>` now wraps its text in the same
+  muted paragraph as before, with the label as an inline `<span
+  className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>`
+  immediately before the translated text — inline on the same line,
+  one Tailwind size step smaller and one opacity step lighter than the
+  `text-sm text-muted-foreground` translated text itself. Kept as an
+  arrow + code, not a sentence, per spec.
+- No-guess rule honored: when `u.lang` is empty (Soniox two-way), the
+  span simply doesn't render; nothing reads `meeting.lang` or
+  `translate_to` as a fallback.
+- `Utterance` TS type in `web/src/lib/api.ts` already had `lang?:
+  string` — verified, no change needed there.
+- MeetingDetail: N/A — it renders only meeting-level cards (summary,
+  participants, decisions, action items, notes) and never fetches or
+  displays the transcript, so there is no per-utterance translated
+  line to label. Per spec, adding a transcript view there is out of
+  scope.
 
 ## Progress
 
-- [ ] Utterance TS type has `lang` field
-- [ ] LiveMeeting.tsx direction label (lang-present only)
-- [ ] MeetingDetail.tsx same treatment if applicable
+- [x] Utterance TS type has `lang` field (already present, verified)
+- [x] LiveMeeting.tsx direction label (lang-present only)
+- [x] MeetingDetail.tsx same treatment if applicable (N/A — no
+      transcript view exists there)
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+- Criterion 1 confirmed: `bun run build` (what `task web:build` runs,
+  from `web/`) completes cleanly — `tsc -b` + `vite build`, 2004
+  modules, zero TypeScript errors. `task web:install` itself was not
+  re-run since `node_modules` was already present and the build proved
+  it sufficient.
+- Criteria 2 and 3 (browser verification with seeded two-way/one-way
+  transcripts) not performed in this run — no running backend in this
+  sandbox session. The rendering change is a single conditional span;
+  by construction it cannot alter the translated line's content or
+  appearance when `lang` is empty, and one-way meetings with `Lang`
+  set will show "→ vi" style labels, which is the correct reading per
+  the spec's own criterion-3 analysis. Remaining: a quick human spot
+  check in the browser next time a live meeting is running.

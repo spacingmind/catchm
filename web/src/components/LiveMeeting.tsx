@@ -111,7 +111,12 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
               <div key={u.seq}>
                 {u.speaker && <p className="text-xs font-medium text-muted-foreground">{u.speaker}</p>}
                 <p className="text-sm">{u.text}</p>
-                {u.translated && <p className="text-sm text-muted-foreground">{u.translated}</p>}
+                {u.translated && (
+                  <p className="text-sm text-muted-foreground">
+                    {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
+                    {u.translated}
+                  </p>
+                )}
               </div>
             ))
           )}
