@@ -248,10 +248,22 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	json.NewEncoder(w).Encode(body)
 }
 
+// httptestNewServer/httptestSignup are thin renames so sync_test.go can
+// reuse the fake Worker and signup helper against shared fixtures.
+func httptestNewServer(t *testing.T, worker *fakeWorker) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(worker.handler())
+	t.Cleanup(server.Close)
+	return server
+}
+
+func httptestSignup(t *testing.T, c *Client, email string) string {
+	return testSignup(t, c, email)
+}
+
 func newTestClient(t *testing.T) *Client {
 	t.Helper()
-	server := httptest.NewServer(newFakeWorker().handler())
-	t.Cleanup(server.Close)
+	server := httptestNewServer(t, newFakeWorker())
 	return NewClient(server.URL)
 }
 
