@@ -1,6 +1,6 @@
 # Plan: M12 — catchm-cloud backend skeleton + auth
 
-- Status: active
+- Status: complete
 - Created: 2026-09-20
 - Repo: `spacingmind/catchm-cloud` (separate repo, already scaffolded:
   Cloudflare Worker + D1 + R2, `wrangler dev` verified working locally
