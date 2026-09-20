@@ -134,23 +134,34 @@ data, any UI, device-linking crypto (M14), storing anything in
 
 ## Decisions
 
-(fill in: exact Argon2id parameters chosen and source for "current
-recommended" figures, whether `auth_hash` is a separate HKDF output or
-folded differently, recovery code format chosen (wordlist vs. random
-string) and why, exact XChaCha20-Poly1305 wrapped-value wire format —
-nonce-prepended-to-ciphertext or a small struct with explicit fields,
-your call, just be consistent and document it since M13c depends on
-the exact byte layout.)
-
+- **Argon2id parameters**: `DefaultKDFParams` = t=2, m=19456 KiB (19 MiB), p=1, keyLen=32 — OWASP Password Storage Cheat Sheet's current minimum-recommended Argon2id configuration (https://cheatsheetseries.owasp.org, Argon2id section). Used for both the password and recovery-code paths.
+- **auth_hash / key_wrap_key separation**: both are HKDF-SHA256 expansions of the same Argon2id `authKey` (`hkdf.New(sha256.New, authKey, nil, info)`, no salt, 32 bytes each) with distinct `info` strings: `"catchm-cloud/auth-hash"` and `"catchm-cloud/key-wrap"`. `DeriveAuthHash` is kept as a separate exported function rather than folded into `DeriveAuthKey` so M13c can re-derive `auth_hash` alone for login.
+- **Recovery code format**: formatted random string, not a word-list mnemonic — five groups of five characters from a 32-symbol unambiguous alphabet (`A-Z` minus `I`/`O`, digits minus `0`/`1`), dash-separated, ≈125 bits of entropy. A mnemonic would require vendoring a ~2048-word list or a new dependency; the alphabet is exactly 32 symbols so one random byte maps to one character with zero modulo bias.
+- **Wrapped-value wire format**: `24-byte random XChaCha20 nonce || AEAD ciphertext || 16-byte Poly1305 tag` — nonce prepended, no struct. Documented in the `WrapKey` doc comment; M13c's `wrapped_master_key` and `recovery_blob` are exactly these bytes.
+- **KeyWrapParams dropped as redundant**: the spec listed a `KeyWrapParams` field on `AccountSecrets`, but `key_wrap_key` is HKDF-derived from the same Argon2id run as `auth_hash` — there are no separate wrap-KDF parameters, so the field would be a fake copy of `KDFParams`. Dropped; `UnlockWithPassword` takes only `AuthSalt` + `KDFParams`.
+- **RecoverySalt added to `AccountSecrets`**: recovery needs its own salt later (the Worker stores it alongside `recovery_blob`), so the struct carries `RecoverySalt` explicitly rather than leaving M13c to invent one. Salts are 16 random bytes.
 ## Progress
 
-- [ ] GenerateMasterKey
-- [ ] DeriveAuthKey / DeriveAuthHash (Argon2id + HKDF separation)
-- [ ] WrapKey / UnwrapKey (XChaCha20-Poly1305)
-- [ ] GenerateRecoveryCode / DeriveRecoveryKey
-- [ ] SetupAccount / UnlockWithPassword / RecoverMasterKey wiring
-- [ ] Full adversarial test suite (tamper, truncation, wrong key/password/code)
-
+- [x] GenerateMasterKey
+- [x] DeriveAuthKey / DeriveAuthHash (Argon2id + HKDF separation)
+- [x] WrapKey / UnwrapKey (XChaCha20-Poly1305)
+- [x] GenerateRecoveryCode / DeriveRecoveryKey
+- [x] SetupAccount / UnlockWithPassword / RecoverMasterKey wiring
+- [x] Full adversarial test suite (tamper, truncation, wrong key/password/code)
 ## Validation
 
-(to be filled as criteria are confirmed)
+`go build ./... && go vet ./... && gofmt -l .` clean. `go test ./internal/e2ee/... -v`: 17/17 pass.
+
+All ten acceptance criteria covered:
+1. build/vet/gofmt/test green
+2. TestSetupAccountThenUnlockRoundTrips
+3. TestUnlockFailsWithWrongPassword
+4. TestUnwrapFailsOnTamperedCiphertext (4 tamper positions incl. tag byte)
+5. TestUnwrapFailsOnTruncatedInput (4 sub-nonce lengths)
+6. TestRecoveryRoundTrips
+7. TestRecoveryFailsWithWrongCode
+8. TestDeriveAuthHashAndKeyWrapKeyAreIndependent
+9. TestSameInputsDeterministic
+10. TestDifferentSaltsProduceDifferentKeys
+
+Commits: 534f0f1 (GenerateMasterKey/KDFParams), ed23413 (DeriveAuthKey/HKDF), 8738dfb (WrapKey/UnwrapKey), c8f9721 (recovery code/key), cacdf1c (wiring).
