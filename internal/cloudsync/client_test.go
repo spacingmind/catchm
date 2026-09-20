@@ -97,6 +97,21 @@ func (f *fakeWorker) handleSignup(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"error":"invalid email"}`)
 		return
 	}
+	// Mirror the real Worker's SIGNUP_STRING_FIELDS validation: all
+	// nine opaque fields must be non-empty strings. This is what makes
+	// TestSignupSendsAllRequiredFields (internal/server) able to catch
+	// a handler that forgets one.
+	for _, v := range []string{
+		req.AuthHash, req.AuthSalt, req.KDFParams,
+		req.WrappedMasterKey, req.KeyWrapParams,
+		req.RecoverySalt, req.RecoveryAuthHash, req.RecoveryBlob, req.RecoveryKDFParams,
+	} {
+		if v == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":"missing or empty field"}`)
+			return
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, dup := f.users[req.Email]; dup {
@@ -404,7 +419,8 @@ func TestSignupSuccess(t *testing.T) {
 	c := newTestClient(t)
 	token, expiresAt, err := c.Signup(SignupRequest{
 		Email: "a@example.com", AuthHash: "h", AuthSalt: "s", KDFParams: "{}",
-		WrappedMasterKey: "w", KeyWrapParams: "{}", RecoveryBlob: "r", RecoveryKDFParams: "{}",
+		WrappedMasterKey: "w", KeyWrapParams: "{}", RecoverySalt: "rs", RecoveryAuthHash: "rh",
+		RecoveryBlob: "r", RecoveryKDFParams: "{}",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -422,7 +438,8 @@ func TestSignupDuplicateEmail(t *testing.T) {
 	testSignup(t, c, "dup@example.com")
 	_, _, err := c.Signup(SignupRequest{
 		Email: "dup@example.com", AuthHash: "h", AuthSalt: "s", KDFParams: "{}",
-		WrappedMasterKey: "w", KeyWrapParams: "{}", RecoveryBlob: "r", RecoveryKDFParams: "{}",
+		WrappedMasterKey: "w", KeyWrapParams: "{}", RecoverySalt: "rs", RecoveryAuthHash: "rh",
+		RecoveryBlob: "r", RecoveryKDFParams: "{}",
 	})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate signup err = %v, want ErrConflict", err)

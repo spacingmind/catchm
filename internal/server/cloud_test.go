@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,19 +18,19 @@ import (
 // newCloudTestServer builds a Server whose cloud client hits the shared
 // fake Worker, with CATCHM_HOME isolated to a temp dir so config.yaml
 // persistence is real and observable.
-func newCloudTestServer(t *testing.T) (*Server, *httptest.Server) {
+func newCloudTestServer(t *testing.T) (*Server, *cloudFakeWorker) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("CATCHM_HOME", home)
 
-	server := httptestNewCloudWorker(t)
+	fake := httptestNewCloudWorker(t)
 	store, err := meeting.NewStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(tools.New(store), &config.Config{Cloud: config.CloudConfig{APIBaseURL: server.URL}})
-	s.newCloudClient = func() *cloudsync.Client { return cloudsync.NewClient(server.URL) }
-	return s, server
+	s := New(tools.New(store), &config.Config{Cloud: config.CloudConfig{APIBaseURL: fake.url}})
+	s.newCloudClient = func() *cloudsync.Client { return cloudsync.NewClient(fake.url) }
+	return s, fake
 }
 
 func doCloud(t *testing.T, s *Server, method, path, body string) (int, map[string]any) {
@@ -231,8 +232,10 @@ func TestCloudSignupMasterKeyNeverPersisted(t *testing.T) {
 // here that mirrors the same response shapes.
 
 type cloudFakeWorker struct {
-	users    map[string]cloudsync.SignupRequest // email -> stored signup fields
-	sessions map[string]string
+	users      map[string]cloudsync.SignupRequest // email -> stored signup fields
+	sessions   map[string]string
+	url        string
+	resetCalls int
 }
 
 func (f *cloudFakeWorker) handler() http.Handler {
@@ -278,6 +281,65 @@ func (f *cloudFakeWorker) handler() http.Handler {
 			"wrapped_master_key": stored.WrappedMasterKey, "key_wrap_params": stored.KeyWrapParams,
 		})
 	})
+	mux.HandleFunc("/recovery-params", func(w http.ResponseWriter, r *http.Request) {
+		email := r.URL.Query().Get("email")
+		if stored, ok := f.users[email]; ok {
+			writeCloudJSON(w, http.StatusOK, map[string]string{
+				"recovery_salt": stored.RecoverySalt, "recovery_kdf_params": stored.RecoveryKDFParams,
+			})
+			return
+		}
+		writeCloudJSON(w, http.StatusOK, map[string]string{
+			"recovery_salt": "ZmFrZS1yZWNvdmVyeS1zYWx0", "recovery_kdf_params": `{"time":2,"memory":19456,"parallelism":1,"key_len":32}`,
+		})
+	})
+	mux.HandleFunc("/recover", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email            string `json:"email"`
+			RecoveryAuthHash string `json:"recovery_auth_hash"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		stored, ok := f.users[req.Email]
+		if !ok || stored.RecoveryAuthHash != req.RecoveryAuthHash {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+			return
+		}
+		token := "rtok-" + stored.Email
+		f.sessions[token] = stored.Email
+		writeCloudJSON(w, http.StatusOK, map[string]any{
+			"session_token": token, "expires_at": int64(1 << 40),
+			"recovery_blob": stored.RecoveryBlob, "recovery_kdf_params": stored.RecoveryKDFParams,
+		})
+	})
+	mux.HandleFunc("/account/reset-password", func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		email, ok := f.sessions[bearer]
+		if !ok || !strings.HasPrefix(bearer, "rtok-") && !strings.HasPrefix(bearer, "tok-") {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		var req cloudsync.ResetPasswordRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		for _, v := range []string{req.AuthHash, req.AuthSalt, req.KDFParams, req.WrappedMasterKey,
+			req.RecoverySalt, req.RecoveryAuthHash, req.RecoveryBlob, req.RecoveryKDFParams} {
+			if v == "" {
+				writeCloudJSON(w, http.StatusBadRequest, map[string]string{"error": "missing or empty field"})
+				return
+			}
+		}
+		f.resetCalls++
+		stored := f.users[email]
+		stored.AuthHash = req.AuthHash
+		stored.AuthSalt = req.AuthSalt
+		stored.KDFParams = req.KDFParams
+		stored.WrappedMasterKey = req.WrappedMasterKey
+		stored.RecoverySalt = req.RecoverySalt
+		stored.RecoveryAuthHash = req.RecoveryAuthHash
+		stored.RecoveryBlob = req.RecoveryBlob
+		stored.RecoveryKDFParams = req.RecoveryKDFParams
+		f.users[email] = stored
+		writeCloudJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 	return mux
 }
 
@@ -287,11 +349,13 @@ func writeCloudJSON(w http.ResponseWriter, code int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-func httptestNewCloudWorker(t *testing.T) *httptest.Server {
+func httptestNewCloudWorker(t *testing.T) *cloudFakeWorker {
 	t.Helper()
-	server := httptest.NewServer((&cloudFakeWorker{users: map[string]cloudsync.SignupRequest{}, sessions: map[string]string{}}).handler())
+	f := &cloudFakeWorker{users: map[string]cloudsync.SignupRequest{}, sessions: map[string]string{}}
+	server := httptest.NewServer(f.handler())
 	t.Cleanup(server.Close)
-	return server
+	f.url = server.URL
+	return f
 }
 
 func mustConfigPath(t *testing.T) string {
@@ -310,4 +374,115 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+// Regression for the M15 signup gap: the server handler must send ALL
+// fields the real Worker requires — the fake validates every one of
+// them, so a handler forgetting RecoverySalt/RecoveryAuthHash fails
+// here with a 400 instead of silently succeeding against a stub.
+func TestCloudSignupSendsAllRequiredFields(t *testing.T) {
+	s, fake := newCloudTestServer(t)
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/signup",
+		`{"email":"fields@example.com","password":"correct horse battery staple"}`)
+	if code != http.StatusOK {
+		t.Fatalf("signup code = %d, body = %v", code, body)
+	}
+
+	stored, ok := fake.users["fields@example.com"]
+	if !ok {
+		t.Fatal("signup not stored in fake worker")
+	}
+	for name, v := range map[string]string{
+		"auth_hash": stored.AuthHash, "auth_salt": stored.AuthSalt,
+		"wrapped_master_key": stored.WrappedMasterKey,
+		"recovery_salt":      stored.RecoverySalt, "recovery_auth_hash": stored.RecoveryAuthHash,
+		"recovery_blob": stored.RecoveryBlob, "recovery_kdf_params": stored.RecoveryKDFParams,
+	} {
+		if v == "" {
+			t.Fatalf("signup stored empty %s", name)
+		}
+	}
+	// recovery_salt decodes back to 16 bytes (e2ee.saltLen).
+	salt, err := base64.StdEncoding.DecodeString(stored.RecoverySalt)
+	if err != nil || len(salt) != 16 {
+		t.Fatalf("recovery_salt not base64 of 16 bytes: %v, %d bytes", err, len(salt))
+	}
+}
+
+func TestCloudRecoverFlow(t *testing.T) {
+	s, _ := newCloudTestServer(t)
+
+	// Signup, capture the recovery code.
+	_, body := doCloud(t, s, http.MethodPost, "/api/cloud/signup",
+		`{"email":"rec@example.com","password":"old password"}`)
+	originalCode, _ := body["recovery_code"].(string)
+	if originalCode == "" {
+		t.Fatalf("signup returned no recovery code: %v", body)
+	}
+
+	// Simulate lost password: call recover with the code + a new password.
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/recover",
+		`{"email":"rec@example.com","recovery_code":"`+originalCode+`","new_password":"new password"}`)
+	if code != http.StatusOK {
+		t.Fatalf("recover code = %d, body = %v", code, body)
+	}
+	newCode, _ := body["recovery_code"].(string)
+	if newCode == "" || newCode == originalCode {
+		t.Fatalf("recover must return a NEW rotated code: %q vs %q", newCode, originalCode)
+	}
+
+	// Logged in immediately after recovery.
+	code, body = doCloud(t, s, http.MethodGet, "/api/cloud/status", "")
+	if code != http.StatusOK || body["logged_in"] != true || body["email"] != "rec@example.com" {
+		t.Fatalf("status after recover = %d %v", code, body)
+	}
+
+	// New password works; old one doesn't.
+	code, _ = doCloud(t, s, http.MethodPost, "/api/cloud/login",
+		`{"email":"rec@example.com","password":"new password"}`)
+	if code != http.StatusOK {
+		t.Fatalf("login with new password after recover = %d", code)
+	}
+	code, _ = doCloud(t, s, http.MethodPost, "/api/cloud/login",
+		`{"email":"rec@example.com","password":"old password"}`)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("login with old password after recover = %d, want 401", code)
+	}
+
+	// The OLD recovery code no longer recovers (rotation).
+	code, _ = doCloud(t, s, http.MethodPost, "/api/cloud/recover",
+		`{"email":"rec@example.com","recovery_code":"`+originalCode+`","new_password":"again"}`)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("recover with OLD code after rotation = %d, want 401", code)
+	}
+	// The NEW code does.
+	code, _ = doCloud(t, s, http.MethodPost, "/api/cloud/recover",
+		`{"email":"rec@example.com","recovery_code":"`+newCode+`","new_password":"third"}`)
+	if code != http.StatusOK {
+		t.Fatalf("recover with NEW code after rotation = %d", code)
+	}
+}
+
+func TestCloudRecoverWrongCodeNeverResetsPassword(t *testing.T) {
+	s, fake := newCloudTestServer(t)
+	doCloud(t, s, http.MethodPost, "/api/cloud/signup",
+		`{"email":"wrongrec@example.com","password":"old password"}`)
+
+	// Count reset-password calls the fake receives.
+	before := fake.resetCalls
+	code, _ := doCloud(t, s, http.MethodPost, "/api/cloud/recover",
+		`{"email":"wrongrec@example.com","recovery_code":"AAAAA-BBBBB-CCCCC-DDDDD-EEEEE","new_password":"new"}`)
+	if code != http.StatusUnauthorized {
+		t.Fatalf("recover with wrong code = %d, want 401", code)
+	}
+	if fake.resetCalls != before {
+		t.Fatalf("reset-password was called %d times despite wrong recovery code", fake.resetCalls-before)
+	}
+
+	// Original password still logs in — nothing was overwritten.
+	code, _ = doCloud(t, s, http.MethodPost, "/api/cloud/login",
+		`{"email":"wrongrec@example.com","password":"old password"}`)
+	if code != http.StatusOK {
+		t.Fatalf("original password broken by a failed recover attempt: %d", code)
+	}
 }

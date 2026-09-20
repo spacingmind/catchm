@@ -58,6 +58,8 @@ func (s *Server) handleCloudSignup(w http.ResponseWriter, r *http.Request) {
 		KDFParams:         mustJSON(secrets.KDFParams),
 		WrappedMasterKey:  base64.StdEncoding.EncodeToString(secrets.WrappedMasterKey),
 		KeyWrapParams:     "{}",
+		RecoverySalt:      base64.StdEncoding.EncodeToString(secrets.RecoverySalt),
+		RecoveryAuthHash:  base64.StdEncoding.EncodeToString(secrets.RecoveryAuthHash),
 		RecoveryBlob:      base64.StdEncoding.EncodeToString(secrets.RecoveryBlob),
 		RecoveryKDFParams: mustJSON(secrets.RecoveryKDFParams),
 	})
@@ -196,6 +198,107 @@ func (s *Server) handleCloudSync(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleCloudRecover is the full lost-password flow in one call:
+// fetch recovery params, derive the recovery key and its auth hash
+// locally, prove knowledge of the code to the Worker, unwrap the
+// master key from the returned blob (a wrong code fails here, before
+// any reset-password call is attempted), then re-wrap under the new
+// password and a freshly rotated recovery code, push both halves to
+// the Worker, and land logged-in with the new session. The response's
+// recovery_code is the NEW one, same one-time-display contract as
+// signup.
+func (s *Server) handleCloudRecover(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email        string `json:"email"`
+		RecoveryCode string `json:"recovery_code"`
+		NewPassword  string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.Email == "" || req.RecoveryCode == "" || req.NewPassword == "" {
+		httpError(w, http.StatusBadRequest, "email, recovery_code and new_password are required")
+		return
+	}
+
+	client := s.cloudClient()
+	saltB64, kdfParams, err := client.RecoveryParams(req.Email)
+	if err != nil {
+		respondCloudErr(w, err)
+		return
+	}
+	salt, err := base64.StdEncoding.DecodeString(saltB64)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, "server returned malformed recovery salt")
+		return
+	}
+	var params e2ee.KDFParams
+	if kdfParams != "" {
+		if err := json.Unmarshal([]byte(kdfParams), &params); err != nil {
+			httpError(w, http.StatusBadGateway, "server returned malformed kdf params")
+			return
+		}
+	}
+	recoveryKey := e2ee.DeriveRecoveryKey(req.RecoveryCode, salt, params)
+
+	token, blobB64, _, err := client.Recover(req.Email, base64.StdEncoding.EncodeToString(e2ee.DeriveRecoveryAuthHash(recoveryKey)))
+	if err != nil {
+		respondCloudErr(w, err) // wrong code → 401 from the Worker (fake salt can't match)
+		return
+	}
+	blob, err := base64.StdEncoding.DecodeString(blobB64)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, "server returned malformed recovery blob")
+		return
+	}
+	masterKey, err := e2ee.RecoverMasterKey(req.RecoveryCode, salt, params, blob)
+	if err != nil {
+		// Right email, wrong code: the AEAD open on the real blob fails.
+		httpError(w, http.StatusUnauthorized, "invalid recovery code")
+		return
+	}
+
+	pw, err := e2ee.RewrapForPassword(masterKey, req.NewPassword)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rw, err := e2ee.RewrapForRecovery(masterKey)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	err = client.ResetPassword(token, cloudsync.ResetPasswordRequest{
+		AuthHash:          base64.StdEncoding.EncodeToString(pw.AuthHash),
+		AuthSalt:          base64.StdEncoding.EncodeToString(pw.AuthSalt),
+		KDFParams:         mustJSON(pw.KDFParams),
+		WrappedMasterKey:  base64.StdEncoding.EncodeToString(pw.WrappedMasterKey),
+		RecoverySalt:      base64.StdEncoding.EncodeToString(rw.RecoverySalt),
+		RecoveryAuthHash:  base64.StdEncoding.EncodeToString(rw.RecoveryAuthHash),
+		RecoveryBlob:      base64.StdEncoding.EncodeToString(rw.RecoveryBlob),
+		RecoveryKDFParams: mustJSON(rw.RecoveryKDFParams),
+	})
+	if err != nil {
+		respondCloudErr(w, err)
+		return
+	}
+
+	s.mu.Lock()
+	s.cloud = &cloudState{
+		email:        req.Email,
+		sessionToken: token,
+		masterKey:    masterKey,
+		loggedInAt:   time.Now(),
+	}
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"email":         req.Email,
+		"recovery_code": rw.RecoveryCode,
+	})
 }
 
 // cloudClient builds a Client for the configured backend URL (via the
