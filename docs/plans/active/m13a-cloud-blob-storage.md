@@ -152,17 +152,88 @@ need in the architecture doc, not blocking here), pagination on
   The ordering protects the invariant that matters: a D1 version is
   never bumped without the new bytes already durable, so a stale D1
   row still points at the previous intact R2 content.
+- **DELETE ordering** (done): the inverse of PUT — D1 row delete
+  first, then R2 delete. An orphaned R2 object after a partial
+  failure is unreachable and sweepable, whereas a leftover D1 row
+  pointing at deleted R2 bytes would serve a metadata/content
+  mismatch on GET, which is worse.
+- **GET/DELETE 404 semantics** (done): the D1 lookups are scoped
+  `WHERE user_id = ? AND id = ?`, so "exists but owned by someone
+  else" and "doesn't exist" are literally the same code path and the
+  same 404 — no existence leak via 403, and no branch to accidentally
+  diverge later.
 
 ## Progress
 
-- [ ] D1 migration 0002 (blobs table)
+- [x] D1 migration 0002 (blobs table)
 - [x] GET /auth-params (anti-enumeration)
 - [x] PUT /blobs/:id (optimistic concurrency, checksum validation)
 - [x] GET /blobs/:id
 - [x] GET /blobs (list)
-- [ ] DELETE /blobs/:id
-- [ ] tests + live smoke test
+- [x] DELETE /blobs/:id
+- [x] tests + live smoke test
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+- Acceptance criterion 1: `npm run typecheck && npm test` — clean,
+  42/42 tests across 6 files (blob endpoints: 20, incl. R2-content
+  verification on update/delete, cross-user 404s, 401s, optimistic-
+  concurrency 409s with real metadata, checksum 400s; auth-params:
+  5, incl. determinism + shape-equality; M12 suites unchanged).
+- Acceptance criterion 2: covered by test/blobs.test.ts and
+  test/auth-params.test.ts.
+- Acceptance criterion 4: `wrangler d1 migrations apply catchm-cloud
+  --local` applied 0002_blobs.sql cleanly on top of 0001 (step 1).
+- Acceptance criterion 3 — live smoke test, `npm run dev` (wrangler
+  4.135.0, local D1 + R2), curl round trip, actual output:
+
+```
+=== 1. signup (smoke-1789925311@example.com) ===
+{"session_token":"f4ad4fbe7fd6ff346b0e7cbb4a3a058029ad6d6f5325364b50f00ff9160ad401","expires_at":1792517311098}
+[status 200]
+=== 2. auth-params (expect real salt: smoke-salt-0123456789abcdef) ===
+{"auth_salt":"smoke-salt-0123456789abcdef","kdf_params":"{\"algo\":\"argon2id\",\"iterations\":2}"}
+[status 200]
+=== 3. auth-params for unknown email (expect 64-hex fake salt) ===
+{"auth_salt":"4417b7d5d7d61242d0d3017b95003cdd39181b58b3407de7f2e272b6bff12d58","kdf_params":"{\"algo\":\"argon2id\",\"memory_kib\":19456,\"iterations\":2,\"parallelism\":1}"}
+[status 200]
+=== 4. login ===
+{"session_token":"0c79a94e4fbade0bda1b3a19380acfaa1a210b0007319acc4408e545e1d9bf09","expires_at":1792517311158,"wrapped_master_key":"wmk","key_wrap_params":"{\"algo\":\"aes-gcm\"}"}
+=== 5. PUT blob new (X-Expected-Version: 0) ===
+{"version":1,"checksum":"7346bb09139434a8bc529819bfd2de0590257bc7462da610dcea1fa99eaf7f93"}
+[status 200]
+=== 6. GET blob back (bytes + headers) ===
+HTTP/1.1 200 OK
+Content-Length: 24
+Content-Type: application/octet-stream
+x-checksum: 7346bb09139434a8bc529819bfd2de0590257bc7462da610dcea1fa99eaf7f93
+x-version: 1
+
+--- fetched file: first version ciphertext
+BYTES MATCH
+=== 7. PUT with wrong expected-version (expect 409 + metadata v1) ===
+{"version":1,"checksum":"7346bb09139434a8bc529819bfd2de0590257bc7462da610dcea1fa99eaf7f93","size_bytes":24,"updated_at":1789925311251}
+[status 409]
+=== 8. PUT with correct expected-version: 1 (expect v2) ===
+{"version":2,"checksum":"ca0f40917e9c3962b27dd0bdb6433c19afff40b7529d5eed53b46b08443f820b"}
+[status 200]
+=== 9. GET /blobs list ===
+[{"id":"meet-smoke-1","version":2,"checksum":"ca0f40917e9c3962b27dd0bdb6433c19afff40b7529d5eed53b46b08443f820b","size_bytes":25,"updated_at":1789925311390}]
+[status 200]
+=== 10. DELETE blob (expect 204) ===
+
+[status 204]
+=== 11. GET after delete (expect 404) ===
+{"error":"not found"}
+[status 404]
+=== 12. list after delete (expect []) ===
+[]
+[status 200]
+```
+
+All checks passed: real salt returned for the registered email vs a
+64-hex fake for the unknown one; new-blob PUT → version 1; GET
+returned the exact bytes with x-version/x-checksum headers; stale
+X-Expected-Version: 7 → 409 carrying the real v1 metadata; correct
+expected-version → 200 version 2; list showed the updated blob;
+DELETE → 204; subsequent GET → 404 and list → [].
