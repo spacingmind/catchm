@@ -1,124 +1,98 @@
 # Plan: M13d — Cloud sync web UI
 
-- Status: active
+- Status: draft (chưa bắt đầu code — chờ duyệt)
 - Created: 2026-09-21
-- Repo: `catchm` (web frontend only; no backend changes expected —
-  `/api/cloud/*` from M13c already covers everything this UI needs).
+- Repo: `catchm` (repo này). Dùng endpoints `/api/cloud/*` mà M13c
+  đã ship; không đổi backend trừ khi spec này yêu cầu.
 
 ## Goal
 
-Make M13c's cloud sync actually usable from the app: a settings screen
-to sign up or log in, a way to see sync status, a button to trigger a
-sync, and — critically — a clear, hard-to-miss display of the
-one-time recovery code at signup, since losing it means permanent data
-loss with no other recovery path (per `docs/cloud-sync-architecture.md`).
-Read `docs/plans/completed/m13c-cloud-sync-client.md` in full first —
-its Decisions section documents the exact `/api/cloud/*` request/
-response shapes from the real implementation.
+Màn hình cloud-sync trong web UI: đăng ký / đăng nhập / đăng xuất,
+hiển thị recovery code đúng một lần, nút Sync chạy orchestration và
+  báo kết quả (pushed/pulled/conflicted), thanh trạng thái đăng nhập.
+Không có gì trong UI biết đến crypto — mọi thứ crypto đã nằm trong
+`internal/server/cloud.go` (M13c); UI chỉ gọi HTTP.
 
 ## Scope
 
-### 1. `web/src/lib/api.ts` additions
+### 1. `web/src/lib/api.ts` — typed client additions (không network logic mới)
 
-Following the existing pattern (`getConfig`/`updateConfig`,
-`apiFetch<T>` helper, typed interfaces) add: `cloudSignup(email,
-password): Promise<{email: string, recovery_code: string}>`,
-`cloudLogin(email, password): Promise<{email: string}>`,
-`cloudLogout(): Promise<void>`, `getCloudStatus(): Promise<{logged_in:
-boolean, email?: string, logged_in_at?: string, last_sync_at?:
-string}>`, `cloudSync(): Promise<{pushed: string[] | null, pulled:
-string[] | null, conflicted: string[] | null}>`. Match the exact JSON
-field names `/api/cloud/*` actually returns (check `internal/server/cloud.go`
-directly, don't guess from the spec prose alone — field names must be
-byte-exact).
+Mirror 1:1 các route M13c, đúng quy ước file này đang theo (mỗi
+export corresponds to a route):
 
-### 2. `web/src/components/CloudSync.tsx` (new component)
+- `cloudSignup(email, password): Promise<{ email: string;
+  recovery_code: string }>`
+- `cloudLogin(email, password): Promise<{ email: string }>`
+- `cloudLogout(): Promise<{ status: string }>`
+- `cloudStatus(): Promise<CloudStatus>` — `CloudStatus` là union:
+  `{ logged_in: false }` hoặc `{ logged_in: true; email: string;
+  logged_in_at: string; last_sync_at: string }` (đúng JSON handler
+  trả về — `last_sync_at` là zero-time RFC3339 khi chưa sync).
+- `cloudSync(): Promise<SyncResult>` — `SyncResult { pushed: string[]
+  | null; pulled: string[] | null; conflicted: string[] | null }`
+  (null khi rỗng — Go marshals nil slice thành null, không phải []).
+- Error handling theo pattern sẵn có trong api.ts (non-2xx → throw
+  với message từ `{"error": ...}` body).
 
-A card in Settings (alongside `SettingsConfig`), state machine:
-- **Logged out**: tabs or a toggle between "Sign up" and "Log in",
-  each a small email+password form (password field type="password",
-  no confirm-password field needed — this isn't a web account with a
-  password-reset-by-email flow, losing the password without the
-  recovery code loses the data, say so in copy near the form).
-- **Just signed up**: show the `recovery_code` in a monospace,
-  copy-to-clipboard box with a clear warning that it is shown once,
-  will not be shown again, and must be saved somewhere safe (a
-  password manager, printed, etc.) — this is the single most important
-  UX moment in this milestone, don't undersell it visually. Require an
-  explicit "I've saved this" acknowledgment (a checkbox or button)
-  before the box goes away and the UI moves to the logged-in state —
-  don't auto-dismiss it on a timer or on navigating away.
-- **Logged in**: show the email, last sync time (human-relative, e.g.
-  "2 minutes ago" — check if the repo already has a relative-time
-  helper before adding a new dependency), a "Sync now" button
-  (disabled while a sync is in flight, shows a spinner/loading state),
-  and the result of the last sync (counts of pushed/pulled/conflicted,
-  or the actual meeting titles if that's easy — your call), a
-  "Log out" button. If `conflicted` is non-empty after a sync, surface
-  it plainly (which meetings, and that a `conflict-*` file was left in
-  that meeting's folder for manual review) — don't bury this in a toast
-  that disappears.
-- Loading and error states throughout (network errors, wrong
-  password, duplicate email on signup, etc.) — reuse whatever
-  error-display convention `SettingsConfig.tsx` already uses.
+### 2. `web/src/components/SettingsCloud.tsx` — tab Settings mới
 
-### 3. Wiring
+Tab "Cloud" trong Settings (đặt sau Translation), tái dùng
+`SettingsTranslate`'s layout pattern (card + form + status line):
 
-Add `CloudSync` to wherever `SettingsConfig` is rendered (find that
-page/route) so both appear together as "Settings". Match existing
-spacing/layout conventions in that page — look at how multiple config
-cards already stack, if any do.
+- **Chưa đăng nhập**: form email + password, hai nút "Sign up" /
+  "Log in". Signup thành công → dialog hiển thị recovery code +
+  cảnh báo "lưu lại ngay, không bao giờ hiển thị lại" + nút copy.
+  Đăng nhập nhầm (401) hiển thị lỗi inline, không reset form.
+- **Đã đăng nhập**: hiện email, thời điểm đăng nhập, last sync; nút
+  "Sync now" (disable khi đang chạy, spinner), nút "Log out".
+- Sync result: "Pushed 2 · Pulled 0 · Conflicted 1" + nếu conflicted
+  > 0, liệt kê meeting IDs kèm gợi ý mở thư mục meeting để xem file
+  `conflict-*` (đúng mô hình conflict-copy của M13c — UI chỉ báo
+  hiệu, không tự gộp).
+- Poll `cloudStatus()` mỗi 30s khi tab mở (để bắt sync chạy từ nơi
+  khác/CLI) — không poll khi component unmount.
 
-### 4. Manual test plan (this is UI — no meaningful unit-test coverage
-   is expected, per house convention for other UI milestones; instead
-   verify by hand)
+### 3. Điểm ánh xạ nhỏ trong server (chỉ nếu cần)
 
-Run the app (`go run ./cmd/catchm` or however it's normally started
-for manual testing) plus `catchm-cloud`'s `wrangler dev`, and actually
-click through: sign up, verify the recovery code display and its
-one-time behavior (refresh the page — is the code gone? correct,
-per design), sync a real meeting, verify status updates, log out, log
-back in with just email+password, verify the previously-synced meeting
-appears (may need the M13c sync-pull path, or may just already exist
-locally — note which). Force a conflict (edit a meeting through two
-different means, or via curl, matching M13c's own test approach if
-useful) and confirm the conflict is visible and non-silent in the UI.
-Record what you actually clicked and saw in Validation — screenshots
-if the tooling supports capturing them, otherwise a precise textual
-walkthrough.
+Không dự kiến thay đổi backend. `last_sync_at` zero-time
+(`0001-01-01T00:00:00Z`) hiển thị là "never". Nếu cần field mới
+(ví dụ đếm meetings local) thì ghi vào Decisions kèm lý do.
 
 ## Out of scope
 
-Device linking UI (M14), recovery-code-based account recovery UI
-(M15), any visual redesign of existing Settings beyond adding this
-card, desktop-tray integration with cloud sync status.
+Device linking UI (M14), recovery flow UI (/recover, M15), thay đổi
+crypto/protocol, deploy URL config UI (api_base_url vẫn là
+config-file only như M13c Decisions), i18n (UI là tiếng Anh như các
+tab khác).
 
 ## Acceptance criteria
 
-1. `npm run build` (or the repo's equivalent, check `web/package.json`)
-   and any lint/typecheck script clean.
-2. `go build ./... && go vet ./... && gofmt -l .` clean (embedding the
-   rebuilt web assets shouldn't break the Go build).
-3. Manual walkthrough per section 4 completed and recorded in
-   Validation, including the forced-conflict scenario.
-4. The recovery code is never re-displayable after the initial
-   acknowledgment — confirm by reading the code that it isn't cached
-   in component state beyond that screen, local storage, or anywhere
-   else client-side.
+1. `go build ./... && go vet ./... && gofmt -l .` sạch; `go test
+   ./...` xanh (không test Go mới trừ khi thêm server-side logic).
+2. `cd web && bun run build` (hoặc npm) build TypeScript sạch, không
+   type error.
+3. Thủ công với wrangler dev + catchm serve (giống M13c Validation):
+   signup qua UI → thấy recovery code một lần → tạo meeting → Sync
+   now → thấy "Pushed 1" → refresh → status đúng → logout → status
+   về not-logged-in. Paste output/screenshot mô tả vào Validation.
+4. Không secret nào (password, recovery code sau lần đầu, session
+   token) được ghi vào localStorage hay bất kỳ storage nào của
+   browser — recovery code chỉ render trong DOM lúc hiển thị.
 
 ## Decisions
 
-(fill in: exact api.ts function signatures added, where CloudSync.tsx
-was mounted, relative-time approach, how the conflict scenario was
-manually forced and verified.)
+(fill in khi duyệt: có tách CloudStatus union hay dùng optional
+fields; đặt tab Cloud trước hay sau Translation trong TabsList;
+recovery-code dialog là component riêng hay inline; refresh trạng
+thái sau sync bằng cách nào.)
 
 ## Progress
 
-- [ ] api.ts cloud endpoints
-- [ ] CloudSync.tsx component (signup/login/recovery-code/status/sync)
-- [ ] Wired into Settings
-- [ ] Manual end-to-end walkthrough incl. forced conflict, recorded
+- [ ] api.ts typed client cho /api/cloud/*
+- [ ] SettingsCloud component + tab Settings
+- [ ] Manual verification với wrangler dev (criterion 3)
+- [ ] Decisions/Validation điền đầy đủ
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+(to be filled)
