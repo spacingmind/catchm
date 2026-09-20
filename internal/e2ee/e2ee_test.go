@@ -171,23 +171,17 @@ func TestGenerateRecoveryCodeIsRandom(t *testing.T) {
 
 func TestDeriveRecoveryKeyDeterministic(t *testing.T) {
 	salt := []byte("recovery-salt-123")
-	key1, params1 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt)
-	key2, params2 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt)
+	key1 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt, DefaultKDFParams)
+	key2 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt, DefaultKDFParams)
 	if !bytes.Equal(key1, key2) {
 		t.Fatal("DeriveRecoveryKey is not deterministic for identical inputs")
-	}
-	if params1 != params2 {
-		t.Fatalf("params differ between identical calls: %+v vs %+v", params1, params2)
-	}
-	if params1 != DefaultKDFParams {
-		t.Fatalf("params = %+v, want DefaultKDFParams", params1)
 	}
 }
 
 func TestDeriveRecoveryKeyDifferentCodes(t *testing.T) {
 	salt := []byte("recovery-salt-123")
-	key1, _ := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt)
-	key2, _ := DeriveRecoveryKey("VWXYZ-KLMNP-FGHIJ-ABCDE-QRSTU", salt)
+	key1 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt, DefaultKDFParams)
+	key2 := DeriveRecoveryKey("VWXYZ-KLMNP-FGHIJ-ABCDE-QRSTU", salt, DefaultKDFParams)
 	if bytes.Equal(key1, key2) {
 		t.Fatal("different recovery codes produced the same key")
 	}
@@ -250,5 +244,41 @@ func TestRecoveryFailsWithWrongCode(t *testing.T) {
 	}
 	if masterKey != nil {
 		t.Fatal("failed recovery must not return key bytes")
+	}
+}
+
+// Regression test for the bug where RecoverMasterKey accepted a params
+// argument but DeriveRecoveryKey hardcoded DefaultKDFParams: recovery
+// must honor exactly the KDFParams the blob was wrapped with, even
+// when they differ from DefaultKDFParams.
+func TestRecoverMasterKeyHonorsNonDefaultParams(t *testing.T) {
+	custom := KDFParams{Time: 1, Memory: 64, Parallelism: 1, KeyLen: 32}
+	if custom == DefaultKDFParams {
+		t.Fatal("custom params must differ from DefaultKDFParams for this test to mean anything")
+	}
+
+	code, err := GenerateRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	salt := []byte("recovery-salt-123")
+	masterKey := GenerateMasterKey()
+	blob, err := WrapKey(masterKey, DeriveRecoveryKey(code, salt, custom))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := RecoverMasterKey(code, salt, custom, blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, masterKey) {
+		t.Fatal("recovery with matching non-default params failed to recover the master key")
+	}
+
+	// With params genuinely honored, mismatched params must fail the
+	// AEAD open rather than silently re-deriving with defaults.
+	if _, err := RecoverMasterKey(code, salt, DefaultKDFParams, blob); err == nil {
+		t.Fatal("recovery with mismatched params unexpectedly succeeded — params are not being honored")
 	}
 }

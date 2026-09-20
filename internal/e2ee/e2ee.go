@@ -159,10 +159,12 @@ func GenerateRecoveryCode() (string, error) {
 // DeriveRecoveryKey turns a recovery code into a key-wrapping key via
 // the same Argon2id treatment as the password path (recovery codes are
 // already high-entropy, but consistency with DeriveAuthKey is simpler
-// to reason about and test than a special case).
-func DeriveRecoveryKey(recoveryCode string, salt []byte) ([]byte, KDFParams) {
-	params := DefaultKDFParams
-	return DeriveAuthKey(recoveryCode, salt, params), params
+// to reason about and test than a special case). The params used at
+// signup are stored server-side and must be passed back here so
+// recovery stays reproducible even if DefaultKDFParams changes in a
+// future code version.
+func DeriveRecoveryKey(recoveryCode string, salt []byte, params KDFParams) []byte {
+	return DeriveAuthKey(recoveryCode, salt, params)
 }
 
 // saltLen is the length of the random salts generated at signup
@@ -219,7 +221,8 @@ func SetupAccount(password string) (*AccountSecrets, error) {
 	if err != nil {
 		return nil, err
 	}
-	recoveryKey, recoveryParams := DeriveRecoveryKey(recoveryCode, recoverySalt)
+	recoveryParams := DefaultKDFParams
+	recoveryKey := DeriveRecoveryKey(recoveryCode, recoverySalt, recoveryParams)
 	recoveryBlob, err := WrapKey(masterKey, recoveryKey)
 	if err != nil {
 		return nil, err
@@ -250,6 +253,6 @@ func UnlockWithPassword(password string, salt []byte, params KDFParams, wrappedM
 // RecoverMasterKey unwraps the master key from the recovery blob using
 // the recovery code and the salt/params stored alongside it.
 func RecoverMasterKey(recoveryCode string, salt []byte, params KDFParams, recoveryBlob []byte) ([]byte, error) {
-	recoveryKey, _ := DeriveRecoveryKey(recoveryCode, salt)
+	recoveryKey := DeriveRecoveryKey(recoveryCode, salt, params)
 	return UnwrapKey(recoveryBlob, recoveryKey)
 }
