@@ -182,22 +182,24 @@ multi-account support (one cloud account per local CatchM install).
 
 ## Decisions
 
-(fill in: exact bundle wire format byte layout, per-meeting key
-derivation info-string, manifest file location/format, conflict-copy
-file naming/format, whether `api_base_url` became part of `PUT
-/api/config` or stayed signup/login-managed, two-Store vs. real-
-wrangler-dev test strategy for the conflict test, session/master-key
-in-memory storage mechanism in `internal/server`.)
-
+- **Bundle wire format**: the plaintext fed to `e2ee.WrapKey` (XChaCha20-Poly1305, per M13b) is a sequence of `[4-byte big-endian filename length][filename][4-byte big-endian content length][content]` entries, one per file, files in sorted-name order so the same content always marshals identically. Files bundled: `meeting.md` + `utterances.jsonl` always, `utterances.v2.jsonl` when present; never `audio.wav`. The ciphertext blob is `24-byte nonce || ciphertext || 16-byte tag` (M13b's WrapKey layout).
+- **Per-meeting key derivation**: `e2ee.DeriveSubKey(masterKey, "catchm-cloud/meeting/"+meetingID)` — a new exported generalization of M13b's internal HKDF helper (HKDF-SHA256, 32 bytes). Added to `internal/e2ee` rather than cloudsync so all key derivation lives in one audited place; DeriveKeyWrapKey is now `DeriveSubKey(key, "catchm-cloud/key-wrap")` in effect (test asserts equivalence).
+- **Manifest**: `<CATCHM_HOME>/cloud-sync-state.json`, `map[meetingID]{remote_version, pushed_checksum}`. `pushed_checksum` is sha256 of the *marshaled plaintext bundle*, not the ciphertext — a fresh AEAD nonce would otherwise make every encryption look changed. Saved only after a fully successful sync run; a mid-run error leaves the previous manifest so the next run re-attempts through the same paths. No secrets (versions + checksums only), plaintext storage is fine.
+- **Conflict copies**: on a lost push race, the local divergent files are copied inside the meeting's own directory as `conflict-<unix-milli>.md` / `conflict-<unix-milli>.jsonl` / `conflict-<unix-milli>.v2.jsonl` (v2 included even though the spec named only the .md/.jsonl pair — dropping a diverged batch transcript would be silent data loss), then remote content overwrites the live files. Spec's `conflict-<timestamp>.md` naming kept; Unix-milli chosen to avoid same-second collisions.
+- **KeyWrapParams**: dropped as a distinct value everywhere. `key_wrap_key` re-derives from the same Argon2id run as `auth_hash` (M13b Decisions), so signup sends a literal `"{}"` for the Worker's `key_wrap_params` column and login ignores the field. Recorded here because the Worker schema keeps the column.
+- **Pull-phase update handling** (beyond spec): the spec's pull loop only covered "remote id with no local meeting"; that fails the B-edits-then-A-syncs case (caught by TestSyncPullsThenPushesRoundTrip). Sync now also adopts remote-newer versions of known meetings when local content matches the last push, and falls back to the conflict path when local content diverged — never a silent overwrite.
+- **`api_base_url`**: stayed signup/login-managed (not added to `PUT /api/config`) — simpler, and the field is an account property, not a general setting. Defaults to `http://127.0.0.1:8787` (wrangler dev) in `config.defaults()` until a deployed URL exists.
+- **Conflict-test strategy**: two independent `meeting.Store`s with separate `CATCHM_HOME`s against one shared httptest fake Worker (the same stateful fake client_test.go uses), not a live wrangler dev — deterministic, hermetic, and the fake mirrors the real handlers' exact response shapes from M12/M13a's curl-validated specs. Live wrangler dev verification happens once, manually (Validation below), not per-test-run.
+- **Session/master-key storage**: `Server.cloud` — a struct holding `{email, sessionToken, masterKey, loggedInAt, lastSyncAt}` guarded by the server's existing mutex, in memory only, nil on logout. A server restart requires login again; deliberate simplicity (persisting the master key reopens the where-does-the-wrapping-key-live question; M14 device-linking is the real answer). A failed login does NOT clear an existing session (a password typo shouldn't log you out); logout does.
+- **`adoptRemote` id validation**: added `validMeetingID` as its first check (mirroring `materializeMeeting`) after review flagged it as a latent path-traversal footgun, plus a regression test.
 ## Progress
 
-- [ ] internal/cloudsync HTTP client (signup/login/auth-params/blob CRUD)
-- [ ] Meeting bundle encrypt/decrypt (+ per-meeting HKDF key derivation)
-- [ ] Sync orchestration (push/pull/conflict, local manifest)
-- [ ] internal/server endpoints + config persistence
-- [ ] Two-device conflict test
+- [x] internal/cloudsync HTTP client (signup/login/auth-params/blob CRUD)
+- [x] Meeting bundle encrypt/decrypt (+ per-meeting HKDF key derivation)
+- [x] Sync orchestration (push/pull/conflict, local manifest)
+- [x] internal/server endpoints + config persistence
+- [x] Two-device conflict test
 - [ ] Live verification against real catchm-cloud wrangler dev
-
 ## Validation
 
 (to be filled as criteria are confirmed)
