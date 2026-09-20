@@ -1,6 +1,6 @@
 # Plan: M13c — Go cloud sync client (wiring M12/M13a/M13b together)
 
-- Status: active
+- Status: complete
 - Created: 2026-09-21
 - Repo: `catchm` (this repo). Talks to `catchm-cloud` over HTTP; no
   changes to `catchm-cloud` in this milestone.
@@ -199,7 +199,47 @@ multi-account support (one cloud account per local CatchM install).
 - [x] Sync orchestration (push/pull/conflict, local manifest)
 - [x] internal/server endpoints + config persistence
 - [x] Two-device conflict test
-- [ ] Live verification against real catchm-cloud wrangler dev
+- [x] Live verification against real catchm-cloud wrangler dev
 ## Validation
 
-(to be filled as criteria are confirmed)
+All confirmed 2026-09-21. `go build ./... && go vet ./... && gofmt -l . && go test ./...` clean across the repo; targeted suites: cloudsync 27/27 (14 client, 6 bundle, 7 sync incl. two-device conflict + no-utterances regression), e2ee 20/20, server cloud endpoints 9/9.
+
+**Live verification (criterion 6)** — real `catchm-cloud` wrangler dev on :8787 (local D1+R2) + real `catchm serve` on :14649 with `CATCHM_HOME=/tmp/catchm-live`; no api_base_url override needed since `config.defaults()` already points at `http://127.0.0.1:8787`:
+
+```
+$ curl -s -X POST :14649/api/cloud/signup -d '{"email":"verify@example.com","password":"verify-pass-123"}'
+{"email":"verify@example.com","recovery_code":"DFM9C-NJU2C-3UYYD-YVFZ4-G9R8J"}
+
+$ curl -s -X POST :14649/api/meetings -d '{"title":"Live sync test"}'
+{"schema_version":1,"id":"6d714a64cbfc9de2","title":"Live sync test","started_at":"2026-09-20T19:05:44.643343Z"}
+
+$ curl -s -X POST :14649/api/cloud/sync
+{"pushed":["6d714a64cbfc9de2"],"pulled":null,"conflicted":null}
+
+$ curl -s -X POST :14649/api/cloud/sync   # second run: no-op, manifest skip works
+{"pushed":null,"pulled":null,"conflicted":null}
+```
+
+Then a throwaway helper (deleted after the run) logged into the Worker with only email+password — the exact second-device path — listed blobs, downloaded the ciphertext, and decrypted:
+
+```
+$ go run ./cmd/tmplivedecrypt http://localhost:8787 verify@example.com verify-pass-123 6d714a64cbfc9de2
+login: ok (token 883ddbbd...)
+GET /blobs: [{"id":"6d714a64cbfc9de2","version":1,"checksum":"d17663f4...b3","size_bytes":277,"updated_at":1789931144664}]
+GET /blobs/6d714a64cbfc9de2: 277 bytes, version 1
+ciphertext head (hex): a0 58 d2 1e de de b4 d3 27 66 40 e4 6d 58 39 43 9e f3 56 0d f6 55 5e fe
+decrypted meeting.md (195 bytes), title present: true
+--- decrypted meeting.md ---
+---
+schema_version: 1
+id: 6d714a64cbfc9de2
+title: Live sync test
+started_at: 2026-09-20T19:05:44.643343Z
+---
+<!-- catchm meeting document; frontmatter is the query surface -->
+# Live sync test
+```
+
+The helper also asserted the plaintext title does NOT appear in the ciphertext (it would have exited non-zero). This proves: the Worker holds only ciphertext, the full key chain (password → Argon2id → auth_hash/key_wrap_key → unwrap master key → per-meeting HKDF → XChaCha20 AEAD) round-trips through the real backend, and GET /blobs metadata matches what sync pushed.
+
+**Bug found and fixed by this live run**: a freshly created meeting (no utterances yet → no utterances.jsonl on disk) failed sync with a read error; `readMeetingFiles` now bundles a missing live transcript as empty content. Regression test `TestSyncPushesMeetingWithNoUtterances` added (commit 4eea2f0). Every prior hermetic test created meetings via `store.Append`, so the transcript file always existed — only the live flow caught it.
