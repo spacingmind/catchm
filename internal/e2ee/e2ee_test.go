@@ -2,6 +2,7 @@ package e2ee
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -127,5 +128,67 @@ func TestUnwrapFailsOnTamperedCiphertext(t *testing.T) {
 		if _, err := UnwrapKey(tampered, wrappingKey); err == nil {
 			t.Fatalf("unwrap of input tampered at byte %d unexpectedly succeeded", i)
 		}
+	}
+}
+
+func TestGenerateRecoveryCodeFormat(t *testing.T) {
+	code, err := GenerateRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(code) != 29 { // 5 groups of 5 chars + 4 dashes
+		t.Fatalf("code length = %d, want 29", len(code))
+	}
+	groups := strings.Split(code, "-")
+	if len(groups) != 5 {
+		t.Fatalf("code has %d groups, want 5", len(groups))
+	}
+	for _, g := range groups {
+		if len(g) != 5 {
+			t.Fatalf("group %q has length %d, want 5", g, len(g))
+		}
+		for _, c := range g {
+			if !strings.ContainsRune(recoveryAlphabet, c) {
+				t.Fatalf("group %q contains character %q outside the alphabet", g, c)
+			}
+		}
+	}
+}
+
+func TestGenerateRecoveryCodeIsRandom(t *testing.T) {
+	a, err := GenerateRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := GenerateRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b {
+		t.Fatal("two GenerateRecoveryCode calls returned the same code")
+	}
+}
+
+func TestDeriveRecoveryKeyDeterministic(t *testing.T) {
+	salt := []byte("recovery-salt-123")
+	key1, params1 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt)
+	key2, params2 := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt)
+	if !bytes.Equal(key1, key2) {
+		t.Fatal("DeriveRecoveryKey is not deterministic for identical inputs")
+	}
+	if params1 != params2 {
+		t.Fatalf("params differ between identical calls: %+v vs %+v", params1, params2)
+	}
+	if params1 != DefaultKDFParams {
+		t.Fatalf("params = %+v, want DefaultKDFParams", params1)
+	}
+}
+
+func TestDeriveRecoveryKeyDifferentCodes(t *testing.T) {
+	salt := []byte("recovery-salt-123")
+	key1, _ := DeriveRecoveryKey("ABCDE-FGHIJ-KLMNP-QRSTU-VWXYZ", salt)
+	key2, _ := DeriveRecoveryKey("VWXYZ-KLMNP-FGHIJ-ABCDE-QRSTU", salt)
+	if bytes.Equal(key1, key2) {
+		t.Fatal("different recovery codes produced the same key")
 	}
 }

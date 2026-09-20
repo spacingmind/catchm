@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"strings"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -120,4 +121,46 @@ func UnwrapKey(wrapped, wrappingKey []byte) ([]byte, error) {
 		return nil, fmt.Errorf("e2ee: unwrap failed: %w", err)
 	}
 	return plaintext, nil
+}
+
+// recoveryAlphabet is a 32-character unambiguous alphabet: uppercase
+// letters and digits with I, O, 0, and 1 removed to reduce
+// transcription errors. 32 symbols means one random byte maps onto one
+// character with zero modulo bias.
+const recoveryAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+// GenerateRecoveryCode returns a high-entropy, human-transcribable
+// recovery code: five groups of five characters separated by dashes
+// (e.g. "ABCDE-FGHIJ-..."), 25 chars drawn from a 32-symbol alphabet ≈
+// 125 bits of entropy.
+//
+// Decision (per spec): a BIP-39-style word-list mnemonic would need a
+// ~2048-word list vendored into the repo or a new dependency; rather
+// than hand-roll a small custom wordlist (weak, unaudited) or pull in a
+// dependency not vetted for this milestone, the formatted random string
+// was chosen — self-contained, exactly transcribable, and more entropy
+// than the architecture doc's 24-random-char baseline.
+func GenerateRecoveryCode() (string, error) {
+	groups := make([]string, 5)
+	buf := make([]byte, 5)
+	for g := range groups {
+		if _, err := rand.Read(buf); err != nil {
+			return "", fmt.Errorf("e2ee: recovery code entropy: %w", err)
+		}
+		chars := make([]byte, len(buf))
+		for i, b := range buf {
+			chars[i] = recoveryAlphabet[int(b)%len(recoveryAlphabet)]
+		}
+		groups[g] = string(chars)
+	}
+	return strings.Join(groups, "-"), nil
+}
+
+// DeriveRecoveryKey turns a recovery code into a key-wrapping key via
+// the same Argon2id treatment as the password path (recovery codes are
+// already high-entropy, but consistency with DeriveAuthKey is simpler
+// to reason about and test than a special case).
+func DeriveRecoveryKey(recoveryCode string, salt []byte) ([]byte, KDFParams) {
+	params := DefaultKDFParams
+	return DeriveAuthKey(recoveryCode, salt, params), params
 }
