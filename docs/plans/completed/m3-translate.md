@@ -190,3 +190,32 @@ own native translation works.
   call sites were updated for the new `translator` parameter
   (`pipeline.Start`, `batch.Refine`, both production call sites in
   `internal/server/server.go` and all test call sites).
+
+## Live verification (2026-09-20)
+
+Installed real Ollama (v0.34.2) on Windows via winget, pulled the real
+`translategemma:4b` model (3.3GB, confirmed to exist and download
+successfully — the model tag name was not a placeholder after all),
+and ran the actual production code path (`GET /api/translate/status`,
+`POST /api/translate/test`) against it — not a mock.
+
+Confirmed working end-to-end:
+- `ollama_reachable: true`, `live_model.installed: true` correctly
+  detected via the real `/api/tags` call.
+- Real translation, both directions, correct meaning:
+  - en→vi: "We need to finish the project by next Friday." →
+    "Chúng ta cần hoàn thành dự án vào tuần tới, thứ Sáu."
+  - vi→en: "Xin chào, cuộc họp hôm nay rất hiệu quả." → "Hello, today's
+    meeting was very productive."
+  - en→vi: "The quarterly roadmap needs review before the deadline." →
+    "Kế hoạch hàng quý cần được xem xét trước thời hạn."
+- Response latency ~4s for a short sentence on this test machine — one
+  data point, not a benchmark.
+
+Not tested: the `translategemma:12b` batch model (an ~8GB download, not
+pulled in this session), and the full pipeline integration through a
+real `internal/stt` engine (whisper.cpp wasn't stood up for this pass)
+— only the isolated `/api/translate/test` HTTP path was exercised. The
+Ollama request/response shape and prompt wording used by
+`OllamaTranslator` are now confirmed correct against a real server,
+resolving the "placeholder, unverified" caveat noted above.
