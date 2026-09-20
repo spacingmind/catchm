@@ -5,7 +5,14 @@
 // composition these primitives build into.
 package e2ee
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"io"
+
+	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/hkdf"
+)
 
 // masterKeyLen is the length of the random master key in bytes. It is
 // the XChaCha20-Poly1305 key size (32 bytes) and doubles as the key
@@ -42,4 +49,36 @@ var DefaultKDFParams = KDFParams{
 	Memory:      19456,
 	Parallelism: 1,
 	KeyLen:      masterKeyLen,
+}
+
+// DeriveAuthKey runs Argon2id over the password with the given salt and
+// parameters. The result is the account's root auth_key: it never
+// leaves the client, and both auth_hash and key_wrap_key are derived
+// from it.
+func DeriveAuthKey(password string, salt []byte, params KDFParams) []byte {
+	return argon2.IDKey([]byte(password), salt, params.Time, params.Memory, params.Parallelism, params.KeyLen)
+}
+
+// deriveHKDF expands a secret into keyLen bytes of key material with
+// the given context string, via HKDF-SHA256.
+func deriveHKDF(secret []byte, info string) []byte {
+	r := hkdf.New(sha256.New, secret, nil, []byte(info))
+	out := make([]byte, masterKeyLen)
+	if _, err := io.ReadFull(r, out); err != nil {
+		panic("hkdf: " + err.Error())
+	}
+	return out
+}
+
+// DeriveAuthHash derives the value sent to the Worker as auth_hash. It
+// is a separate HKDF output from the key_wrap_key so that a leak of the
+// server-stored auth_hash does not hand an attacker the key-wrapping
+// secret.
+func DeriveAuthHash(authKey []byte) []byte {
+	return deriveHKDF(authKey, "catchm-cloud/auth-hash")
+}
+
+// DeriveKeyWrapKey derives the local secret that wraps the master key.
+func DeriveKeyWrapKey(authKey []byte) []byte {
+	return deriveHKDF(authKey, "catchm-cloud/key-wrap")
 }
