@@ -3,6 +3,7 @@ import { CheckSquare } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { getMeeting, listActionItems, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
 
 const done = (status: string | undefined) => status === "done"
@@ -47,7 +48,26 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
   }
 
   if (items === null) {
-    return <div className="mx-auto max-w-3xl px-6 py-8 text-sm text-muted-foreground">Loading…</div>
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold">
+          <Skeleton className="size-6" /> <Skeleton className="h-7 w-40" />
+        </h1>
+        <div className="grid gap-3" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-6">
+              <div className="flex items-start gap-3">
+                <Skeleton className="mt-0.5 size-4 shrink-0" />
+                <div className="grid flex-1 gap-1">
+                  <Skeleton className="h-5 w-3/4" />
+                  <Skeleton className="h-3.5 w-1/3" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   const open = items.filter((it) => !done(it.status))
@@ -62,9 +82,12 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
       {items.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          No action items recorded yet.
-        </p>
+        <div className="rounded-xl border border-dashed border-border py-16 text-center">
+          <p className="text-lg font-medium">Nothing to catch up on.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Action items appear when a meeting ends and the agent extracts follow-ups from the transcript.
+          </p>
+        </div>
       ) : (
         <div className="grid gap-3">
           {open.map((item) => (

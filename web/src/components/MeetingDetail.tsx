@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { deleteMeeting, getMeeting, refineMeeting, updateMeeting, type Meeting } from "@/lib/api"
 
 interface MeetingDetailProps {
@@ -91,7 +92,26 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
   }
 
   if (loading && !meeting) {
-    return <div className="mx-auto max-w-3xl px-6 py-8 text-sm text-muted-foreground">Loading…</div>
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-8" aria-busy="true">
+        <Skeleton className="mb-4 h-9 w-32" />
+        <Skeleton className="mb-6 h-8 w-3/5" />
+        <Skeleton className="mb-2 h-4 w-2/5" />
+        <div className="grid gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-border bg-card">
+              <div className="p-6 pb-2">
+                <Skeleton className="h-4 w-24" />
+              </div>
+              <div className="grid gap-2 p-6 pt-0">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
   if (!meeting) {
     return (

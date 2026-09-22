@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { NewMeetingDialog } from "@/components/NewMeetingDialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, type Meeting } from "@/lib/api"
 
 interface MeetingListProps {
@@ -122,7 +123,19 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
       {meetings === null ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <div className="grid gap-3" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border border-border bg-card">
+              <div className="flex items-start justify-between gap-2 p-6 pb-2">
+                <Skeleton className="h-5 w-2/5" />
+                <Skeleton className="h-5 w-12 rounded-full" />
+              </div>
+              <div className="p-6 pt-0">
+                <Skeleton className="h-4 w-1/3" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : listEmpty ? (
         <div className="rounded-xl border border-dashed border-border py-16 text-center">
           <img src={logo} alt="" className="mx-auto mb-4 size-16 rounded-xl" />
