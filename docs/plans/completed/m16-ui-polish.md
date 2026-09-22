@@ -1,6 +1,6 @@
 # Plan: M16 — UI polish pass
 
-- Status: active
+- Status: complete
 - Created: 2026-09-22
 - Repo: `catchm`, `web/` only (no Go changes expected).
 
@@ -148,19 +148,45 @@ features, `internal/server`/Go changes (this is `web/` only).
 
 ## Decisions
 
-(fill in: exact typography/spacing scale settled on, which empty-state
-copy was used per screen, IntersectionObserver vs. scroll-threshold
-choice for the auto-scroll fix and why, anything left as a flagged
-future item rather than fixed now.)
-
+- **Typography scale settled**: `text-xs` metadata (timestamps, speaker labels, "due" chips) · `text-sm` labels/helper/error copy · `text-base` body + transcript text (LiveMeeting utterances, MeetingDetail card bodies — both were drifted `text-sm`) · `text-lg` accent headings/brand wordmark · `text-2xl` page headings (all 7 screens already agreed; untouched). `CardTitle` keeps its primitive default (`text-base`), no per-screen overrides.
+- **Spacing**: existing values were already on the 4px rhythm (`gap-1/1.5/2/3/4`, `px-6 py-8`); zero arbitrary `[Npx]` values found (grep-verified). Only normalization: NewMeetingDialog body `py-2`→`py-4` to match MeetingDetail's rename dialog.
+- **Raw colors**: one offender, SettingsTranslate's Ollama badge (`bg-green-100`/`bg-amber-100`) — initially flattened to neutral tokens (regression caught in review), final: reachable = `secondary` + `bg-primary/15 text-primary`, unreachable = `variant="destructive"` (`bg-destructive/10 text-destructive`). Unreachable-is-destructive is deliberate: Ollama down genuinely blocks live translation.
+- **Skeletons**: added shadcn `ui/skeleton.tsx` (bg-accent — brand tan as shimmer material); loading states content-shaped per screen (MeetingList card rows, ActionItems checkbox rows, MeetingDetail heading+3 cards). ActionItems empty state rewritten to explain provenance ("appear when a meeting ends and the agent extracts follow-ups").
+- **Auto-scroll**: scroll-position threshold (120px) over IntersectionObserver — the decision only matters inside the `[utterances]` effect, so reading scrollTop/scrollHeight there fits the component's ref pattern; a scroll listener is still needed to self-dismiss the affordance, so an observer would have been a second parallel mechanism. Initial batch (prevLen 0→n) auto-scrolls unconditionally: a freshly loaded transcript should land on the newest line, which was the old behavior's one correct case.
+- **Focus rings**: 5 raw `<button>`s found, all text-style buttons that shouldn't become full shadcn `Button`s (tag chips, "Forgot password?", 2 ActionItems meeting-links, App logo) — each got `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2` + a rounding class. All actual command buttons already go through shadcn `Button` (variants audited: default/outline/secondary/ghost/destructive usage is consistent; one primary per form).
+- **Text overflow**: zero truncate/break-words existed app-wide. Added: `truncate` + `min-w-0` on MeetingList card titles (single-line context); `break-words` on ActionItems item text (open + done), LiveMeeting h1, and `min-w-0` on both title-link containers; `flex-wrap` on MeetingDetail h1 (badge + rename button co-exist). MeetingDetail body text left as-wraps (block context, no fix needed).
+- **Error styling convention**: `text-sm text-destructive`, page-level errors `mb-4` below the heading, form/action errors `mt-3` after the form area. Normalized: LiveMeeting `mb-2`→`mb-4`, added `mt-3` to NewMeetingDialog/SettingsConfig saveError/SettingsCloud syncError. SettingsTranslate's per-card `text-xs` pull error kept — it's inside a card body next to xs status text, a deliberate size step down.
+- **Flagged future item (not built)**: keyboard shortcuts/command palette (from the research) — real feature, not polish; candidate for a future milestone.
 ## Progress
 
-- [ ] Typography/spacing audit across all screens
-- [ ] Empty/loading states (MeetingList, ActionItems, MeetingDetail)
-- [ ] LiveMeeting auto-scroll-with-intent fix
-- [ ] Focus rings / button variants / text overflow / error-styling audit
-- [ ] Manual verification pass, Validation recorded
-
+- [x] Typography/spacing audit across all screens
+- [x] Empty/loading states (MeetingList, ActionItems, MeetingDetail)
+- [x] LiveMeeting auto-scroll-with-intent fix
+- [x] Focus rings / button variants / text overflow / error-styling audit
+- [x] Manual verification pass, Validation recorded
 ## Validation
 
-(to be filled as criteria are confirmed)
+2026-09-22. `cd web && bun run build` (tsc -b && vite build) clean after
+every step; `go build ./... && go vet ./... && gofmt -l .` clean
+(embedded dist rebuilt each step). Commits: a4e6400 (typography/tokens),
+669bd20 (badge signal fix), 847eebf (skeletons/empty states), 9080eaa
+(auto-scroll), plus this step's.
+
+**Verification honesty (criterion 6)**: no browser or browser-automation
+tooling exists in this environment — verification was code-reading +
+build/typecheck, the same limitation M13d/M15 recorded for UI work.
+Specifically:
+- Typography/spacing/overflow/error-class changes: asserted per-file via
+  grep counts before/after (e.g. zero `[Npx]` arbitrary values, exactly 2
+  raw title-link buttons) — mechanically checkable, visually inferred.
+- Auto-scroll (criterion 4): verified by code-path walkthrough, not a
+  click-through. Common case: initial batch auto-scrolls (prevLen 0→n
+  branch); each new utterance reads atBottomRef (kept true by the scroll
+  listener after the previous auto-scroll) → scrollToBottom. Scrolled-up
+  case: listener sets atBottomRef=false ≥120px from bottom → next batch
+  skips scrolling, sets the New-lines pill; pill dismisses on click,
+  on manual scroll-to-bottom (listener), or on meeting switch (reset
+  effect). A real browser walkthrough remains open — noted as a known
+  gap for the next time a browser is available.
+- Focus rings: applied the same class set to all 5 raw buttons; no
+  visual confirmation possible.

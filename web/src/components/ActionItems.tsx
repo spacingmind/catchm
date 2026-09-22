@@ -58,7 +58,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
             <div key={i} className="rounded-xl border border-border bg-card p-6">
               <div className="flex items-start gap-3">
                 <Skeleton className="mt-0.5 size-4 shrink-0" />
-                <div className="grid flex-1 gap-1">
+                <div className="grid min-w-0 flex-1 gap-1">
                   <Skeleton className="h-5 w-3/4" />
                   <Skeleton className="h-3.5 w-1/3" />
                 </div>
@@ -100,13 +100,13 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
                   className="mt-0.5 size-4 shrink-0 accent-primary"
                   aria-label={`Mark "${item.text}" done`}
                 />
-                <div className="grid flex-1 gap-1">
-                  <span>{item.text}</span>
+                <div className="grid min-w-0 flex-1 gap-1">
+                  <span className="break-words">{item.text}</span>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <button
                       type="button"
                       onClick={() => openMeeting(item)}
-                      className="font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      className="rounded-sm font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       {item.meeting_title}
                     </button>
@@ -132,13 +132,13 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
                   className="mt-0.5 size-4 shrink-0 accent-primary"
                   aria-label={`Reopen "${item.text}"`}
                 />
-                <div className="grid flex-1 gap-1">
-                  <span className="line-through">{item.text}</span>
+                <div className="grid min-w-0 flex-1 gap-1">
+                  <span className="line-through break-words">{item.text}</span>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <button
                       type="button"
                       onClick={() => openMeeting(item)}
-                      className="font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      className="rounded-sm font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       {item.meeting_title}
                     </button>

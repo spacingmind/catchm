@@ -181,7 +181,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
             </div>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
           <DialogFooter>
             <Button type="submit" disabled={submitting || !title.trim()}>

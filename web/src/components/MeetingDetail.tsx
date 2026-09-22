@@ -132,7 +132,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold">
+          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
             {meeting.title}
             {meeting.refined && <Badge variant="secondary">Refined</Badge>}
             <Button

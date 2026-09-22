@@ -32,7 +32,7 @@ function App() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="flex items-center justify-between border-b border-border px-6 py-3">
-        <button type="button" onClick={goToList} className="flex items-center gap-2 text-lg font-semibold">
+        <button type="button" onClick={goToList} className="flex items-center gap-2 rounded-md text-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
           <img src={logo} alt="CatchM" className="size-6 rounded-md" /> CatchM
         </button>
         <div className="flex items-center gap-1">

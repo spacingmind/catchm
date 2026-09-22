@@ -199,7 +199,7 @@ export function SettingsCloud() {
             {authError && <p className="mt-3 text-sm text-destructive">{authError}</p>}
             <button
               type="button"
-              className="w-fit text-sm text-muted-foreground underline underline-offset-4"
+              className="w-fit rounded-md text-sm text-muted-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onClick={() => {
                 setMode("forgot")
                 setAuthError(null)
@@ -308,7 +308,7 @@ export function SettingsCloud() {
               <Button className="w-fit" onClick={handleSync} disabled={syncing}>
                 {syncing ? "Syncing…" : "Sync now"}
               </Button>
-              {syncError && <p className="text-sm text-destructive">{syncError}</p>}
+              {syncError && <p className="mt-3 text-sm text-destructive">{syncError}</p>}
               {syncResult && (
                 <div className="grid gap-1 text-sm text-muted-foreground">
                   <p>

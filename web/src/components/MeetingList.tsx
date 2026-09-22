@@ -111,7 +111,7 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
               key={tag}
               type="button"
               onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-              className="rounded-full transition-colors"
+              className="rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-pressed={activeTag === tag}
             >
               <Badge variant={activeTag === tag ? "default" : "outline"}>{tag}</Badge>
@@ -155,8 +155,8 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
               onClick={() => onOpenMeeting(m)}
             >
               <CardHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle>{m.title}</CardTitle>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <CardTitle className="truncate">{m.title}</CardTitle>
                   {!m.ended_at && (
                     <Badge className="gap-1.5">
                       <span className="size-1.5 animate-pulse rounded-full bg-current" />

@@ -160,7 +160,7 @@ export function SettingsConfig() {
             </Button>
             {savedStatus && <span className="text-sm text-muted-foreground">{savedStatus}</span>}
           </div>
-          {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+          {saveError && <p className="mt-3 text-sm text-destructive">{saveError}</p>}
         </form>
       )}
     </div>
