@@ -120,10 +120,11 @@ export function SettingsTranslate() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Ollama</CardTitle>
               <Badge
+                variant={status.ollama_reachable ? "secondary" : "outline"}
                 className={
                   status.ollama_reachable
-                    ? "border-transparent bg-green-100 text-green-800"
-                    : "border-transparent bg-amber-100 text-amber-800"
+                    ? "border-transparent bg-primary/15 text-primary"
+                    : "text-muted-foreground"
                 }
               >
                 {status.ollama_reachable ? "Reachable" : "Unreachable"}

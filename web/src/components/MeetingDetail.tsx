@@ -189,7 +189,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
           </CardHeader>
           <CardContent>
             {meeting.decisions && meeting.decisions.length > 0 ? (
-              <ul className="grid gap-2 text-sm">
+              <ul className="grid gap-2 text-base">
                 {meeting.decisions.map((d, i) => (
                   <li key={i}>
                     {d.text}
@@ -211,7 +211,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
           </CardHeader>
           <CardContent>
             {meeting.action_items && meeting.action_items.length > 0 ? (
-              <ul className="grid gap-2 text-sm">
+              <ul className="grid gap-2 text-base">
                 {meeting.action_items.map((a, i) => (
                   <li key={i} className="flex flex-wrap items-center gap-2">
                     <span>{a.text}</span>
@@ -233,7 +233,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
           </CardHeader>
           <CardContent>
             {meeting.notes && meeting.notes.length > 0 ? (
-              <ul className="grid gap-1 text-sm">
+              <ul className="grid gap-1 text-base">
                 {meeting.notes.map((n, i) => (
                   <li key={i}>{n}</li>
                 ))}

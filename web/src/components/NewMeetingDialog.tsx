@@ -90,7 +90,7 @@ export function NewMeetingDialog({ open, onOpenChange, onStarted }: NewMeetingDi
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
+          <div className="grid gap-4 py-4">
             <div className="grid gap-1.5">
               <Label htmlFor="meeting-title">Title</Label>
               <Input
