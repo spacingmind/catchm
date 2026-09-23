@@ -31,6 +31,15 @@ var (
 	// already-registered email). PutBlob's 409 is not an error and is
 	// returned as its conflict value instead.
 	ErrConflict = errors.New("cloudsync: conflict")
+
+	// ErrRateLimited is a 429: the Worker's rate limiters (login/
+	// recover/signup) tripped. The Retry-After seconds, when the server
+	// sends one, are appended to the message.
+	ErrRateLimited = errors.New("cloudsync: rate limited")
+
+	// ErrQuotaExceeded is a 507: the account's storage quota is full
+	// (server carries used/quota in the body).
+	ErrQuotaExceeded = errors.New("cloudsync: storage quota exceeded")
 )
 
 // BlobMeta is one entry of GET /blobs, and the body of PUT /blobs/:id's
@@ -214,7 +223,7 @@ func (c *Client) PutBlob(sessionToken, id string, ciphertext []byte, expectedVer
 		}
 		return 0, &meta, nil
 	default:
-		return 0, nil, statusError(resp.StatusCode, raw)
+		return 0, nil, mapStatusError(resp, raw)
 	}
 }
 
@@ -247,7 +256,7 @@ func (c *Client) GetBlob(sessionToken, id string) ([]byte, int, error) {
 	case http.StatusNotFound:
 		return nil, 0, fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
 	default:
-		return nil, 0, statusError(resp.StatusCode, raw)
+		return nil, 0, mapStatusError(resp, raw)
 	}
 }
 
@@ -311,10 +320,27 @@ func (c *Client) doJSON(method, path, sessionToken string, body, out any) error 
 	case http.StatusConflict:
 		return fmt.Errorf("%w: %s", ErrConflict, strings.TrimSpace(string(raw)))
 	default:
-		return statusError(resp.StatusCode, raw)
+		return mapStatusError(resp, raw)
 	}
 }
 
 func statusError(status int, body []byte) error {
 	return fmt.Errorf("cloudsync: unexpected status %d: %s", status, strings.TrimSpace(string(body)))
+}
+
+// mapStatusError maps the abuse-hardening statuses (429/507) to their
+// sentinels, appending Retry-After seconds to 429s when present.
+// Everything else falls through to statusError.
+func mapStatusError(resp *http.Response, body []byte) error {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests:
+		if after := strings.TrimSpace(resp.Header.Get("Retry-After")); after != "" {
+			return fmt.Errorf("%w: retry after %ss", ErrRateLimited, after)
+		}
+		return fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body)))
+	case http.StatusInsufficientStorage:
+		return fmt.Errorf("%w: %s", ErrQuotaExceeded, strings.TrimSpace(string(body)))
+	default:
+		return statusError(resp.StatusCode, body)
+	}
 }

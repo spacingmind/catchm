@@ -3,11 +3,13 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spacingmind/catchm/internal/cloudsync"
 	"github.com/spacingmind/catchm/internal/config"
@@ -484,5 +486,70 @@ func TestCloudRecoverWrongCodeNeverResetsPassword(t *testing.T) {
 		`{"email":"wrongrec@example.com","password":"old password"}`)
 	if code != http.StatusOK {
 		t.Fatalf("original password broken by a failed recover attempt: %d", code)
+	}
+}
+
+// 429 from the Worker on login surfaces as a 429 with a human message.
+func TestCloudLoginRateLimitedSurfaces(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CATCHM_HOME", home)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"error":"too many attempts"}`)
+	}))
+	t.Cleanup(server.Close)
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(tools.New(store), &config.Config{Cloud: config.CloudConfig{APIBaseURL: server.URL}})
+
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/login",
+		`{"email":"x@example.com","password":"p"}`)
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("code = %d, want 429", code)
+	}
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "Too many attempts") {
+		t.Fatalf("message = %q", msg)
+	}
+}
+
+// 507 from the Worker during sync surfaces as a 507 with a human message.
+func TestCloudSyncQuotaExceededSurfaces(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CATCHM_HOME", home)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/signup" {
+			writeCloudJSON(w, http.StatusOK, map[string]any{"session_token": "tok", "expires_at": int64(1 << 40)})
+			return
+		}
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/blobs/") {
+			w.WriteHeader(http.StatusInsufficientStorage)
+			io.WriteString(w, `{"error":"storage quota exceeded","used":1000,"quota":1000}`)
+			return
+		}
+		writeCloudJSON(w, http.StatusOK, []any{})
+	}))
+	t.Cleanup(server.Close)
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Start("Quota meeting", time.Now().UTC(), meeting.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	s := New(tools.New(store), &config.Config{Cloud: config.CloudConfig{APIBaseURL: server.URL}})
+
+	if code, body := doCloud(t, s, http.MethodPost, "/api/cloud/signup", `{"email":"q@example.com","password":"p"}`); code != http.StatusOK {
+		t.Fatalf("signup failed against fake: %d %v", code, body)
+	}
+
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/sync", "")
+	if code != http.StatusInsufficientStorage {
+		t.Fatalf("code = %d, body = %v, want 507", code, body)
+	}
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "Cloud storage is full") {
+		t.Fatalf("message = %q", msg)
 	}
 }

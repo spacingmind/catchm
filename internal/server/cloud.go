@@ -340,6 +340,10 @@ func respondCloudErr(w http.ResponseWriter, err error) {
 		httpError(w, http.StatusUnauthorized, "invalid credentials")
 	case errors.Is(err, cloudsync.ErrConflict):
 		httpError(w, http.StatusConflict, "email already registered")
+	case errors.Is(err, cloudsync.ErrRateLimited):
+		httpError(w, http.StatusTooManyRequests, "Too many attempts — try again in a minute.")
+	case errors.Is(err, cloudsync.ErrQuotaExceeded):
+		httpError(w, http.StatusInsufficientStorage, "Cloud storage is full.")
 	default:
 		httpError(w, http.StatusInternalServerError, err.Error())
 	}

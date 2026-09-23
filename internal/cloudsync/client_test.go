@@ -699,3 +699,52 @@ func TestResetPasswordRequiresSession(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUnauthorized", err)
 	}
 }
+
+func TestLoginRateLimited(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"error":"too many attempts"}`)
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	_, _, _, err := c.Login("x@example.com", "h")
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+	if !strings.Contains(err.Error(), "60") {
+		t.Fatalf("Retry-After not surfaced: %v", err)
+	}
+}
+
+func TestPutBlobQuotaExceeded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInsufficientStorage)
+		io.WriteString(w, `{"error":"storage quota exceeded","used":1000,"quota":1000}`)
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	_, conflict, err := c.PutBlob("tok", "meet-1", []byte("x"), 0)
+	if !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("err = %v (conflict=%v), want ErrQuotaExceeded", err, conflict)
+	}
+	if conflict != nil {
+		t.Fatal("507 must not be treated as a conflict")
+	}
+}
+
+func TestGetBlobRateLimited(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"error":"too many attempts"}`)
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	_, _, err := c.GetBlob("tok", "meet-1")
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+}

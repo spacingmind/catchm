@@ -1,6 +1,10 @@
 package cloudsync
 
 import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,5 +323,36 @@ func TestSyncPushesMeetingWithNoUtterances(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.storeB.Root(), m.ID, transcriptFile)); err != nil {
 		t.Fatalf("pulled meeting missing empty transcript: %v", err)
+	}
+}
+
+// A 507 mid-sync must abort with a clean error (not a conflict, not a
+// partial manifest): Sync only saves the manifest after a fully
+// successful run, so the next run re-attempts.
+func TestSyncAbortsCleanlyOnQuotaExceeded(t *testing.T) {
+	f := newSyncFixture(t)
+	createMeeting(t, f.storeA, "Big meeting")
+
+	// Swap the shared fake for one that 507s every PUT.
+	quotaFake := &fakeWorker{}
+	quotaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/blobs/") {
+			w.WriteHeader(http.StatusInsufficientStorage)
+			io.WriteString(w, `{"error":"storage quota exceeded","used":1000,"quota":1000}`)
+			return
+		}
+		quotaFake.handler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(quotaServer.Close)
+	quotaClient := NewClient(quotaServer.URL)
+
+	_, err := Sync(f.storeA, quotaClient, f.token, f.masterKey)
+	if !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("err = %v, want ErrQuotaExceeded", err)
+	}
+
+	// No manifest was written for the aborted run.
+	if _, err := os.Stat(filepath.Join(f.homeA, stateFileName)); !os.IsNotExist(err) {
+		t.Fatalf("manifest must not exist after aborted sync: %v", err)
 	}
 }
