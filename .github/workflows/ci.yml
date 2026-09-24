@@ -23,7 +23,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: oven-sh/setup-bun@v3
+      - uses: oven-sh/setup-bun@v2
 
       # Build the embedded web UI first so `go test` (which embeds
       # web/dist) exercises the real assets, and web type errors
