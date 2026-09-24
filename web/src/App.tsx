@@ -1,56 +1,78 @@
-import { useState } from "react"
-import { CheckSquare, Settings2 } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
 
-import logo from "@/assets/logo.png"
 import { ActionItems } from "@/components/ActionItems"
-import { Button } from "@/components/ui/button"
+import { AppSidebar, type View } from "@/components/AppSidebar"
 import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
+import { NewMeetingDialog } from "@/components/NewMeetingDialog"
 import { SettingsCloud } from "@/components/SettingsCloud"
 import { SettingsConfig } from "@/components/SettingsConfig"
 import { SettingsTranslate } from "@/components/SettingsTranslate"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Meeting } from "@/lib/api"
 
-type View = "list" | "live" | "detail" | "action-items" | "settings"
-
 function App() {
   const [view, setView] = useState<View>("list")
   const [selected, setSelected] = useState<Meeting | null>(null)
+  // The meeting currently recording (at most one in the UI's model), kept
+  // independently of `selected` so browsing past meetings doesn't lose the
+  // sidebar's recording indicator.
+  const [live, setLive] = useState<Meeting | null>(null)
+  const [startOpen, setStartOpen] = useState(false)
 
   const openMeeting = (meeting: Meeting) => {
     setSelected(meeting)
     setView(meeting.ended_at ? "detail" : "live")
+    if (!meeting.ended_at) setLive(meeting)
   }
 
-  const goToList = () => {
+  const goToList = useCallback(() => {
     setSelected(null)
     setView("list")
-  }
+  }, [])
+
+  const openLive = useCallback(() => {
+    if (!live) return
+    setSelected(live)
+    setView("live")
+  }, [live])
+
+  const startMeeting = useCallback(() => setStartOpen(true), [])
+  const openSettings = useCallback(() => setView("settings"), [])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      const key = e.key.toLowerCase()
+      if (key === "n") {
+        e.preventDefault()
+        startMeeting()
+      } else if (key === ",") {
+        e.preventDefault()
+        openSettings()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [startMeeting, openSettings])
 
   return (
-    <div className="min-h-svh bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border px-6 py-3">
-        <button type="button" onClick={goToList} className="flex items-center gap-2 rounded-md text-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-          <img src={logo} alt="CatchM" className="size-6 rounded-md" /> CatchM
-        </button>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => setView("action-items")}>
-            <CheckSquare /> Action items
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setView("settings")}>
-            <Settings2 /> Settings
-          </Button>
-        </div>
-      </header>
+    <div className="flex min-h-svh bg-background text-foreground">
+      <AppSidebar
+        view={view}
+        onNavigate={(v) => (v === "live" ? openLive() : setView(v))}
+        liveTitle={live?.title ?? null}
+        onStartMeeting={startMeeting}
+      />
 
-      <main>
+      <main className="min-w-0 flex-1">
         {view === "list" && <MeetingList onOpenMeeting={openMeeting} />}
-        {view === "live" && selected && (
+        {view === "live" && selected && !selected.ended_at && (
           <LiveMeeting
             meeting={selected}
             onEnded={(m) => {
+              setLive(null)
               setSelected(m)
               setView("detail")
             }}
@@ -79,6 +101,8 @@ function App() {
           </Tabs>
         )}
       </main>
+
+      <NewMeetingDialog open={startOpen} onOpenChange={setStartOpen} onStarted={openMeeting} />
     </div>
   )
 }
