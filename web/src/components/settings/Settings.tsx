@@ -2,7 +2,7 @@ import { useState, type ComponentType } from "react"
 import { Cloud, Languages, Mic, Settings2, Speech } from "lucide-react"
 import { cn } from "cn"
 
-import { SettingsCloud } from "@/components/SettingsCloud"
+import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
@@ -51,7 +51,7 @@ export function Settings() {
         {section === "recording" && <SettingsRecording />}
         {section === "transcription" && <SettingsTranscription />}
         {section === "translation" && <SettingsTranslation />}
-        {section === "cloud" && <SettingsCloud />}
+        {section === "cloud" && <SettingsCloudSync />}
       </div>
     </div>
   )

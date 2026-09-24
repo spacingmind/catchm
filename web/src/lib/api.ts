@@ -409,6 +409,8 @@ export interface CloudStatus {
   email?: string
   logged_in_at?: string
   last_sync_at?: string
+  /** The catchm-cloud instance this install talks to (M18). */
+  api_base_url?: string
 }
 
 /** POST /api/cloud/signup — recovery_code appears exactly once, in this response. */
@@ -435,6 +437,20 @@ export function cloudLogout(): Promise<{ status: string }> {
 /** GET /api/cloud/status */
 export function cloudStatus(): Promise<CloudStatus> {
   return apiFetch("/api/cloud/status")
+}
+
+/**
+ * PUT /api/cloud/server — set which catchm-cloud instance this install
+ * talks to (M18). Only while logged out: 409 "log out before changing
+ * the cloud server" otherwise; 400 with the validation reason (e.g.
+ * "http is only allowed for localhost"). Changing servers clears the
+ * stored account params — the new server needs a fresh signup/login.
+ */
+export function cloudServer(apiBaseURL: string): Promise<{ api_base_url: string }> {
+  return apiFetch("/api/cloud/server", {
+    method: "PUT",
+    body: JSON.stringify({ api_base_url: apiBaseURL }),
+  })
 }
 
 /** POST /api/cloud/sync */
