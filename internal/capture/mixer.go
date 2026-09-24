@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spacingmind/catchm/internal/audio"
@@ -65,13 +66,22 @@ type Levels struct {
 	Peak float64
 }
 
+// InputStats is one input's diagnostics for the levels endpoint.
+type InputStats struct {
+	RMS            float64
+	Peak           float64
+	DroppedChunks  uint64 // chunks the source dropped (its channel was full)
+	DroppedSamples uint64 // samples trimmed from the jitter buffer bound
+}
+
 // mixerInput is one source's state: jitter buffer, current levels.
 type mixerInput struct {
-	mu     sync.Mutex
-	buf    []int16 // jitter buffer, bounded at BufferSamples
-	rms    float64
-	peak   float64
-	active bool
+	mu             sync.Mutex
+	buf            []int16 // jitter buffer, bounded at BufferSamples
+	rms            float64
+	peak           float64
+	active         bool
+	droppedSamples atomic.Uint64
 }
 
 // feed appends samples to the jitter buffer. Called from the audio
@@ -80,9 +90,10 @@ func (in *mixerInput) feed(p stt.PCM) {
 	samples := bytesToSamples(p)
 	in.mu.Lock()
 	in.buf = append(in.buf, samples...)
-	if len(in.buf) > BufferSamples {
+	if over := len(in.buf) - BufferSamples; over > 0 {
 		// Clock drift ahead: drop oldest, keep latency bounded.
-		in.buf = in.buf[len(in.buf)-BufferSamples:]
+		in.buf = in.buf[over:]
+		in.droppedSamples.Add(uint64(over))
 	}
 	in.mu.Unlock()
 }
@@ -122,7 +133,10 @@ func levelOf(samples []int16) Levels {
 	return Levels{RMS: math.Sqrt(sumSq / float64(len(samples))), Peak: peak}
 }
 
-// Mixer implements Source over 1–2 inputs.
+// Mixer implements Source over 1–2 inputs. Inputs can be swapped
+// mid-stream via SetInputs: the output channel and tick loop keep
+// running, so the STT session and audio.wav see one continuous stream
+// across a switch.
 type Mixer struct {
 	mic    *mixerInput
 	system *mixerInput
@@ -132,8 +146,13 @@ type Mixer struct {
 	done  chan struct{}
 	wg    sync.WaitGroup
 
-	mu     sync.Mutex // guards closed flag (inputs are static per Mixer; switching swaps the whole Mixer's inputs at the pipeline layer)
+	droppedTicks atomic.Uint64
+
+	mu     sync.Mutex // guards inputs/sources/pumps swap and closed flag
 	closed bool
+	srcMic Source
+	srcSys Source
+	pumps  map[Source]chan struct{} // live pump stop channels
 }
 
 // NewMixer starts the tick loop. Either input may be nil; at least one
@@ -146,17 +165,18 @@ func NewMixer(clock Clock, mic, system Source) (*Mixer, error) {
 		mic:    &mixerInput{active: mic != nil},
 		system: &mixerInput{active: system != nil},
 		clock:  clock,
-		out:    make(chan stt.PCM, 8),
+		// 25 ticks ≈ 500 ms of buffered output: absorbs a normal
+		// WebSocket/engine write hiccup without dropping. Beyond that,
+		// ticks drop (counted) rather than letting latency grow — a
+		// live transcript prefers fresh audio over complete audio.
+		out:    make(chan stt.PCM, 25),
 		done:   make(chan struct{}),
+		srcMic: mic,
+		srcSys: system,
+		pumps:  map[Source]chan struct{}{},
 	}
-	if mic != nil {
-		m.wg.Add(1)
-		go m.pump(mic, m.mic)
-	}
-	if system != nil {
-		m.wg.Add(1)
-		go m.pump(system, m.system)
-	}
+	m.startPumpLocked(mic, m.mic)
+	m.startPumpLocked(system, m.system)
 
 	// Bounded warmup: wait (real time, not the injected clock — this is
 	// a scheduling concern, not a pacing one) until some input has data,
@@ -185,15 +205,30 @@ func (m *Mixer) anyInputBuffered() bool {
 	return false
 }
 
-// pump moves chunks from a source into its jitter buffer until either
-// the source closes or the mixer stops. Input sources are owned by the
-// pipeline, so Close signals done rather than closing their channels.
-func (m *Mixer) pump(src Source, in *mixerInput) {
+// startPumpLocked registers and starts a pump for src. Called with
+// m.mu held (or before any concurrent access, as in NewMixer).
+func (m *Mixer) startPumpLocked(src Source, in *mixerInput) {
+	if src == nil {
+		return
+	}
+	stop := make(chan struct{})
+	m.pumps[src] = stop
+	m.wg.Add(1)
+	go m.pumpStopped(src, in, stop)
+}
+
+// pumpStopped moves chunks from a source into its jitter buffer until
+// the source closes, the pump is stopped (input swap), or the mixer
+// stops. Input sources are owned by the pipeline, so neither Close nor
+// SetInputs closes their channels.
+func (m *Mixer) pumpStopped(src Source, in *mixerInput, stop chan struct{}) {
 	defer m.wg.Done()
 	ch := src.Chunks()
 	for {
 		select {
 		case <-m.done:
+			return
+		case <-stop:
 			return
 		case chunk, ok := <-ch:
 			if !ok {
@@ -201,6 +236,30 @@ func (m *Mixer) pump(src Source, in *mixerInput) {
 			}
 			in.feed(chunk)
 		}
+	}
+}
+
+// SetInputs atomically swaps the mixer's inputs mid-stream. Protocol:
+// the caller opens the NEW sources first; only on success does it call
+// SetInputs (then closes the old sources); on failure it never calls
+// and the mixer keeps the old inputs running. The output channel and
+// tick loop are untouched, so the STT session and audio.wav see one
+// continuous stream — at most a single tick's window straddles the
+// swap (fresh mixerInputs start empty; a swapped-out input contributes
+// zeros for that tick), never a cadence gap.
+func (m *Mixer) SetInputs(newMic, newSystem Source) {
+	m.mu.Lock()
+	old := m.pumps
+	m.pumps = map[Source]chan struct{}{}
+	m.srcMic, m.srcSys = newMic, newSystem
+	m.mic = &mixerInput{active: newMic != nil}
+	m.system = &mixerInput{active: newSystem != nil}
+	m.startPumpLocked(newMic, m.mic)
+	m.startPumpLocked(newSystem, m.system)
+	m.mu.Unlock()
+
+	for _, stop := range old {
+		close(stop)
 	}
 }
 
@@ -230,20 +289,28 @@ func (m *Mixer) run() {
 		case m.out <- stt.PCM(buf):
 		case <-m.done:
 			return
-		default: // downstream behind: drop the tick rather than stall pacing
+		default:
+			// Downstream behind past the output buffer: drop the tick
+			// rather than stall pacing (and grow latency). Counted so a
+			// slow consumer is visible, never silent.
+			m.droppedTicks.Add(1)
 		}
 	}
 }
 
 // mixTick sums each active input's window (zero-padded) with int16
-// saturation; inactive inputs contribute zeros.
+// saturation; inactive inputs contribute zeros. Inputs are read under
+// mu so a SetInputs swap is atomic with respect to a tick.
 func (m *Mixer) mixTick(dst []int16) []int16 {
 	if cap(dst) < TickSamples {
 		dst = make([]int16, 0, TickSamples)
 	}
 	dst = dst[:TickSamples]
 	clear(dst)
-	for _, in := range []*mixerInput{m.mic, m.system} {
+	m.mu.Lock()
+	inputs := []*mixerInput{m.mic, m.system}
+	m.mu.Unlock()
+	for _, in := range inputs {
 		if in == nil || !in.active {
 			continue
 		}
@@ -287,18 +354,24 @@ func (in *mixerInput) bufferedLen() int {
 // Chunks implements Source.
 func (m *Mixer) Chunks() <-chan stt.PCM { return m.out }
 
-// Levels reports each active input's level over its last consumed
-// tick window.
-func (m *Mixer) Levels() (mic, system Levels) {
+// Stats reports per-input levels plus drop diagnostics. droppedTicks
+// is mixer-global (output-side drops under a slow consumer);
+// DroppedSamples is per input (jitter-buffer trims under clock drift).
+func (m *Mixer) Stats() (mic, system InputStats, droppedTicks uint64) {
+	m.mu.Lock()
+	micIn, sysIn := m.mic, m.system
+	m.mu.Unlock()
 	for _, pair := range []struct {
 		in  *mixerInput
-		dst *Levels
-	}{{m.mic, &mic}, {m.system, &system}} {
+		dst *InputStats
+	}{{micIn, &mic}, {sysIn, &system}} {
 		pair.in.mu.Lock()
-		*pair.dst = Levels{RMS: pair.in.rms, Peak: pair.in.peak}
+		pair.dst.RMS = pair.in.rms
+		pair.dst.Peak = pair.in.peak
+		pair.dst.DroppedSamples = pair.in.droppedSamples.Load()
 		pair.in.mu.Unlock()
 	}
-	return mic, system
+	return mic, system, m.droppedTicks.Load()
 }
 
 // Close stops the tick loop. Input sources are NOT closed here — the
@@ -311,7 +384,12 @@ func (m *Mixer) Close() error {
 		return nil
 	}
 	m.closed = true
+	pumps := m.pumps
+	m.pumps = map[Source]chan struct{}{}
 	m.mu.Unlock()
+	for _, stop := range pumps {
+		close(stop)
+	}
 	close(m.done)
 	m.wg.Wait()
 	close(m.out)

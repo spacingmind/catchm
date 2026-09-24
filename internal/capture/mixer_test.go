@@ -293,7 +293,7 @@ func TestMixerLevels(t *testing.T) {
 
 	drainTicks(t, m, 1)
 	m.Close() // stop the loop so no padding tick overwrites the window
-	gotMic, gotSys := m.Levels()
+	gotMic, gotSys, _ := m.Stats()
 	want := float64(16384) / 32768
 	if math.Abs(gotMic.RMS-want) > 1e-9 || math.Abs(gotMic.Peak-want) > 1e-9 {
 		t.Fatalf("mic levels = %+v, want rms=peak=%.4f", gotMic, want)
@@ -310,7 +310,7 @@ func TestMixerLevels(t *testing.T) {
 	}
 	drainTicks(t, qm, 1)
 	qm.Close()
-	gotMic, _ = qm.Levels()
+	gotMic, _, _ = qm.Stats()
 	if gotMic.RMS != 0 || gotMic.Peak != 0 {
 		t.Fatalf("silent-input levels = %+v, want zeros", gotMic)
 	}
@@ -334,7 +334,7 @@ func TestMixerSineLevels(t *testing.T) {
 
 	drainTicks(t, m, 1)
 	m.Close() // freeze at the sine window
-	got, _ := m.Levels()
+	got, _, _ := m.Stats()
 	if math.Abs(got.RMS-0.7071) > 0.001 {
 		t.Fatalf("sine RMS = %.4f, want ≈0.7071", got.RMS)
 	}
@@ -347,5 +347,111 @@ func TestMixerSineLevels(t *testing.T) {
 func TestMixerRejectsNoInputs(t *testing.T) {
 	if _, err := NewMixer(newFakeClock(), nil, nil); err == nil {
 		t.Fatal("expected error for zero inputs")
+	}
+}
+
+// A deliberately slow consumer (never reads) forces the output buffer
+// full; the mixer must keep its pace and COUNT the dropped ticks rather
+// than blocking or running silent.
+func TestMixerCountsDroppedTicksUnderSlowConsumer(t *testing.T) {
+	// Lots of data so the mixer never starves during the test.
+	mic := newFakeSource(constSamples(TickSamples*200, 1000))
+	m, err := NewMixer(newFakeClock(), mic, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	// Do NOT read Chunks: after the 25-tick output buffer fills, every
+	// further tick drops. Warmup already ensured data; let it churn.
+	time.Sleep(100 * time.Millisecond)
+
+	_, _, dropped := m.Stats()
+	if dropped == 0 {
+		t.Fatal("slow consumer produced zero dropped ticks — drops are silent again?")
+	}
+	// And the mixer never blocked: dropped grows while virtual time advances.
+	before := dropped
+	time.Sleep(50 * time.Millisecond)
+	_, _, dropped = m.Stats()
+	if dropped <= before {
+		t.Fatalf("dropped ticks stopped growing (%d -> %d): tick loop stalled?", before, dropped)
+	}
+}
+
+// Jitter-buffer overflow counts dropped samples per input.
+func TestMixerCountsDroppedSamplesOnOverflow(t *testing.T) {
+	in := &mixerInput{active: true}
+	script := make([]int16, BufferSamples+TickSamples)
+	for i := range script {
+		script[i] = int16(i)
+	}
+	in.feed(samplesToPCM(script))
+	if got := in.droppedSamples.Load(); got != uint64(TickSamples) {
+		t.Fatalf("droppedSamples = %d, want %d", got, TickSamples)
+	}
+}
+
+// SetInputs swaps inputs mid-stream: output cadence never gaps, the
+// new input's content flows within a tick, and a failed protocol
+// (caller never calls SetInputs) is a no-op on the mixer.
+func TestMixerSetInputsKeepsCadence(t *testing.T) {
+	micA := newFakeSource(constSamples(TickSamples*6, 1111))
+	m, err := NewMixer(newFakeClock(), micA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	// Drain 2 ticks from the initial input.
+	ticks := drainTicks(t, m, 2)
+
+	// Swap mic -> system-only with fresh content.
+	sysB := newFakeSource(constSamples(TickSamples*10, 2222))
+	m.SetInputs(nil, sysB)
+
+	// Cadence continues: more ticks arrive without gap (drainTicks
+	// would time out if the loop stalled) and content flips to 2222
+	// within a bounded number of ticks (fresh input starts empty, so at
+	// most one padded tick + scheduling).
+	ticks = append(ticks, drainTicks(t, m, 6)...)
+	foundNew := false
+	for ti := 2; ti < len(ticks) && !foundNew; ti++ {
+		for _, v := range ticks[ti] {
+			if v == 2222 {
+				foundNew = true
+				break
+			}
+		}
+	}
+	if !foundNew {
+		t.Fatal("new input's content never flowed after swap")
+	}
+	// Every tick still full-length: no cadence gap.
+	for ti, tk := range ticks {
+		if len(tk) != TickSamples {
+			t.Fatalf("tick %d length %d after swap — cadence gap", ti, len(tk))
+		}
+	}
+}
+
+// The failed-open protocol: caller opens new source, it fails, caller
+// never calls SetInputs — the old input keeps flowing untouched.
+func TestMixerFailedOpenKeepsOldInput(t *testing.T) {
+	mic := newFakeSource(constSamples(TickSamples*6, 700))
+	m, err := NewMixer(newFakeClock(), mic, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	// "Open failed": simulate by simply not calling SetInputs.
+	ticks := drainTicks(t, m, 5)
+	for ti, tk := range ticks {
+		for i, v := range tk {
+			if v != 0 && v != 700 {
+				t.Fatalf("tick %d sample %d = %d, want 700 or padding 0", ti, i, v)
+			}
+		}
 	}
 }
