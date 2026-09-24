@@ -159,14 +159,19 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
                   {m.engine ? ` · ${m.engine}` : ""}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                <span>{m.decisions?.length ?? 0} decisions</span>
-                <span>{m.action_items?.length ?? 0} action items</span>
-                {(m.tags ?? []).map((t) => (
-                  <Badge key={t} variant="secondary">
-                    {t}
-                  </Badge>
-                ))}
+              <CardContent className="grid gap-1.5">
+                {previewLine(m) && (
+                  <p className="truncate text-sm text-muted-foreground">{previewLine(m)}</p>
+                )}
+                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                  <span>{m.decisions?.length ?? 0} decisions</span>
+                  <span>{m.action_items?.length ?? 0} action items</span>
+                  {(m.tags ?? []).map((t) => (
+                    <Badge key={t} variant="secondary">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
               </CardContent>
             </button>
           ))}
@@ -175,6 +180,13 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
 
     </div>
   )
+}
+
+/** One-line preview: first decision if any, else the summary. */
+function previewLine(m: Meeting): string {
+  const first = m.decisions?.[0]?.text?.trim()
+  if (first) return first
+  return m.summary?.trim() ?? ""
 }
 
 function formatMeetingSpan(m: Meeting): string {
