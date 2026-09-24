@@ -62,6 +62,41 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
   }
 
+  const owners = useMemo(() => {
+    const s = new Set<string>()
+    for (const it of items ?? []) if (it.owner) s.add(it.owner)
+    return [...s].sort()
+  }, [items])
+
+  const meetings = useMemo(() => {
+    const s = new Set<string>()
+    for (const it of items ?? []) s.add(it.meeting_title)
+    return [...s].sort()
+  }, [items])
+
+  const { byMeeting, byDue, closed, openCount } = useMemo(() => {
+    const visible = (items ?? []).filter(
+      (it) =>
+        (!filter.owner || it.owner === filter.owner) &&
+        (!filter.meeting || it.meeting_title === filter.meeting),
+    )
+    const open = visible.filter((it) => !done(it.status))
+    const closed = visible.filter((it) => done(it.status))
+    const map = new Map<string, ActionItemRef[]>()
+    for (const it of open) {
+      const list = map.get(it.meeting_title) ?? []
+      list.push(it)
+      map.set(it.meeting_title, list)
+    }
+    const byDue = [...open].sort((a, b) => {
+      const ta = a.due ? Date.parse(a.due) : Number.POSITIVE_INFINITY
+      const tb = b.due ? Date.parse(b.due) : Number.POSITIVE_INFINITY
+      return ta - tb
+    })
+    return { byMeeting: [...map.entries()], byDue, closed, openCount: open.length }
+  }, [items, filter])
+
+
   if (items === null) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-8">
@@ -84,40 +119,6 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       </div>
     )
   }
-
-  const owners = useMemo(() => {
-    const s = new Set<string>()
-    for (const it of items) if (it.owner) s.add(it.owner)
-    return [...s].sort()
-  }, [items])
-
-  const meetings = useMemo(() => {
-    const s = new Set<string>()
-    for (const it of items) s.add(it.meeting_title)
-    return [...s].sort()
-  }, [items])
-
-  const { byMeeting, byDue, closed, openCount } = useMemo(() => {
-    const visible = items.filter(
-      (it) =>
-        (!filter.owner || it.owner === filter.owner) &&
-        (!filter.meeting || it.meeting_title === filter.meeting),
-    )
-    const open = visible.filter((it) => !done(it.status))
-    const closed = visible.filter((it) => done(it.status))
-    const map = new Map<string, ActionItemRef[]>()
-    for (const it of open) {
-      const list = map.get(it.meeting_title) ?? []
-      list.push(it)
-      map.set(it.meeting_title, list)
-    }
-    const byDue = [...open].sort((a, b) => {
-      const ta = a.due ? Date.parse(a.due) : Number.POSITIVE_INFINITY
-      const tb = b.due ? Date.parse(b.due) : Number.POSITIVE_INFINITY
-      return ta - tb
-    })
-    return { byMeeting: [...map.entries()], byDue, closed, openCount: open.length }
-  }, [items, filter])
 
   const renderItem = (item: ActionItemRef) => (
     <Card key={`${item.meeting_id}:${item.index}`}>
