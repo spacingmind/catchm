@@ -156,16 +156,21 @@ non-default playback device for loopback, macOS system audio.
 
 ## Decisions
 
-(fill in)
-
+- **Linux "system" audio: unsupported, by design.** miniaudio has no loopback device type outside Windows. Rather than guess which capture device is "the default sink's monitor" across PulseAudio/PipeWire/ALSA, "system" on Linux returns a clear reason string pointing at the existing escape hatch: M4's mic device list already enumerates capture devices, which includes `*.monitor` under PulseAudio — selecting one as the mic gives system audio today. macOS: unsupported (ScreenCaptureKit out of scope). `SystemAudioSupported()` is the single source of truth; `NewSystemSource` errors on unsupported platforms instead of no-op'ing.
+- **Mixer numbers**: tick = 20 ms (320 samples @16 kHz, absolute-schedule pacing so output never runs fast); per-input jitter buffer bound = 400 ms (6400 samples) with drop-oldest on overflow; output channel = 25 ticks (~500 ms) to absorb a normal WebSocket/engine write hiccup before dropping; bounded warmup ≤100 ms at start so the first ticks carry content when content exists (a silent system-only source times out into padding mode, per spec). Padding (underflow) is excluded from level computation so a starved input meters 0.
+- **Drop counters (no silent degradation)**: output-side drops under a slow consumer → `dropped_ticks` (atomic, mixer-global); jitter-buffer trims under clock drift → per-input `dropped_samples`. Both surface via `GET /api/meetings/{id}/levels`.
+- **Input swap protocol**: caller opens NEW sources first; only on success calls `Mixer.SetInputs` (atomic swap under the mixer lock; pump registry stops old pumps); old sources are then closed by the pipeline. On failure the caller never calls SetInputs — old input keeps running. Output channel + tick loop are never touched, so STT + audio.wav see one continuous stream; at most one tick's window straddles a swap.
+- **One code path**: every mode (mic/system/both) runs through a Mixer — a one-input mixer for mic-only. `Pipeline.Mixer()` exposes it for switching/levels.
+- **Switch failure status**: 422 (Unprocessable Entity) with the platform/open-failure reason when the NEW source can't open (old input stays live); 400 for a malformed source value; 404 when the meeting has no live pipeline. Chosen over 409 because 409 elsewhere on this endpoint family means "state conflict, retry differently" while here the fix is environmental (plug in / pick another device).
+- **Timeline record**: `audio_source` frontmatter field on the meeting (set at start and on every switch) plus a timestamped note (`audio source switched to X at <RFC3339>`) appended to `meeting.Notes` — notes are the existing free-form timeline surface, visible in MeetingDetail today.
+- **Start-failure surfacing**: `POST /api/meetings` response stays the Meeting object at top level (M20 contract) with `capture_error` added ONLY on failure; `audio_source` always set. Legacy `"source"` omitted → `"mic"` (old UIs unchanged). `/api/devices` kept as-is; `GET /api/audio/sources` is additive.
 ## Progress
 
-- [ ] SystemSource (Windows loopback; Linux/macOS decision)
-- [ ] Mixer (pacing, padding, saturation, jitter buffer, levels)
-- [ ] Mid-session switching
-- [ ] Server API + capture_error
+- [x] SystemSource (Windows loopback; Linux/macOS decision)
+- [x] Mixer (pacing, padding, saturation, jitter buffer, levels)
+- [x] Mid-session switching
+- [x] Server API + capture_error
 - [ ] Real Windows verification
-
 ## Validation
 
 (to be filled)
