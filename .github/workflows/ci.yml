@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v3
+
+      # Build the embedded web UI first so `go test` (which embeds
+      # web/dist) exercises the real assets, and web type errors
+      # fail CI here rather than at release time.
+      - name: Build web UI
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      # Mirrors Taskfile.yml's `lint` task.
+      - name: Lint
+        run: |
+          go vet ./...
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+
+      # -race decided in M18: local run reported no data races (the
+      # only failures were credential-dependent agent tests that skip
+      # on runners without the claude CLI).
+      - name: Test
+        run: go test -race ./...
