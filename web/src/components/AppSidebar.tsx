@@ -38,7 +38,7 @@ function NavButton({ icon: Icon, label, title, active, collapsed, disabled, onCl
       title={collapsed ? (title ?? label) : title}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         collapsed && "justify-center px-0",
         active
           ? "bg-muted font-medium text-foreground"
@@ -101,7 +101,7 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
         </button>
         <Button
           variant="ghost"
-          size={collapsed ? "icon-sm" : "icon-sm"}
+          size="icon-sm"
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed}
@@ -122,7 +122,7 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
           disabled={!liveTitle}
           onClick={() => onNavigate("live")}
         >
-          {liveTitle && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" aria-label="Recording" />}
+          {liveTitle && <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-primary" aria-label="Recording" />}
         </NavButton>
         <NavButton icon={CheckSquare} label="Action items" collapsed={collapsed} active={view === "action-items"} onClick={() => onNavigate("action-items")} />
         <NavButton icon={Settings2} label="Settings" title="Settings (Ctrl/⌘,)" collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />

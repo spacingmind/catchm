@@ -19,6 +19,7 @@ import {
   type SttEngine,
 } from "@/lib/api"
 import { effectiveSource, readDevicePref, readSourcePref } from "@/lib/recordPrefs"
+import { LANGUAGES } from "@/lib/languages"
 
 /** Last-used start-flow values (non-secret UI prefs only). */
 const LAST_KEY = "catchm.prefs.startflow"
@@ -76,7 +77,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
   const [twoWay, setTwoWay] = useState(last.twoWay ?? false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pairError, setPairError] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const langRef = useRef<HTMLButtonElement | null>(null)
 
   // Devices + system capability (M19 contract; graceful degrade), plus
   // the config engine and Soniox key state.
@@ -135,10 +138,12 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
   const handleStart = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (submitting) return
-    if (twoWay && (!lang.trim() || !translateTo.trim())) {
-      setError("Two-way translation needs both languages.")
+    if (twoWay && (!lang || !translateTo)) {
+      setPairError("Two-way translation needs both languages.")
+      langRef.current?.focus()
       return
     }
+    setPairError(null)
     setSubmitting(true)
     setError(null)
     try {
@@ -237,27 +242,40 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
                 Two-way
               </button>
             </div>
-            <div className="flex items-center gap-2">
-              <Input
-                id="start-lang"
-                value={lang}
-                onChange={(e) => setLang(e.target.value)}
-                placeholder={twoWay ? "Language A, e.g. en" : "From, e.g. en"}
-                aria-label={twoWay ? "Language A" : "Source language"}
-                className="w-36"
-              />
+            <div className="flex items-center gap-2" id="start-pair">
+              <Select value={lang || undefined} onValueChange={setLang}>
+                <SelectTrigger id="start-lang" ref={langRef} className="w-40" aria-label={twoWay ? "Language A" : "From language"} aria-describedby={pairError ? "start-pair-error" : undefined}>
+                  <SelectValue placeholder={twoWay ? "Language A" : "From"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((l) => (
+                    <SelectItem key={l.code} value={l.code}>
+                      {l.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <span aria-hidden className="text-sm text-muted-foreground">
                 →
               </span>
-              <Input
-                id="start-translate-to"
-                value={translateTo}
-                onChange={(e) => setTranslateTo(e.target.value)}
-                placeholder={twoWay ? "Language B, e.g. vi" : "To, e.g. es"}
-                aria-label={twoWay ? "Language B" : "Translate to"}
-                className="w-36"
-              />
+              <Select value={translateTo || undefined} onValueChange={setTranslateTo}>
+                <SelectTrigger id="start-translate-to" className="w-40" aria-label={twoWay ? "Language B" : "To language"}>
+                  <SelectValue placeholder={twoWay ? "Language B" : "To"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((l) => (
+                    <SelectItem key={l.code} value={l.code}>
+                      {l.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+            {pairError && (
+              <p id="start-pair-error" className="text-sm text-destructive" role="alert">
+                {pairError}
+              </p>
+            )}
           </div>
 
           {usableEngines.length > 1 && (

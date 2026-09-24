@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { ChevronDown } from "lucide-react"
 import { cn } from "cn"
 
@@ -39,6 +39,15 @@ export function SettingsCloudSync() {
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [fieldErrors, setFieldErrors] = useState<{
+    email?: string
+    password?: string
+    recoverEmail?: string
+    recoverCode?: string
+    newPassword?: string
+  }>({})
+  const emailRef = useRef<HTMLInputElement | null>(null)
+  const passwordRef = useRef<HTMLInputElement | null>(null)
   const [authBusy, setAuthBusy] = useState<"signup" | "login" | "recover" | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
 
@@ -85,9 +94,25 @@ export function SettingsCloudSync() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.api_base_url])
 
-  const handleAuth = async (mode: "signup" | "login") => {
+  const validateAuthFields = (needPassword: boolean) => {
+    const errs: { email?: string; password?: string } = {}
+    if (!email.trim()) errs.email = "Enter your email."
+    else if (!email.includes("@")) errs.email = "That doesn't look like an email address."
+    if (needPassword && !password.trim()) errs.password = "Enter your password."
+    setFieldErrors(errs)
+    if (errs.email) emailRef.current?.focus()
+    else if (errs.password) passwordRef.current?.focus()
+    return Object.keys(errs).length === 0
+  }
+
+  const handleAuth = async (mode: "signup" | "login", fromButton = false) => {
+    if (authBusy !== null) return
+    // The login form submits (Enter); the signup button goes through the
+    // same validation first.
+    if (fromButton && !validateAuthFields(true)) return
     setAuthBusy(mode)
     setAuthError(null)
+    setFieldErrors({})
     try {
       if (mode === "signup") {
         const res = await cloudSignup(email, password)
@@ -105,6 +130,13 @@ export function SettingsCloudSync() {
   }
 
   const handleRecover = async () => {
+    if (authBusy !== null) return
+    const errs: typeof fieldErrors = {}
+    if (!email.trim()) errs.recoverEmail = "Enter your email."
+    if (!recoveryCodeInput.trim()) errs.recoverCode = "Enter your recovery code."
+    if (!newPassword.trim()) errs.newPassword = "Enter a new password."
+    setFieldErrors(errs)
+    if (Object.keys(errs).length > 0) return
     setAuthBusy("recover")
     setAuthError(null)
     try {
@@ -187,7 +219,8 @@ export function SettingsCloudSync() {
           <form
             onSubmit={(e: FormEvent<HTMLFormElement>) => {
               e.preventDefault()
-              handleAuth("login")
+              if (!validateAuthFields(true)) return
+              void handleAuth("login")
             }}
             className="grid gap-3"
           >
@@ -195,42 +228,62 @@ export function SettingsCloudSync() {
               label="Email"
               htmlFor="cloud-email"
               control={
-                <Input
-                  id="cloud-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-72"
-                />
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="cloud-email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    aria-invalid={fieldErrors.email ? true : undefined}
+                    aria-describedby={fieldErrors.email ? "cloud-email-error" : undefined}
+                    className="w-full"
+                    ref={emailRef}
+                  />
+                  {fieldErrors.email && (
+                    <p id="cloud-email-error" className="text-sm text-destructive">
+                      {fieldErrors.email}
+                    </p>
+                  )}
+                </div>
               }
             />
             <SettingRow
               label="Password"
               htmlFor="cloud-password"
               control={
-                <Input
-                  id="cloud-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="w-72"
-                />
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="cloud-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    aria-invalid={fieldErrors.password ? true : undefined}
+                    aria-describedby={fieldErrors.password ? "cloud-password-error" : undefined}
+                    className="w-full"
+                    ref={passwordRef}
+                  />
+                  {fieldErrors.password && (
+                    <p id="cloud-password-error" className="text-sm text-destructive">
+                      {fieldErrors.password}
+                    </p>
+                  )}
+                </div>
               }
             />
             <div className="flex items-center gap-2">
               <Button
                 type="submit"
-                disabled={authBusy !== null || !email.trim() || !password.trim()}
+                disabled={authBusy !== null}
               >
                 {authBusy === "login" ? "Logging in…" : "Log in"}
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                disabled={authBusy !== null || !email.trim() || !password.trim()}
-                onClick={() => handleAuth("signup")}
+                disabled={authBusy !== null}
+                onClick={() => void handleAuth("signup", true)}
               >
                 {authBusy === "signup" ? "Signing up…" : "Sign up"}
               </Button>
@@ -250,7 +303,13 @@ export function SettingsCloudSync() {
         )}
 
         {!loggedIn && mode === "forgot" && (
-          <div className="grid gap-3">
+          <form
+            onSubmit={(e: FormEvent<HTMLFormElement>) => {
+              e.preventDefault()
+              void handleRecover()
+            }}
+            className="grid gap-3"
+          >
             <p className="text-sm text-muted-foreground">
               Setting a new password rotates your recovery code — the old code stops working once this succeeds.
             </p>
@@ -258,64 +317,91 @@ export function SettingsCloudSync() {
               label="Email"
               htmlFor="recover-email"
               control={
-                <Input
-                  id="recover-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-72"
-                />
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="recover-email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    aria-invalid={fieldErrors.recoverEmail ? true : undefined}
+                    aria-describedby={fieldErrors.recoverEmail ? "recover-email-error" : undefined}
+                    className="w-full"
+                  />
+                  {fieldErrors.recoverEmail && (
+                    <p id="recover-email-error" className="text-sm text-destructive">
+                      {fieldErrors.recoverEmail}
+                    </p>
+                  )}
+                </div>
               }
             />
             <SettingRow
               label="Recovery code"
               htmlFor="recover-code"
               control={
-                <Input
-                  id="recover-code"
-                  value={recoveryCodeInput}
-                  onChange={(e) => setRecoveryCodeInput(e.target.value)}
-                  placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
-                  className="w-72 font-mono"
-                  required
-                />
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="recover-code"
+                    autoComplete="one-time-code"
+                    spellCheck={false}
+                    value={recoveryCodeInput}
+                    onChange={(e) => setRecoveryCodeInput(e.target.value)}
+                    placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+                    aria-invalid={fieldErrors.recoverCode ? true : undefined}
+                    aria-describedby={fieldErrors.recoverCode ? "recover-code-error" : undefined}
+                    className="w-full font-mono"
+                  />
+                  {fieldErrors.recoverCode && (
+                    <p id="recover-code-error" className="text-sm text-destructive">
+                      {fieldErrors.recoverCode}
+                    </p>
+                  )}
+                </div>
               }
             />
             <SettingRow
               label="New password"
               htmlFor="recover-new-password"
               control={
-                <Input
-                  id="recover-new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  className="w-72"
-                />
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="recover-new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    aria-invalid={fieldErrors.newPassword ? true : undefined}
+                    aria-describedby={fieldErrors.newPassword ? "recover-new-password-error" : undefined}
+                    className="w-full"
+                  />
+                  {fieldErrors.newPassword && (
+                    <p id="recover-new-password-error" className="text-sm text-destructive">
+                      {fieldErrors.newPassword}
+                    </p>
+                  )}
+                </div>
               }
             />
             <div className="flex items-center gap-2">
-              <Button
-                onClick={handleRecover}
-                disabled={authBusy !== null || !email.trim() || !recoveryCodeInput.trim() || !newPassword.trim()}
-              >
+              <Button type="submit" disabled={authBusy !== null}>
                 {authBusy === "recover" ? "Recovering…" : "Recover and set new password"}
               </Button>
               <Button
+                type="button"
                 variant="outline"
                 disabled={authBusy !== null}
                 onClick={() => {
                   setMode("auth")
                   setAuthError(null)
+                  setFieldErrors({})
                 }}
               >
                 Back
               </Button>
             </div>
             {authError && <p className="mt-3 text-sm text-destructive">{authError}</p>}
-          </div>
+          </form>
         )}
 
         {loggedIn && (
@@ -396,6 +482,7 @@ export function SettingsCloudSync() {
                   <div className="flex w-full gap-2">
                     <Input
                       id="cloud-server-url"
+                      type="url"
                       value={serverUrl}
                       onChange={(e) => {
                         setServerUrl(e.target.value)

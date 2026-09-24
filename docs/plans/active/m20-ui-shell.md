@@ -118,11 +118,14 @@ dual-pane / compact always-on-top overlay (M21), command palette
 
 ## Decisions
 
-(fill in, including the old → new settings field mapping)
+- **Step 1 (shell)**: hand-rolled sidebar (no shadcn `sidebar` primitive — would drag in tooltip/breadcrumb deps); 224px↔64px, `localStorage` `catchm.sidebar.collapsed`; Ctrl/⌘+N / Ctrl/⌘+, ignore alt/shift. Live meeting polled from `listMeetings()` every 3s (server is source of truth, same rule as M11 tray) with optimistic set on start/end. `web/dist/index.html` never committed (review decision: hash-churning artifact).
+- **Step 2 (settings)**: section nav 208px + `max-w-4xl` pane; `settings/` dir with `pieces.tsx` (SettingsSection/SettingRow/SaveStatus) — old components deleted (SettingsConfig→Transcription, SettingsTranslate→Translation, SettingsCloud→CloudSync), field mappings in commit messages. `useConfigSave` sends PATCH-ONLY bodies (server PUT /api/config is setIfNonEmpty partial). Soniox key secret states, URLs blur-save + absolute-URL validation. Recording prefs in `lib/recordPrefs.ts`; `effectiveSource()` falls back to mic when system audio unavailable, stored choice kept + notice shown.
+- **Step 3 (start flow)**: `StartMeetingPopover` anchored to the sidebar Start button; title optional (client-generated `Meeting <date> <time>`, backend needs non-empty); source segmented via effectiveSource; `StartMeetingResponse.capture_error` → role=alert banner on the live view + Open settings. Stub-verified via throwaway SSR render (M19 not merged).
+- **Step 4a (audit fixes)**: `--muted-foreground` `#A9826D`→`#6A4C3A` — computed WCAG ratios **7.24:1 on background/card, 4.62:1 on muted** (#D9C4B4); audit's suggested #7D5A48 was computed at only 3.65:1 on muted so rejected. MeetingList cards → real `<button>` (Enter/Space, ring). Languages → shared `lib/languages.ts` Selects (value=code) in popover + translation test. Cloud forms: autocomplete (email/current-password/new-password/one-time-code), recovery primary is type=submit, per-field errors via aria-describedby + focus-first-invalid; submit buttons enabled until request (validate on submit). `SegmentedControl` rebuilt on shadcn ToggleGroup single (disabled-with-reason kept). ActionItems raw checkboxes → shadcn Checkbox + clickable labels (id/htmlFor). `motion-safe:animate-pulse`, `type="url"` on URL inputs, `break-words` utterances, `cursor-pointer` rows, no-op ternary fixed. Rejected by design: ui-ux-pro-max teal/orange palette + Plus Jakarta (would erase the chocolate/cream brand), title-only start popover.
 
 ## Progress
 
-- [ ] Sidebar shell + keyboard shortcuts
+- [x] Sidebar shell + keyboard shortcuts
 - [ ] Settings: section nav + row layout + save model
 - [ ] Settings pages (Recording, Transcription, Translation, Cloud incl. server URL)
 - [ ] Start-meeting popover + remembered defaults + capture_error surfacing

@@ -3,7 +3,7 @@ import { Search } from "lucide-react"
 
 import logo from "@/assets/logo.png"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, type Meeting } from "@/lib/api"
@@ -138,17 +138,18 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
       ) : (
         <div className="grid gap-3">
           {visibleMeetings.map((m) => (
-            <Card
+            <button
               key={m.id}
-              className="cursor-pointer transition-colors hover:bg-secondary/40"
+              type="button"
               onClick={() => onOpenMeeting(m)}
+              className="cursor-pointer rounded-xl border border-border bg-card text-left transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <CardHeader>
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <CardTitle className="truncate">{m.title}</CardTitle>
                   {!m.ended_at && (
                     <Badge className="gap-1.5">
-                      <span className="size-1.5 animate-pulse rounded-full bg-current" />
+                      <span className="size-1.5 motion-safe:animate-pulse rounded-full bg-current" />
                       Live
                     </Badge>
                   )}
@@ -167,7 +168,7 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
                   </Badge>
                 ))}
               </CardContent>
-            </Card>
+            </button>
           ))}
         </div>
       )}

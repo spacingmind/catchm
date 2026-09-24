@@ -71,9 +71,12 @@ export function SaveStatus({ state, error }: { state: SaveState; error?: string 
   )
 }
 
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+
 /**
- * Segmented control for 2–4 choices (per M20 research: not a dropdown).
- * Keyboard: each option is a plain button (Tab + Enter/Space).
+ * Segmented control for 2–4 choices (per M20 research: not a dropdown),
+ * built on shadcn ToggleGroup single-select. Disabled options keep their
+ * reason in the title tooltip.
  */
 export function SegmentedControl<T extends string>({
   value,
@@ -87,26 +90,25 @@ export function SegmentedControl<T extends string>({
   label: string
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5">
+    <ToggleGroup
+      type="single"
+      value={value}
+      onValueChange={(v) => {
+        if (v) onChange(v as T)
+      }}
+      aria-label={label}
+      variant="outline"
+    >
       {options.map((opt) => (
-        <button
+        <ToggleGroupItem
           key={opt.value}
-          type="button"
+          value={opt.value}
           disabled={opt.disabled}
           title={opt.disabled ? opt.title : undefined}
-          aria-pressed={value === opt.value}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "h-7 rounded-md px-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            value === opt.value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-            opt.disabled && "pointer-events-none opacity-50",
-          )}
         >
           {opt.label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   )
 }

@@ -151,7 +151,7 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
           <h1 className="flex items-start gap-2 break-words text-2xl font-semibold">
             <span className="relative mt-1.5 inline-flex shrink-0">
               <Radio className="size-5 text-primary" />
-              <span className="absolute -top-0.5 -right-0.5 size-1.5 animate-pulse rounded-full bg-primary" />
+              <span className="absolute -top-0.5 -right-0.5 size-1.5 motion-safe:animate-pulse rounded-full bg-primary" />
             </span>{" "}
             {meeting.title}
           </h1>
@@ -188,9 +188,9 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
               utterances.map((u) => (
                 <div key={u.seq}>
                   {u.speaker && <p className="text-xs font-medium text-muted-foreground">{u.speaker}</p>}
-                  <p className="text-base">{u.text}</p>
+                  <p className="break-words text-base">{u.text}</p>
                   {u.translated && (
-                    <p className="text-base text-muted-foreground">
+                    <p className="break-words text-base text-muted-foreground">
                       {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
                       {u.translated}
                     </p>

@@ -17,6 +17,7 @@ import {
   type TranslateStatus,
   type TranslateTarget,
 } from "@/lib/api"
+import { LANGUAGES } from "@/lib/languages"
 
 function isAbsoluteHttpUrl(v: string): boolean {
   try {
@@ -150,8 +151,19 @@ export function SettingsTranslation() {
     }
   }
 
+  const [testFieldError, setTestFieldError] = useState<string | null>(null)
+
   const handleTest = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!testText.trim()) {
+      setTestFieldError("Enter some text to translate.")
+      return
+    }
+    if (!testLang) {
+      setTestFieldError("Choose a target language.")
+      return
+    }
+    setTestFieldError(null)
     setTesting(true)
     setTestError(null)
     setTestResult(null)
@@ -198,6 +210,7 @@ export function SettingsTranslation() {
             <div className="grid w-96 justify-items-end gap-1">
               <Input
                 id="translate-host"
+                type="url"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
                 onBlur={commitHost}
@@ -319,14 +332,18 @@ export function SettingsTranslation() {
             label="Target language"
             htmlFor="test-lang"
             control={
-              <Input
-                id="test-lang"
-                value={testLang}
-                onChange={(e) => setTestLang(e.target.value)}
-                placeholder="es"
-                required
-                className="w-44"
-              />
+              <Select value={testLang || undefined} onValueChange={setTestLang}>
+                <SelectTrigger id="test-lang" className="w-44">
+                  <SelectValue placeholder="Choose…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((l) => (
+                    <SelectItem key={l.code} value={l.code}>
+                      {l.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             }
           />
           <SettingRow
@@ -345,9 +362,12 @@ export function SettingsTranslation() {
             }
           />
           <div className="flex items-center justify-end">
-            <Button type="submit" disabled={testing || !testText.trim() || !testLang.trim()}>
-              {testing ? "Testing…" : "Test translate"}
-            </Button>
+            <div className="grid justify-items-end gap-1">
+              <Button type="submit" disabled={testing}>
+                {testing ? "Testing…" : "Test translate"}
+              </Button>
+              {testFieldError && <p className="text-sm text-destructive">{testFieldError}</p>}
+            </div>
           </div>
         </form>
         {testResult && (

@@ -3,6 +3,7 @@ import { CheckSquare } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getMeeting, listActionItems, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
 
@@ -93,15 +94,17 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
           {open.map((item) => (
             <Card key={`${item.meeting_id}:${item.index}`}>
               <CardContent className="flex items-start gap-3">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  id={`item-${item.meeting_id}-${item.index}`}
                   checked={false}
-                  onChange={() => toggle(item)}
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  onCheckedChange={() => toggle(item)}
                   aria-label={`Mark "${item.text}" done`}
+                  className="mt-0.5"
                 />
                 <div className="grid min-w-0 flex-1 gap-1">
-                  <span className="break-words">{item.text}</span>
+                  <label htmlFor={`item-${item.meeting_id}-${item.index}`} className="cursor-pointer break-words">
+                    {item.text}
+                  </label>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <button
                       type="button"
@@ -125,15 +128,17 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
           {closed.map((item) => (
             <Card key={`${item.meeting_id}:${item.index}`} className="opacity-60">
               <CardContent className="flex items-start gap-3">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  id={`item-${item.meeting_id}-${item.index}`}
                   checked
-                  onChange={() => toggle(item)}
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  onCheckedChange={() => toggle(item)}
                   aria-label={`Reopen "${item.text}"`}
+                  className="mt-0.5"
                 />
                 <div className="grid min-w-0 flex-1 gap-1">
-                  <span className="line-through break-words">{item.text}</span>
+                  <label htmlFor={`item-${item.meeting_id}-${item.index}`} className="cursor-pointer break-words line-through">
+                    {item.text}
+                  </label>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <button
                       type="button"

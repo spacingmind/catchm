@@ -210,6 +210,7 @@ export function SettingsTranscription() {
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input
                     id="stt-whisper-url"
+                    type="url"
                     value={whisperUrl}
                     onChange={(e) => setWhisperUrl(e.target.value)}
                     onBlur={commitWhisperUrl}
@@ -229,6 +230,7 @@ export function SettingsTranscription() {
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input
                     id="stt-soniox-url"
+                    type="url"
                     value={sonioxUrl}
                     onChange={(e) => setSonioxUrl(e.target.value)}
                     onBlur={commitSonioxUrl}
