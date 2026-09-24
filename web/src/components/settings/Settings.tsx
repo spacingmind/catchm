@@ -3,7 +3,7 @@ import { Cloud, Languages, Mic, Settings2, Speech } from "lucide-react"
 import { cn } from "cn"
 
 import { SettingsCloud } from "@/components/SettingsCloud"
-import { SettingsConfig } from "@/components/SettingsConfig"
+import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslate } from "@/components/SettingsTranslate"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
 
@@ -49,7 +49,7 @@ export function Settings() {
 
       <div className="min-w-0 flex-1">
         {section === "recording" && <SettingsRecording />}
-        {section === "transcription" && <SettingsConfig />}
+        {section === "transcription" && <SettingsTranscription />}
         {section === "translation" && <SettingsTranslate />}
         {section === "cloud" && <SettingsCloud />}
       </div>
