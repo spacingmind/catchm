@@ -1,7 +1,8 @@
 # Plan: M18 — CI for both repos + cloud server URL setting
 
-- Status: active
+- Status: complete (server-URL UI moved to M20)
 - Created: 2026-09-24
+- Completed: 2026-09-24
 - Repos: `catchm` (CI + setting) and `catchm-cloud` (CI only).
 
 ## Goal
@@ -126,17 +127,49 @@ desktop (Wails) builds in CI, multi-account support.
 
 ## Decisions
 
-(fill in)
+- **catchm CI** (`.github/workflows/ci.yml`): checkout@v6, setup-go@v6
+  (`go-version-file`, cache), `oven-sh/setup-bun@v2` (the first cut
+  used `@v3`, which doesn't exist and failed job setup; v2 runs on
+  node24), `bun install --frozen-lockfile` + `bun run build`, then
+  Taskfile-mirrored lint and **`go test -race ./...`**. The local
+  `-race` run found no data races. No apt packages were needed on
+  ubuntu-latest (malgo's CGO only needs the preinstalled gcc), which
+  confirms the research correction above. `internal/agent` tests skip
+  on runners (no `claude` CLI).
+- **catchm-cloud CI**: setup-node@v6 Node 24 LTS, `npm ci`, typecheck,
+  test. The clean-clone check caught a real bug. `vitest ^3.2.7` was
+  outside `@cloudflare/vitest-pool-workers@0.7.8`'s peer range
+  (`2.0.x–3.0.x`), so the lockfile carried peer-marked
+  `@vitest/snapshot@3.0.9` that `npm ci` skips, and tests failed in a
+  fresh clone (`No such module`). Fix: `vitest ~3.0.9` + regenerated
+  lockfile. That also silenced the per-run peer-range warning.
+- **Server URL backend** (`c3da096`): `PUT /api/cloud/server`, 409
+  while logged in, https for any host / http only for loopback
+  (`localhost` exact match or `net.IP.IsLoopback`), rejects
+  userinfo/query/fragment, trims trailing slash, clears
+  email/auth_salt/kdf_params on change, `api_base_url` in `GET
+  /api/cloud/status`. Manifest keyed per server as
+  `cloud-sync-state-<sha256(url)[:16]>.json`; the legacy unkeyed file
+  is ignored (pre-launch dev data only).
+- **B UI moved to M20**, which redesigns the whole Settings screen.
+  Building a one-off field into the old layout first would be churn.
 
 ## Progress
 
-- [ ] A1 catchm CI workflow (+ -race decision)
-- [ ] A2 catchm-cloud CI workflow
-- [ ] Real green Actions runs on both repos
-- [ ] B endpoint + validation + side effects + per-server manifest
-- [ ] B UI + tests
-- [ ] Live check, Validation recorded
+- [x] A1 catchm CI workflow (+ -race decision)
+- [x] A2 catchm-cloud CI workflow
+- [x] Real green Actions runs on both repos
+- [x] B endpoint + validation + side effects + per-server manifest
+- [x] B UI → moved to M20 (Settings redesign)
+- [x] Validation recorded (live UI check → M20)
 
 ## Validation
 
-(to be filled as criteria are confirmed)
+- catchm-cloud Actions run 35955115845: green on first run.
+- catchm Actions run 35955119343: failed at job setup (`Unable to
+  resolve action oven-sh/setup-bun@v3`). After the fix, run
+  35955225143: **green, build-and-test in 2m17s**, including
+  `bun run build`, lint, and `go test -race ./...`.
+- `c3da096`: `go build/vet/gofmt` clean; server/cloudsync/config tests
+  pass (URL-validation table of 14 cases, 409 while logged in,
+  param-clearing + persistence, A→B→A manifest isolation).
