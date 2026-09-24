@@ -209,6 +209,20 @@ export async function listMeetings(q?: string): Promise<Meeting[]> {
   return (await apiFetch<Meeting[] | null>(`/api/meetings${qs}`)) ?? []
 }
 
+/** GET /api/audio/sources — M19 contract (docs/plans/active/m19-audio-sources.md §4).
+ *  Not implemented yet until M19 merges; every field is optional and callers
+ *  must degrade gracefully when the endpoint or fields are missing. */
+export interface AudioSources {
+  mic_devices?: Device[]
+  system?: { supported?: boolean; reason?: string }
+}
+
+/** GET /api/audio/sources — degrades to null when the endpoint doesn't
+ *  exist yet (M19 not merged). */
+export function getAudioSources(): Promise<AudioSources> {
+  return apiFetch("/api/audio/sources")
+}
+
 /** POST /api/meetings */
 export function startMeeting(body: StartMeetingRequest): Promise<Meeting> {
   return apiFetch("/api/meetings", {

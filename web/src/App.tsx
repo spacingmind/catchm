@@ -6,11 +6,11 @@ import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
 import { NewMeetingDialog } from "@/components/NewMeetingDialog"
-import { SettingsCloud } from "@/components/SettingsCloud"
-import { SettingsConfig } from "@/components/SettingsConfig"
-import { SettingsTranslate } from "@/components/SettingsTranslate"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { Meeting } from "@/lib/api"
+import { Settings } from "@/components/settings/Settings"
+import { listMeetings, type Meeting } from "@/lib/api"
+
+/** How often the live state is re-derived from the server. */
+const LIVE_POLL_MS = 3000
 
 function App() {
   const [view, setView] = useState<View>("list")
@@ -20,6 +20,30 @@ function App() {
   // sidebar's recording indicator.
   const [live, setLive] = useState<Meeting | null>(null)
   const [startOpen, setStartOpen] = useState(false)
+
+  // Server is the source of truth for "is anything recording": refresh on
+  // mount and every few seconds so a reload/restart or a meeting started
+  // elsewhere (MCP tools, another window) still shows the indicator. Same
+  // rule as the M11 tray tooltip: the meeting with no ended_at. Optimistic
+  // updates in openMeeting/onEnded win until the next poll corrects them.
+  useEffect(() => {
+    let cancelled = false
+    const sync = () => {
+      listMeetings()
+        .then((ms) => {
+          if (!cancelled) setLive(ms.find((m) => !m.ended_at) ?? null)
+        })
+        .catch(() => {
+          // Server unreachable — keep the last known state.
+        })
+    }
+    sync()
+    const id = setInterval(sync, LIVE_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
 
   const openMeeting = (meeting: Meeting) => {
     setSelected(meeting)
@@ -82,24 +106,7 @@ function App() {
           <MeetingDetail meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
         )}
         {view === "action-items" && <ActionItems onOpenMeeting={openMeeting} />}
-        {view === "settings" && (
-          <Tabs defaultValue="engines">
-            <TabsList className="mx-auto mb-6 flex w-fit px-6">
-              <TabsTrigger value="engines">Engines</TabsTrigger>
-              <TabsTrigger value="translation">Translation</TabsTrigger>
-              <TabsTrigger value="cloud">Cloud</TabsTrigger>
-            </TabsList>
-            <TabsContent value="engines">
-              <SettingsConfig />
-            </TabsContent>
-            <TabsContent value="translation">
-              <SettingsTranslate />
-            </TabsContent>
-            <TabsContent value="cloud">
-              <SettingsCloud />
-            </TabsContent>
-          </Tabs>
-        )}
+        {view === "settings" && <Settings />}
       </main>
 
       <NewMeetingDialog open={startOpen} onOpenChange={setStartOpen} onStarted={openMeeting} />
