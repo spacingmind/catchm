@@ -125,21 +125,23 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
           {liveTitle && <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-primary" aria-label="Recording" />}
         </NavButton>
         <NavButton icon={CheckSquare} label="Action items" collapsed={collapsed} active={view === "action-items"} onClick={() => onNavigate("action-items")} />
-        <NavButton icon={Settings2} label="Settings" title="Settings (Ctrl/⌘,)" collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
       </nav>
 
       <div className="border-t border-border p-3">
-        <Button
-          ref={startButtonRef}
-          size="lg"
-          className={cn("w-full", collapsed && "px-0")}
-          onClick={onStartMeeting}
-          title="Start meeting (Ctrl/⌘ N)"
-          aria-label="Start meeting"
-        >
-          <Mic />
-          {!collapsed && <span>Start meeting</span>}
-        </Button>
+        <div className="grid gap-1">
+          <Button
+            ref={startButtonRef}
+            size="lg"
+            className={cn("w-full", collapsed && "px-0")}
+            onClick={onStartMeeting}
+            title="Start meeting (Ctrl/⌘ N)"
+            aria-label="Start meeting"
+          >
+            <Mic />
+            {!collapsed && <span>Start meeting</span>}
+          </Button>
+          <NavButton icon={Settings2} label="Settings" title="Settings (Ctrl/⌘,)" collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
+        </div>
       </div>
     </aside>
   )
