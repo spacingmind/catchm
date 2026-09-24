@@ -4,7 +4,7 @@ import { cn } from "cn"
 
 import { SettingsCloud } from "@/components/SettingsCloud"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
-import { SettingsTranslate } from "@/components/SettingsTranslate"
+import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
 
 type Section = "recording" | "transcription" | "translation" | "cloud"
@@ -50,7 +50,7 @@ export function Settings() {
       <div className="min-w-0 flex-1">
         {section === "recording" && <SettingsRecording />}
         {section === "transcription" && <SettingsTranscription />}
-        {section === "translation" && <SettingsTranslate />}
+        {section === "translation" && <SettingsTranslation />}
         {section === "cloud" && <SettingsCloud />}
       </div>
     </div>

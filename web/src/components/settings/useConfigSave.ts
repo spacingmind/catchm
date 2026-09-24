@@ -4,31 +4,12 @@ import type { SaveState } from "@/components/settings/pieces"
 import { updateConfig, type AppConfig, type UpdateConfigRequest } from "@/lib/api"
 
 /**
- * PUT /api/config sends the whole config, so every settings page keeps a
- * full AppConfig snapshot and patches only its own fields — the other
- * fields ride along unchanged (this is how the old single SettingsConfig
- * form worked; the API itself is unchanged in M20).
- */
-export function toConfigRequest(
-  c: AppConfig,
-  patch: Partial<UpdateConfigRequest>,
-): UpdateConfigRequest {
-  return {
-    engine: c.engine,
-    whisper_url: c.whisper_url,
-    soniox: { url: c.soniox.url },
-    translate: {
-      host: c.translate.host,
-      live_model: c.translate.live_model,
-      batch_model: c.translate.batch_model,
-    },
-    ...patch,
-  }
-}
-
-/**
- * Quiet autosave for config-backed settings rows: last-write-wins with a
- * sequence guard so a stale response never clobbers a newer save's status.
+ * Quiet autosave for config-backed settings rows. PUT /api/config is a
+ * partial update (setIfNonEmpty per field), so only the patched fields
+ * are sent — never a full snapshot, which could silently overwrite
+ * newer values saved from another window/page. The full AppConfig is
+ * kept for rendering only. Sequence-guarded so a stale response never
+ * clobbers a newer save's status.
  */
 export function useConfigSave(config: AppConfig | null, onSaved: (c: AppConfig) => void) {
   const [save, setSave] = useState<{ state: SaveState; error?: string }>({ state: "idle" })
@@ -48,7 +29,7 @@ export function useConfigSave(config: AppConfig | null, onSaved: (c: AppConfig) 
       const id = ++seq.current
       setSave({ state: "saving" })
       try {
-        const c = await updateConfig(toConfigRequest(config, patch))
+        const c = await updateConfig(patch as UpdateConfigRequest)
         if (id !== seq.current) return true
         onSaved(c)
         setSave({ state: "saved" })

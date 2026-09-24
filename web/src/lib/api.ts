@@ -144,16 +144,23 @@ export interface AppConfig {
   }
 }
 
-/** Body for PUT /api/config — like AppConfig but with the write-only
- *  soniox_api_key (optional; omitting/emptying it preserves the stored key). */
+/**
+ * Body for PUT /api/config — a PARTIAL update: the server applies
+ * setIfNonEmpty per field, so only included fields change and omitted or
+ * blank ones are left alone. Every field is optional; send just what a
+ * page changed, never a full snapshot (a stale snapshot would silently
+ * overwrite newer values saved elsewhere). soniox_api_key is write-only
+ * and never present in responses; omitting/emptying it preserves the
+ * stored key.
+ */
 export interface UpdateConfigRequest {
-  engine: string
+  engine?: string
   lang?: string
-  whisper_url: string
-  soniox: { url: string }
+  whisper_url?: string
+  soniox?: { url: string }
   /** Never present in responses. Omitted/empty preserves the stored key. */
   soniox_api_key?: string
-  translate: {
+  translate?: {
     host: string
     live_model: string
     batch_model: string
