@@ -354,6 +354,18 @@ func (in *mixerInput) bufferedLen() int {
 // Chunks implements Source.
 func (m *Mixer) Chunks() <-chan stt.PCM { return m.out }
 
+// HasInput reports whether the named input slot currently has a live
+// source wired (post-swap state; a starved-but-wired input still
+// reports true, with zero levels).
+func (m *Mixer) HasInput(mic bool) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mic {
+		return m.mic != nil && m.mic.active
+	}
+	return m.system != nil && m.system.active
+}
+
 // Stats reports per-input levels plus drop diagnostics. droppedTicks
 // is mixer-global (output-side drops under a slow consumer);
 // DroppedSamples is per input (jitter-buffer trims under clock drift).

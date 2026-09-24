@@ -77,6 +77,9 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	s.mux.HandleFunc("GET /api/devices", s.handleDevices)
+	s.mux.HandleFunc("GET /api/audio/sources", s.handleAudioSources)
+	s.mux.HandleFunc("POST /api/meetings/{id}/source", s.handleSetMeetingSource)
+	s.mux.HandleFunc("GET /api/meetings/{id}/levels", s.handleMeetingLevels)
 	s.mux.HandleFunc("GET /api/meetings", s.handleListMeetings)
 	s.mux.HandleFunc("POST /api/meetings", s.handleStartMeeting)
 	s.mux.HandleFunc("GET /api/meetings/{id}", s.handleGetMeeting)
@@ -136,6 +139,118 @@ func (s *Server) handleDevices(w http.ResponseWriter, _ *http.Request) {
 		devices = nil
 	}
 	writeJSON(w, http.StatusOK, devices)
+}
+
+// handleAudioSources serves the M19 source-selection contract: the mic
+// device list (same shape as /api/devices, which stays) plus system
+// capability.
+func (s *Server) handleAudioSources(w http.ResponseWriter, _ *http.Request) {
+	mics, err := capture.Devices()
+	if err != nil {
+		// Degrade gracefully like handleDevices: no audio backend still
+		// gets a working answer.
+		mics = nil
+	}
+	supported, reason := capture.SystemAudioSupported()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mic_devices": mics,
+		"system":      map[string]any{"supported": supported, "reason": reason},
+	})
+}
+
+// handleSetMeetingSource switches a live meeting's audio source
+// in place: the pipeline's mixer swaps inputs (open new first; on
+// failure the old input keeps running). 404 when the meeting has no
+// live pipeline (already ended or capture never started), 400 on a bad
+// source value, 422 when the new source can't be opened (old input
+// stays live; the body says why).
+func (s *Server) handleSetMeetingSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.mu.Lock()
+	p := s.pipelines[id]
+	s.mu.Unlock()
+	if p == nil {
+		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		return
+	}
+
+	var req struct {
+		Source string `json:"source"`
+		Device string `json:"device"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	mode := SourceMic
+	if req.Source != "" {
+		mode = SourceMode(req.Source)
+	}
+	if !mode.valid() {
+		httpError(w, http.StatusBadRequest, `source must be "mic", "system" or "both"`)
+		return
+	}
+
+	if captureErr := s.switchAudioSource(p, mode, req.Device); captureErr != "" {
+		// Old input still live; the switch just didn't happen.
+		httpError(w, http.StatusUnprocessableEntity, captureErr)
+		return
+	}
+
+	// Record the switch in the meeting so the timeline is honest:
+	// audio_source frontmatter plus a timestamped note (notes are the
+	// existing free-form timeline surface).
+	if err := s.surface.Store().UpdateDoc(id, func(m *meeting.Meeting) error {
+		m.AudioSource = string(mode)
+		if m.Notes == nil {
+			m.Notes = []string{}
+		}
+		m.Notes = append(m.Notes, fmt.Sprintf("audio source switched to %s at %s", mode, time.Now().Format(time.RFC3339)))
+		return nil
+	}); err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"source": string(mode), "device": req.Device})
+}
+
+// handleMeetingLevels serves the live level meters (5–10 Hz polling):
+// per active input rms/peak (0–1) plus drop diagnostics — dropped_ticks
+// (output-side, slow consumer) and per-input dropped_samples (clock
+// drift trims). Memory only; no disk I/O.
+func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.mu.Lock()
+	p := s.pipelines[id]
+	s.mu.Unlock()
+	if p == nil {
+		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		return
+	}
+	mixer := p.Mixer()
+	if mixer == nil {
+		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		return
+	}
+
+	mic, sys, droppedTicks := mixer.Stats()
+	body := map[string]any{"dropped_ticks": droppedTicks}
+	if mic.RMS != 0 || mic.Peak != 0 || micActive(mixer) {
+		body["mic"] = map[string]any{"rms": mic.RMS, "peak": mic.Peak, "dropped_samples": mic.DroppedSamples}
+	}
+	if sys.RMS != 0 || sys.Peak != 0 || sysActive(mixer) {
+		body["system"] = map[string]any{"rms": sys.RMS, "peak": sys.Peak, "dropped_samples": sys.DroppedSamples}
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+func micActive(m *capture.Mixer) bool { return sourceActive(m, true) }
+func sysActive(m *capture.Mixer) bool { return sourceActive(m, false) }
+func sourceActive(m *capture.Mixer, mic bool) bool {
+	// Active = the mixer has that input wired (regardless of momentary
+	// level); the mixer exposes this via Stats inputs presence below.
+	return m.HasInput(mic)
 }
 
 func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
