@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Mic, Search } from "lucide-react"
+import { Search } from "lucide-react"
 
 import logo from "@/assets/logo.png"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { NewMeetingDialog } from "@/components/NewMeetingDialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, type Meeting } from "@/lib/api"
 
@@ -17,7 +15,6 @@ interface MeetingListProps {
 export function MeetingList({ onOpenMeeting }: MeetingListProps) {
   const [meetings, setMeetings] = useState<Meeting[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [activeTag, setActiveTag] = useState<string | null>(null)
 
@@ -75,11 +72,6 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
     [base, activeTag],
   )
 
-  const handleStarted = (meeting: Meeting) => {
-    setDialogOpen(false)
-    onOpenMeeting(meeting)
-  }
-
   const listEmpty = meetings !== null && meetings.length === 0 && !trimmedQuery
   const noMatches =
     meetings !== null && meetings.length > 0 && trimmedQuery !== "" && !searching && visibleMeetings.length === 0
@@ -88,9 +80,6 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
     <div className="mx-auto max-w-3xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Meetings</h1>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Mic /> Record a meeting
-        </Button>
       </div>
 
       <div className="relative mb-4">
@@ -183,7 +172,6 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
         </div>
       )}
 
-      <NewMeetingDialog open={dialogOpen} onOpenChange={setDialogOpen} onStarted={handleStarted} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from "react"
+import { useEffect, useState, type ComponentType, type ReactNode, type RefObject } from "react"
 import { CheckSquare, ListVideo, Mic, PanelLeftClose, PanelLeftOpen, Radio, Settings2 } from "lucide-react"
 import { cn } from "cn"
 
@@ -59,9 +59,11 @@ interface AppSidebarProps {
   /** Title of the in-progress meeting; null when nothing is recording. */
   liveTitle: string | null
   onStartMeeting: () => void
+  /** Start button — exposed so the start popover can anchor to it. */
+  startButtonRef?: RefObject<HTMLButtonElement | null>
 }
 
-export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting }: AppSidebarProps) {
+export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startButtonRef }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
@@ -128,6 +130,7 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting }: AppS
 
       <div className="border-t border-border p-3">
         <Button
+          ref={startButtonRef}
           size="lg"
           className={cn("w-full", collapsed && "px-0")}
           onClick={onStartMeeting}

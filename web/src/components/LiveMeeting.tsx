@@ -22,9 +22,14 @@ const AT_BOTTOM_THRESHOLD_PX = 120
 interface LiveMeetingProps {
   meeting: Meeting
   onEnded: (meeting: Meeting) => void
+  /** M19 capture_error from the start response: the meeting exists but
+   *  nothing is being recorded. Must stay visible, never a silent no-op. */
+  captureError?: string | null
+  /** Opens settings so the user can fix the cause (e.g. missing API key). */
+  onOpenSettings?: () => void
 }
 
-export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
+export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: LiveMeetingProps) {
   const [utterances, setUtterances] = useState<Utterance[]>([])
   const cursorRef = useRef(-1)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -158,6 +163,19 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
       </div>
 
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
+
+      {captureError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
+          <p className="text-sm text-destructive">
+            <span className="font-medium">Not recording:</span> {captureError}
+          </p>
+          {onOpenSettings && (
+            <Button size="sm" variant="outline" onClick={onOpenSettings}>
+              Open settings
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="relative mb-4">
         <ScrollArea className="h-96 rounded-xl border border-border bg-card">

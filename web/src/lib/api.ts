@@ -67,16 +67,31 @@ export interface Device {
 
 export type SttEngine = "whisper" | "soniox"
 
+/** M19 §4: where the audio comes from. Default "mic" when omitted. */
+export type AudioSource = "mic" | "system" | "both"
+
 /** Body for POST /api/meetings. */
 export interface StartMeetingRequest {
   title: string
   device?: string
+  /** M19: mic device ID (unchanged meaning). */
   engine?: SttEngine | ""
   lang?: string
   translate_to?: string
   /** When true, lang and translate_to are the two conversation languages. */
   two_way?: boolean
   tags?: string[]
+  /** M19 §4: "mic" | "system" | "both". Ignored by pre-M19 backends. */
+  source?: AudioSource
+}
+
+/**
+ * POST /api/meetings response — a Meeting, plus M19's capture_error when
+ * the meeting was created but the engine or audio source failed to start
+ * (absent on success). Never swallow it: the UI must surface it.
+ */
+export interface StartMeetingResponse extends Meeting {
+  capture_error?: string
 }
 
 /** Body for PATCH /api/meetings/{id} — at least one field required. */
@@ -231,7 +246,7 @@ export function getAudioSources(): Promise<AudioSources> {
 }
 
 /** POST /api/meetings */
-export function startMeeting(body: StartMeetingRequest): Promise<Meeting> {
+export function startMeeting(body: StartMeetingRequest): Promise<StartMeetingResponse> {
   return apiFetch("/api/meetings", {
     method: "POST",
     body: JSON.stringify(body),
