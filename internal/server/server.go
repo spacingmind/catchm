@@ -100,6 +100,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/cloud/status", s.handleCloudStatus)
 	s.mux.HandleFunc("POST /api/cloud/sync", s.handleCloudSync)
 	s.mux.HandleFunc("POST /api/cloud/recover", s.handleCloudRecover)
+	s.mux.HandleFunc("PUT /api/cloud/server", s.handleCloudServer)
 
 	// Serves the embedded web UI for anything not matched above (with SPA
 	// fallback); see webui.go. Registered last for readability only — Go's

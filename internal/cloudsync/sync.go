@@ -23,6 +23,13 @@ const (
 // stateFileName is the sync manifest, stored next to config.yaml under
 // CATCHM_HOME. It holds only versions and content checksums — no
 // secrets — so plaintext storage is fine.
+//
+// The manifest is keyed per server (cloud-sync-state-<sha256(url)[:16]>
+// .json): remote versions and pushed checksums belong to exactly one
+// server, so switching A→B→A must neither push against B with A's
+// versions nor forget A's state. Sync reads the URL from the config
+// the caller saved; legacy unkeyed files are ignored (pre-launch dev
+// data only — recorded in M18 Decisions).
 const stateFileName = "cloud-sync-state.json"
 
 type syncStateEntry struct {
@@ -51,7 +58,7 @@ type SyncResult struct {
 // encryption differ. The ciphertext checksum from
 // EncryptMeetingBundle is only the transport check for X-Checksum.
 func Sync(store *meeting.Store, client *Client, sessionToken string, masterKey []byte) (*SyncResult, error) {
-	path, err := statePath()
+	path, err := statePath(client.BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +295,11 @@ func contentChecksum(files map[string][]byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func statePath() (string, error) {
+// statePath resolves the per-server manifest path. serverURL is the
+// normalized cloud base URL the client talks to; the empty string
+// falls back to the legacy unkeyed name (kept readable so a manual
+// inspection of an old install still works).
+func statePath(serverURL string) (string, error) {
 	home := os.Getenv("CATCHM_HOME")
 	if home == "" {
 		userHome, err := os.UserHomeDir()
@@ -297,7 +308,12 @@ func statePath() (string, error) {
 		}
 		home = filepath.Join(userHome, ".catchm")
 	}
-	return filepath.Join(home, stateFileName), nil
+	if serverURL == "" {
+		return filepath.Join(home, stateFileName), nil
+	}
+	sum := sha256.Sum256([]byte(serverURL))
+	key := hex.EncodeToString(sum[:])[:16]
+	return filepath.Join(home, fmt.Sprintf("cloud-sync-state-%s.json", key)), nil
 }
 
 func loadState(path string) (syncState, error) {

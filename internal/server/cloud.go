@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/spacingmind/catchm/internal/cloudsync"
@@ -159,15 +162,22 @@ func (s *Server) handleCloudStatus(w http.ResponseWriter, _ *http.Request) {
 	st := s.cloud
 	s.mu.Unlock()
 	if st == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"logged_in": false})
+		s.mu.Lock()
+		base := s.cfg.Cloud.APIBaseURL
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"logged_in": false, "api_base_url": base})
 		return
 	}
 	lastSync := st.lastSyncAt
+	s.mu.Lock()
+	base := s.cfg.Cloud.APIBaseURL
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"logged_in":    true,
 		"email":        st.email,
 		"logged_in_at": st.loggedInAt,
 		"last_sync_at": lastSync,
+		"api_base_url": base,
 	})
 }
 
@@ -299,6 +309,91 @@ func (s *Server) handleCloudRecover(w http.ResponseWriter, r *http.Request) {
 		"email":         req.Email,
 		"recovery_code": rw.RecoveryCode,
 	})
+}
+
+// validateCloudServerURL validates a user-supplied cloud base URL.
+// Rules (M18 spec): must be absolute; https for any host; plain http
+// only for loopback (localhost, 127.0.0.0/8, ::1) — auth_hash is
+// replayable for login and session tokens are bearer credentials, so
+// they must never cross the network in plaintext to a remote host.
+// Userinfo, query, and fragment are rejected. The trailing slash is
+// trimmed as normalization.
+func validateCloudServerURL(raw string) (string, error) {
+	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL")
+	}
+	if !u.IsAbs() || u.Host == "" {
+		return "", fmt.Errorf("must be an absolute URL")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("userinfo not allowed")
+	}
+	if u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+		return "", fmt.Errorf("query and fragment not allowed")
+	}
+	switch u.Scheme {
+	case "https":
+		// any host
+	case "http":
+		host := u.Hostname()
+		ip := net.ParseIP(host)
+		if host == "localhost" || (ip != nil && (ip.IsLoopback())) {
+			// loopback ok
+		} else {
+			return "", fmt.Errorf("http is only allowed for localhost")
+		}
+	default:
+		return "", fmt.Errorf("scheme must be http or https")
+	}
+	return trimmed, nil
+}
+
+// handleCloudServer sets which catchm-cloud instance this install
+// talks to. Only while logged out: the session, master key, stored
+// account params, and sync manifest all belong to one server.
+func (s *Server) handleCloudServer(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	loggedIn := s.cloud != nil
+	s.mu.Unlock()
+	if loggedIn {
+		httpError(w, http.StatusConflict, "log out before changing the cloud server")
+		return
+	}
+
+	var req struct {
+		APIBaseURL string `json:"api_base_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	normalized, err := validateCloudServerURL(req.APIBaseURL)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.mu.Lock()
+	updated := *s.cfg
+	s.mu.Unlock()
+	// The account params identify an account on the OLD server; a new
+	// server means a fresh signup/login.
+	updated.Cloud.Email = ""
+	updated.Cloud.AuthSalt = ""
+	updated.Cloud.KDFParams = ""
+	updated.Cloud.APIBaseURL = normalized
+	if err := config.Save(&updated); err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if reloaded, err := config.Load(); err == nil {
+		s.mu.Lock()
+		s.cfg = reloaded
+		s.mu.Unlock()
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"api_base_url": normalized})
 }
 
 // cloudClient builds a Client for the configured backend URL (via the

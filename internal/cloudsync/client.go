@@ -95,6 +95,12 @@ func NewClient(baseURL string) *Client {
 	return &Client{baseURL: strings.TrimSuffix(baseURL, "/"), http: http.DefaultClient}
 }
 
+// BaseURL returns the (normalized, trailing-slash-trimmed) cloud base
+// URL this client talks to — Sync keys its per-server manifest by it.
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 // AuthParams fetches the auth_salt and kdf_params a login needs. The
 // server returns plausible fake values for unknown emails
 // (anti-enumeration); the result is opaque and a login with the wrong

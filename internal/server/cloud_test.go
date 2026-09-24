@@ -1,12 +1,16 @@
 package server
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +242,8 @@ type cloudFakeWorker struct {
 	sessions   map[string]string
 	url        string
 	resetCalls int
+	blobs      map[string][]byte // "<email>/<id>" -> content
+	blobVers   map[string]int    // "<email>/<id>" -> version
 }
 
 func (f *cloudFakeWorker) handler() http.Handler {
@@ -342,7 +348,58 @@ func (f *cloudFakeWorker) handler() http.Handler {
 		f.users[email] = stored
 		writeCloudJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	// Minimal blob endpoints (enough for Sync in the isolation test).
+	mux.HandleFunc("/blobs", func(w http.ResponseWriter, r *http.Request) {
+		email, ok := f.sessionEmail(r)
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		out := []map[string]any{}
+		for key, content := range f.blobs {
+			if parts := strings.SplitN(key, "/", 2); len(parts) == 2 && parts[0] == email {
+				out = append(out, map[string]any{
+					"id": parts[1], "version": f.blobVers[key],
+					"checksum": "", "size_bytes": len(content), "updated_at": 1,
+				})
+			}
+		}
+		writeCloudJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("/blobs/", func(w http.ResponseWriter, r *http.Request) {
+		email, ok := f.sessionEmail(r)
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Path, "/blobs/")
+		key := email + "/" + id
+		switch r.Method {
+		case http.MethodPut:
+			body, _ := io.ReadAll(r.Body)
+			f.blobs[key] = body
+			f.blobVers[key]++
+			writeCloudJSON(w, http.StatusOK, map[string]any{"version": f.blobVers[key], "checksum": ""})
+		case http.MethodGet:
+			content, exists := f.blobs[key]
+			if !exists {
+				writeCloudJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+				return
+			}
+			w.Header().Set("X-Version", fmt.Sprintf("%d", f.blobVers[key]))
+			w.Write(content)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
 	return mux
+}
+
+// sessionEmail resolves the bearer token to the owning email.
+func (f *cloudFakeWorker) sessionEmail(r *http.Request) (string, bool) {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	email, ok := f.sessions[token]
+	return email, ok
 }
 
 func writeCloudJSON(w http.ResponseWriter, code int, v any) {
@@ -353,7 +410,12 @@ func writeCloudJSON(w http.ResponseWriter, code int, v any) {
 
 func httptestNewCloudWorker(t *testing.T) *cloudFakeWorker {
 	t.Helper()
-	f := &cloudFakeWorker{users: map[string]cloudsync.SignupRequest{}, sessions: map[string]string{}}
+	f := &cloudFakeWorker{
+		users:    map[string]cloudsync.SignupRequest{},
+		sessions: map[string]string{},
+		blobs:    map[string][]byte{},
+		blobVers: map[string]int{},
+	}
 	server := httptest.NewServer(f.handler())
 	t.Cleanup(server.Close)
 	f.url = server.URL
@@ -553,3 +615,41 @@ func TestCloudSyncQuotaExceededSurfaces(t *testing.T) {
 		t.Fatalf("message = %q", msg)
 	}
 }
+
+// Test-only helpers shared with cloudserver_test.go: a bare fake worker
+// (no Server wiring) plus direct signup, and manifest path resolution.
+func newCloudTestWorkerOnly(t *testing.T) *cloudFakeWorker {
+	t.Helper()
+	return httptestNewCloudWorker(t)
+}
+
+func cloudTestSignupOn(t *testing.T, fake *cloudFakeWorker, email string) string {
+	t.Helper()
+	res, err := http.Post(fake.url+"/signup", "application/json",
+		strings.NewReader(`{"email":"`+email+`","auth_hash":"h","auth_salt":"s","kdf_params":"{}","wrapped_master_key":"w","key_wrap_params":"{}","recovery_salt":"rs","recovery_auth_hash":"rh","recovery_blob":"rb","recovery_kdf_params":"{}"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out struct {
+		SessionToken string `json:"session_token"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.SessionToken == "" {
+		t.Fatal("no session token from fake signup")
+	}
+	return out.SessionToken
+}
+
+func manifestPathFor(t *testing.T, serverURL string) string {
+	t.Helper()
+	// Mirrors cloudsync.statePath's layout for the given server URL.
+	home := os.Getenv("CATCHM_HOME")
+	sum := sha256.Sum256([]byte(serverURL))
+	key := hex.EncodeToString(sum[:])[:16]
+	return filepath.Join(home, fmt.Sprintf("cloud-sync-state-%s.json", key))
+}
+
+func timeNowUTC() time.Time { return time.Now().UTC() }
