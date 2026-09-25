@@ -123,7 +123,12 @@ export function SettingsTranscription() {
         <SettingRow
           label="Engine"
           htmlFor="stt-engine"
-          description="Used as the default when starting a meeting."
+          description={
+            <>
+              Used as the default when starting a meeting.{" "}
+              {ENGINES.find((e) => e.value === (config.engine === "soniox" ? "soniox" : "whisper"))?.hint}
+            </>
+          }
           control={
             <SegmentedControl
               label="Transcription engine"
@@ -133,14 +138,6 @@ export function SettingsTranscription() {
             />
           }
         />
-        <div className="grid gap-1.5 border-b border-border pb-4 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-8">
-          <p className="text-sm text-muted-foreground">
-            {ENGINES.find((e) => e.value === (config.engine === "soniox" ? "soniox" : "whisper"))?.hint}
-          </p>
-          <div className="sm:justify-self-end">
-            <SaveStatus state={save.state} error={save.error} />
-          </div>
-        </div>
         <SettingRow
           label="Soniox API key"
           htmlFor="soniox-key"
@@ -187,6 +184,9 @@ export function SettingsTranscription() {
               )
           }
         />
+        <div className="flex items-center justify-end">
+          <SaveStatus state={save.state} error={save.error} />
+        </div>
       </SettingsSection>
 
       <SettingsSection title="Advanced" description="Server endpoints for the engines.">

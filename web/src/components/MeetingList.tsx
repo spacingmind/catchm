@@ -7,6 +7,7 @@ import { CardContent, CardDescription, CardHeader, CardTitle } from "@/component
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, type Meeting } from "@/lib/api"
+import { pluralize } from "@/lib/utils"
 
 interface MeetingListProps {
   onOpenMeeting: (meeting: Meeting) => void
@@ -164,8 +165,8 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
                   <p className="truncate text-sm text-muted-foreground">{previewLine(m)}</p>
                 )}
                 <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <span>{m.decisions?.length ?? 0} decisions</span>
-                  <span>{m.action_items?.length ?? 0} action items</span>
+                  <span>{pluralize(m.decisions?.length ?? 0, "decision")}</span>
+                  <span>{pluralize(m.action_items?.length ?? 0, "action item")}</span>
                   {(m.tags ?? []).map((t) => (
                     <Badge key={t} variant="secondary">
                       {t}

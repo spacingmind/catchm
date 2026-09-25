@@ -36,6 +36,7 @@ function NavButton({ icon: Icon, label, title, active, collapsed, disabled, onCl
       onClick={onClick}
       disabled={disabled}
       title={collapsed ? (title ?? label) : title}
+      aria-label={label}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -79,7 +80,7 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
   return (
     <aside
       className={cn(
-        "sticky top-0 flex h-svh shrink-0 flex-col border-r border-border bg-card transition-[width]",
+        "sticky top-0 flex h-svh shrink-0 flex-col border-r border-border bg-card motion-safe:transition-[width]",
         collapsed ? "w-16" : "w-56",
       )}
     >

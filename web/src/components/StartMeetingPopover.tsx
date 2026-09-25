@@ -159,6 +159,11 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
     setPairError(null)
     setSubmitting(true)
     setError(null)
+    // Close now rather than after the request resolves: its exit
+    // transition then plays out over this (still-visible) screen instead
+    // of over the Live view we're about to navigate to. Reopen on failure
+    // so the inline error below still has somewhere to show.
+    onOpenChange(false)
     try {
       const meeting = await startMeeting({
         title: title.trim() || defaultTitle(),
@@ -171,10 +176,10 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
       })
       writeLast({ lang: lang.trim(), translateTo: translateTo.trim(), twoWay, engine: activeEngine })
       onStarted(meeting)
-      onOpenChange(false)
       setTitle("")
       setError(null)
     } catch (err) {
+      onOpenChange(true)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSubmitting(false)

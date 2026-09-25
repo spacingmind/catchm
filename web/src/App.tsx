@@ -6,11 +6,23 @@ import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
-import { Settings } from "@/components/settings/Settings"
+import { Settings, type Section as SettingsSection } from "@/components/settings/Settings"
 import { listMeetings, type Meeting, type StartMeetingResponse } from "@/lib/api"
 
 /** How often the live state is re-derived from the server. */
 const LIVE_POLL_MS = 3000
+
+/**
+ * Which Settings section fixes a given capture_error: audio-source/device
+ * errors point at Recording, everything else (engine construction —
+ * missing API key, unreachable server, ...) points at Transcription,
+ * where the engine and its key/URLs live.
+ */
+function captureErrorSection(message: string): SettingsSection {
+  const m = message.toLowerCase()
+  if (m.includes("microphone") || m.includes("system audio")) return "recording"
+  return "transcription"
+}
 
 function App() {
   const [view, setView] = useState<View>("list")
@@ -20,6 +32,10 @@ function App() {
   // sidebar's recording indicator.
   const [live, setLive] = useState<Meeting | null>(null)
   const [startOpen, setStartOpen] = useState(false)
+  // Which Settings section to land on next time it opens (Ctrl/⌘, and the
+  // sidebar item leave this unset, so Settings falls back to its own
+  // default — only the capture_error banner's "Open settings" sets it).
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined)
   // Sidebar Start button — the popover anchors above it.
   const startBtnRef = useRef<HTMLButtonElement | null>(null)
   // capture_error from the start response (M19): the meeting exists but
@@ -73,7 +89,10 @@ function App() {
   }, [live])
 
   const startMeeting = useCallback(() => setStartOpen(true), [])
-  const openSettings = useCallback(() => setView("settings"), [])
+  const openSettings = useCallback((section?: SettingsSection) => {
+    setSettingsSection(section)
+    setView("settings")
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -107,7 +126,7 @@ function App() {
           <LiveMeeting
             meeting={selected}
             captureError={captureError}
-            onOpenSettings={captureError ? openSettings : undefined}
+            onOpenSettings={captureError ? () => openSettings(captureErrorSection(captureError)) : undefined}
             onEnded={(m) => {
               setLive(null)
               setCaptureError(null)
@@ -120,7 +139,7 @@ function App() {
           <MeetingDetail key={selected.id} meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
         )}
         {view === "action-items" && <ActionItems onOpenMeeting={openMeeting} />}
-        {view === "settings" && <Settings />}
+        {view === "settings" && <Settings initialSection={settingsSection} />}
       </main>
 
       <StartMeetingPopover
