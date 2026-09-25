@@ -457,20 +457,26 @@ func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device
 		}
 	}
 
-	// Commit: swap inputs, then close the superseded sources.
-	mixer.SetInputs(micSrc, sysSrc)
-	if micSrc == nil {
-		if old := s.takeOldMic(p); old != nil {
-			_ = old.Close()
+	// Commit: swap inputs; the mixer hands back the displaced sources,
+	// which we close (ownership transfer is explicit).
+	displaced, err := mixer.SetInputs(micSrc, sysSrc)
+	if err != nil {
+		// The mixer closed between the pipeline check and here (meeting
+		// ended mid-switch): nothing was installed, so close the newly
+		// opened sources and report.
+		if micSrc != nil {
+			_ = micSrc.Close()
 		}
+		if sysSrc != nil {
+			_ = sysSrc.Close()
+		}
+		return "meeting ended during switch"
+	}
+	for _, old := range displaced {
+		_ = old.Close()
 	}
 	return ""
 }
-
-// takeOldMic is a no-op placeholder — old sources are closed via the
-// mixer swap registry (SetInputs stops their pumps; the pipeline
-// closes them at Stop). Kept for clarity of the failure protocol.
-func (s *Server) takeOldMic(p *pipeline.Pipeline) capture.Source { return nil }
 
 func (s *Server) stopPipeline(id string) {
 	s.mu.Lock()

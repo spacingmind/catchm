@@ -408,7 +408,13 @@ func TestMixerSetInputsKeepsCadence(t *testing.T) {
 
 	// Swap mic -> system-only with fresh content.
 	sysB := newFakeSource(constSamples(TickSamples*10, 2222))
-	m.SetInputs(nil, sysB)
+	displaced, err := m.SetInputs(nil, sysB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(displaced) != 1 || displaced[0] != micA {
+		t.Fatalf("displaced = %v, want [micA]", displaced)
+	}
 
 	// Cadence continues: more ticks arrive without gap (drainTicks
 	// would time out if the loop stalled) and content flips to 2222
@@ -435,23 +441,54 @@ func TestMixerSetInputsKeepsCadence(t *testing.T) {
 	}
 }
 
-// The failed-open protocol: caller opens new source, it fails, caller
-// never calls SetInputs — the old input keeps flowing untouched.
+// The failed-open protocol, exercised for real: caller opens the new
+// source, that fails, caller never calls SetInputs — the old input
+// keeps flowing untouched (content stays the original one's).
 func TestMixerFailedOpenKeepsOldInput(t *testing.T) {
-	mic := newFakeSource(constSamples(TickSamples*6, 700))
+	mic := newFakeSource(constSamples(TickSamples*8, 700))
 	m, err := NewMixer(newFakeClock(), mic, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer m.Close()
 
-	// "Open failed": simulate by simply not calling SetInputs.
-	ticks := drainTicks(t, m, 5)
-	for ti, tk := range ticks {
-		for i, v := range tk {
-			if v != 0 && v != 700 {
-				t.Fatalf("tick %d sample %d = %d, want 700 or padding 0", ti, i, v)
+	ticks := drainTicks(t, m, 4)
+	sawOld := false
+	for _, tk := range ticks {
+		for _, v := range tk {
+			if v == 700 {
+				sawOld = true
 			}
 		}
+	}
+	if !sawOld {
+		t.Fatal("old input stopped flowing (protocol violated)")
+	}
+
+	// Displaced-source accounting is exact across further swaps.
+	sysB := newFakeSource(constSamples(TickSamples*4, 900))
+	displaced, err := m.SetInputs(nil, sysB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(displaced) != 1 || displaced[0] != mic {
+		t.Fatalf("displaced = %v", displaced)
+	}
+	_, _ = m.SetInputs(nil, nil) // drop system too; mic-slot stays empty
+}
+
+// SetInputs after Close errors and installs nothing.
+func TestMixerSetInputsAfterCloseErrors(t *testing.T) {
+	mic := newFakeSource(constSamples(TickSamples*3, 1))
+	m, err := NewMixer(newFakeClock(), mic, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sys := newFakeSource(constSamples(TickSamples, 2))
+	if _, err := m.SetInputs(nil, sys); err == nil {
+		t.Fatal("SetInputs on closed mixer unexpectedly succeeded")
 	}
 }

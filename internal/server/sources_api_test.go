@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,15 +35,6 @@ func (f *fakeInputStream) Close() error {
 		close(f.ch)
 	}
 	return nil
-}
-
-// pipeStub captures the seams a switch goes through.
-type pipeStub struct {
-	mu          sync.Mutex
-	newMicErr   error
-	newMicCalls int
-	mic1, mic2  *fakeInputStream
-	sysSrc      *fakeInputStream
 }
 
 func TestAudioSourcesEndpoint(t *testing.T) {
@@ -220,6 +212,109 @@ func TestMeetingLevelsShape(t *testing.T) {
 	}
 }
 
-// compile-time: keep unused helpers honest if removed later.
-var _ = errors.New
-var _ = time.Now
+// countingSource is a fake input that counts Close calls.
+type countingSource struct {
+	ch         chan stt.PCM
+	closeCount atomic.Int64
+}
+
+func (c *countingSource) Chunks() <-chan stt.PCM { return c.ch }
+func (c *countingSource) Close() error {
+	c.closeCount.Add(1)
+	return nil
+}
+
+// Ownership protocol: every source opened across start → switch →
+// switch → end gets closed exactly once (start's source when displaced
+// by switch 1, switch 1's when displaced by switch 2, switch 2's at
+// pipeline stop).
+func TestOwnershipEverySourceClosedExactlyOnce(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.newEngine = func(name string, cfg *config.Config) (stt.StreamEngine, error) {
+		return &fakeEngine{}, nil
+	}
+
+	var mu sync.Mutex
+	opened := []*countingSource{}
+	newSrc := func() capture.Source {
+		src := &countingSource{ch: make(chan stt.PCM, 8)}
+		mu.Lock()
+		opened = append(opened, src)
+		mu.Unlock()
+		return src
+	}
+	s.newSource = func(device string) (capture.Source, error) { return newSrc(), nil }
+
+	res := do(t, s, http.MethodPost, "/api/meetings", `{"title":"Own","engine":"whisper","source":"mic"}`)
+	var m struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &m); err != nil || m.ID == "" {
+		t.Fatalf("start failed: %d %s", res.Code, res.Body.String())
+	}
+
+	// Two in-place switches (mic → mic → mic).
+	for i := 0; i < 2; i++ {
+		res := do(t, s, http.MethodPost, "/api/meetings/"+m.ID+"/source", `{"source":"mic"}`)
+		if res.Code != http.StatusOK {
+			t.Fatalf("switch %d: %d %s", i, res.Code, res.Body.String())
+		}
+		// Give the mixer a beat to finish the swap cleanup.
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// End the meeting (stops the pipeline).
+	res = do(t, s, http.MethodPost, "/api/meetings/"+m.ID+"/end", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("end: %d %s", res.Code, res.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(opened) != 3 {
+		t.Fatalf("expected 3 sources opened (start + 2 switches), got %d", len(opened))
+	}
+	for i, src := range opened {
+		if n := src.closeCount.Load(); n != 1 {
+			t.Fatalf("source %d closed %d times, want exactly 1", i, n)
+		}
+	}
+}
+
+// A failing newSource on switch: 422, old input stays live.
+func TestSwitchFailureKeepsOldInput422(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.newEngine = func(name string, cfg *config.Config) (stt.StreamEngine, error) {
+		return &fakeEngine{}, nil
+	}
+	live := &countingSource{ch: make(chan stt.PCM, 8)}
+	s.newSource = func(device string) (capture.Source, error) { return live, nil }
+	res := do(t, s, http.MethodPost, "/api/meetings", `{"title":"Keep","engine":"whisper","source":"mic"}`)
+	var m struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &m); err != nil || m.ID == "" {
+		t.Fatalf("start: %d %s", res.Code, res.Body.String())
+	}
+
+	// Now make opens fail.
+	s.newSource = func(device string) (capture.Source, error) {
+		return nil, errors.New("mic unplugged")
+	}
+	res = do(t, s, http.MethodPost, "/api/meetings/"+m.ID+"/source", `{"source":"mic"}`)
+	if res.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("switch code = %d, want 422 (body: %s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "mic unplugged") {
+		t.Fatalf("422 body: %s", res.Body.String())
+	}
+	// Old input still installed and live.
+	lv := do(t, s, http.MethodGet, "/api/meetings/"+m.ID+"/levels", "")
+	if lv.Code != http.StatusOK || !strings.Contains(lv.Body.String(), `"mic"`) {
+		t.Fatalf("old input lost after failed switch: %d %s", lv.Code, lv.Body.String())
+	}
+	if n := live.closeCount.Load(); n != 0 {
+		t.Fatalf("live source closed %d times before meeting end", n)
+	}
+}

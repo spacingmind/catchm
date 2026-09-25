@@ -5,6 +5,8 @@ package capture
 
 import (
 	"encoding/hex"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gen2brain/malgo"
 
@@ -50,9 +52,11 @@ func Devices() ([]Device, error) {
 // MicSource captures 16kHz mono PCM from a microphone (or other capture
 // device) using malgo/miniaudio.
 type MicSource struct {
-	ctx *malgo.AllocatedContext
-	dev *malgo.Device
-	ch  chan stt.PCM
+	ctx       *malgo.AllocatedContext
+	dev       *malgo.Device
+	ch        chan stt.PCM
+	closeOnce sync.Once
+	dropped   *atomic.Uint64
 }
 
 // NewMicSource opens deviceID (its hex Device.ID, or "" for the system
@@ -75,13 +79,18 @@ func NewMicSource(deviceID string) (*MicSource, error) {
 	}
 
 	ch := make(chan stt.PCM, 8)
+	var dropped atomic.Uint64
 	callbacks := malgo.DeviceCallbacks{
 		Data: func(_, in []byte, _ uint32) {
 			buf := make([]byte, len(in))
 			copy(buf, in)
 			select {
 			case ch <- stt.PCM(buf):
-			default: // consumer is behind; drop rather than block the audio thread
+			default:
+				// Consumer behind: drop rather than block the audio
+				// thread — but count it, so degradation is visible
+				// through the levels endpoint instead of silent.
+				dropped.Add(1)
 			}
 		},
 	}
@@ -97,15 +106,20 @@ func NewMicSource(deviceID string) (*MicSource, error) {
 		return nil, err
 	}
 
-	return &MicSource{ctx: mctx, dev: dev, ch: ch}, nil
+	return &MicSource{ctx: mctx, dev: dev, ch: ch, dropped: &dropped}, nil
 }
+
+// DroppedChunks implements capture.DropCounter.
+func (m *MicSource) DroppedChunks() uint64 { return m.dropped.Load() }
 
 func (m *MicSource) Chunks() <-chan stt.PCM { return m.ch }
 
 func (m *MicSource) Close() error {
-	m.dev.Uninit()
-	m.ctx.Free()
-	close(m.ch)
+	m.closeOnce.Do(func() {
+		m.dev.Uninit()
+		m.ctx.Free()
+		close(m.ch)
+	})
 	return nil
 }
 

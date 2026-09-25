@@ -122,6 +122,8 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 // for both pipeline goroutines to exit, and finalizes audio.wav. It is
 // safe to call once; calling it leaves no goroutines running.
 func (p *Pipeline) Stop() error {
+	// The source is always a Mixer since M19; its Close closes the
+	// installed input devices (displaced ones were closed at swap time).
 	srcErr := p.src.Close()
 	<-p.feederDone
 	p.cancel()

@@ -70,8 +70,15 @@ type Levels struct {
 type InputStats struct {
 	RMS            float64
 	Peak           float64
-	DroppedChunks  uint64 // chunks the source dropped (its channel was full)
+	DroppedChunks  uint64 // chunks the source itself dropped (its outbound channel was full)
 	DroppedSamples uint64 // samples trimmed from the jitter buffer bound
+}
+
+// DropCounter is implemented by sources that count the chunks they
+// dropped when their outbound channel was full (MicSource,
+// SystemSource). The mixer surfaces the counts through Stats().
+type DropCounter interface {
+	DroppedChunks() uint64
 }
 
 // mixerInput is one source's state: jitter buffer, current levels.
@@ -81,6 +88,7 @@ type mixerInput struct {
 	rms            float64
 	peak           float64
 	active         bool
+	src            Source // may be nil (inactive slot)
 	droppedSamples atomic.Uint64
 }
 
@@ -162,8 +170,8 @@ func NewMixer(clock Clock, mic, system Source) (*Mixer, error) {
 		return nil, errors.New("mixer: no inputs")
 	}
 	m := &Mixer{
-		mic:    &mixerInput{active: mic != nil},
-		system: &mixerInput{active: system != nil},
+		mic:    &mixerInput{active: mic != nil, src: mic},
+		system: &mixerInput{active: system != nil, src: system},
 		clock:  clock,
 		// 25 ticks ≈ 500 ms of buffered output: absorbs a normal
 		// WebSocket/engine write hiccup without dropping. Beyond that,
@@ -241,19 +249,34 @@ func (m *Mixer) pumpStopped(src Source, in *mixerInput, stop chan struct{}) {
 
 // SetInputs atomically swaps the mixer's inputs mid-stream. Protocol:
 // the caller opens the NEW sources first; only on success does it call
-// SetInputs (then closes the old sources); on failure it never calls
-// and the mixer keeps the old inputs running. The output channel and
-// tick loop are untouched, so the STT session and audio.wav see one
-// continuous stream — at most a single tick's window straddles the
-// swap (fresh mixerInputs start empty; a swapped-out input contributes
-// zeros for that tick), never a cadence gap.
-func (m *Mixer) SetInputs(newMic, newSystem Source) {
+// SetInputs, which installs them and returns the DISPLACED sources for
+// the caller to close (ownership transfers explicitly — the mixer
+// never closes inputs itself, so a caller that knows better can keep
+// one). On any open failure the caller never calls SetInputs and keeps
+// the old sources. The output channel and tick loop are untouched, so
+// the STT session and audio.wav see one continuous stream — at most a
+// single tick's window straddles the swap, never a cadence gap.
+// Calling SetInputs after Close returns an error and the caller must
+// close the new sources itself (the mixer is dead and installs
+// nothing).
+func (m *Mixer) SetInputs(newMic, newSystem Source) ([]Source, error) {
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, errors.New("mixer: SetInputs on closed mixer")
+	}
 	old := m.pumps
 	m.pumps = map[Source]chan struct{}{}
+	displaced := []Source{}
+	if m.srcMic != nil {
+		displaced = append(displaced, m.srcMic)
+	}
+	if m.srcSys != nil {
+		displaced = append(displaced, m.srcSys)
+	}
 	m.srcMic, m.srcSys = newMic, newSystem
-	m.mic = &mixerInput{active: newMic != nil}
-	m.system = &mixerInput{active: newSystem != nil}
+	m.mic = &mixerInput{active: newMic != nil, src: newMic}
+	m.system = &mixerInput{active: newSystem != nil, src: newSystem}
 	m.startPumpLocked(newMic, m.mic)
 	m.startPumpLocked(newSystem, m.system)
 	m.mu.Unlock()
@@ -261,6 +284,7 @@ func (m *Mixer) SetInputs(newMic, newSystem Source) {
 	for _, stop := range old {
 		close(stop)
 	}
+	return displaced, nil
 }
 
 // run is the tick loop: every tickInterval, mix one TickSamples chunk.
@@ -381,14 +405,21 @@ func (m *Mixer) Stats() (mic, system InputStats, droppedTicks uint64) {
 		pair.dst.RMS = pair.in.rms
 		pair.dst.Peak = pair.in.peak
 		pair.dst.DroppedSamples = pair.in.droppedSamples.Load()
+		src := pair.in.src
 		pair.in.mu.Unlock()
+		if dc, ok := src.(DropCounter); ok {
+			pair.dst.DroppedChunks = dc.DroppedChunks()
+		}
 	}
 	return mic, system, m.droppedTicks.Load()
 }
 
-// Close stops the tick loop. Input sources are NOT closed here — the
-// pipeline owns them (mid-session switching swaps inputs at that
-// layer, keeping this Mixer's output channel alive).
+// Close stops the tick loop and closes the currently installed input
+// sources. Ownership: the opener hands inputs to the mixer at
+// construction or SetInputs; displaced sources come back from
+// SetInputs for the swapper to close; whatever is installed at teardown
+// is closed here, exactly once (input sources' Close is idempotent
+// anyway). Close is also idempotent.
 func (m *Mixer) Close() error {
 	m.mu.Lock()
 	if m.closed {
@@ -398,6 +429,14 @@ func (m *Mixer) Close() error {
 	m.closed = true
 	pumps := m.pumps
 	m.pumps = map[Source]chan struct{}{}
+	installed := []Source{}
+	if m.srcMic != nil {
+		installed = append(installed, m.srcMic)
+	}
+	if m.srcSys != nil {
+		installed = append(installed, m.srcSys)
+	}
+	m.srcMic, m.srcSys = nil, nil
 	m.mu.Unlock()
 	for _, stop := range pumps {
 		close(stop)
@@ -405,5 +444,8 @@ func (m *Mixer) Close() error {
 	close(m.done)
 	m.wg.Wait()
 	close(m.out)
+	for _, src := range installed {
+		_ = src.Close()
+	}
 	return nil
 }

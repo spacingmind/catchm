@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gen2brain/malgo"
 
@@ -38,9 +40,11 @@ func SystemAudioSupported() (bool, string) {
 // playing (WASAPI loopback, Windows only) as 16 kHz mono s16 PCM.
 // miniaudio performs format conversion and resampling internally.
 type SystemSource struct {
-	ctx *malgo.AllocatedContext
-	dev *malgo.Device
-	ch  chan stt.PCM
+	ctx       *malgo.AllocatedContext
+	dev       *malgo.Device
+	ch        chan stt.PCM
+	closeOnce sync.Once
+	dropped   *atomic.Uint64
 }
 
 // NewSystemSource opens the default playback device in loopback mode.
@@ -66,6 +70,7 @@ func NewSystemSource() (*SystemSource, error) {
 	cfg.SampleRate = audio.SampleRate
 
 	ch := make(chan stt.PCM, 8)
+	var dropped atomic.Uint64
 	callbacks := malgo.DeviceCallbacks{
 		Data: func(_, in []byte, _ uint32) {
 			if len(in) == 0 {
@@ -75,7 +80,8 @@ func NewSystemSource() (*SystemSource, error) {
 			copy(buf, in)
 			select {
 			case ch <- stt.PCM(buf):
-			default: // consumer behind; drop rather than block the audio thread
+			default:
+				dropped.Add(1) // visible, never silent
 			}
 		},
 	}
@@ -91,14 +97,19 @@ func NewSystemSource() (*SystemSource, error) {
 		return nil, fmt.Errorf("start system audio: %w", err)
 	}
 
-	return &SystemSource{ctx: mctx, dev: dev, ch: ch}, nil
+	return &SystemSource{ctx: mctx, dev: dev, ch: ch, dropped: &dropped}, nil
 }
+
+// DroppedChunks implements capture.DropCounter.
+func (s *SystemSource) DroppedChunks() uint64 { return s.dropped.Load() }
 
 func (s *SystemSource) Chunks() <-chan stt.PCM { return s.ch }
 
 func (s *SystemSource) Close() error {
-	s.dev.Uninit()
-	s.ctx.Free()
-	close(s.ch)
+	s.closeOnce.Do(func() {
+		s.dev.Uninit()
+		s.ctx.Free()
+		close(s.ch)
+	})
 	return nil
 }
