@@ -142,6 +142,34 @@ func TestHotkeyManagerSurfacesRegistrationFailureInline(t *testing.T) {
 	}
 }
 
+// Two of OUR OWN actions pointing at the same combo must both be
+// flagged (via hotkeys.ValidateBindings, wired into applyAll) —
+// verified live on real Windows that without this, only whichever
+// action lost the OS-level RegisterHotKey race got an error, which
+// depended on iteration order rather than reporting the actual
+// conflict on both sides.
+func TestHotkeyManagerDuplicateComboFlagsBothActions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "desktop_settings.json")
+	platform := newFakePlatformHotkeys()
+	m := newHotkeyManager(path, platform, nil, nil)
+
+	next := hotkeys.DefaultBindings()
+	next[hotkeys.ActionShowHide] = "Ctrl+Alt+M" // same as StartStopMeeting's default
+	_, errs := m.set(next)
+
+	if errs[hotkeys.ActionShowHide] == "" || errs[hotkeys.ActionStartStopMeeting] == "" {
+		t.Fatalf("set() = %v, want both colliding actions flagged", errs)
+	}
+	if errs[hotkeys.ActionToggleCompact] != "" {
+		t.Fatalf("set() = %v, want ToggleCompact untouched", errs)
+	}
+	// Neither colliding combo should have reached platform.register —
+	// caught by ValidateBindings before ever attempting the OS call.
+	if platform.isRegistered("Ctrl+Alt+M") {
+		t.Fatal("a duplicate combo was registered with the OS despite both actions being flagged invalid")
+	}
+}
+
 func TestHotkeyManagerInvalidComboIsRejectedAtSetTime(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "desktop_settings.json")
 	platform := newFakePlatformHotkeys()

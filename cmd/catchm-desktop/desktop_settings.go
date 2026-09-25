@@ -112,8 +112,17 @@ func (m *hotkeyManager) Settings() DesktopSettings {
 // applyAll registers every currently-persisted shortcut, unregistering
 // anything already active first (used at startup and after Set
 // changes the bindings). Returns per-action errors for combos that
-// failed to register (invalid, or taken by another app) — those
-// actions simply have no active hotkey, never a silent no-op.
+// failed to register (invalid, a duplicate between our own actions, or
+// taken by another app) — those actions simply have no active hotkey,
+// never a silent no-op.
+//
+// hotkeys.ValidateBindings runs first so two of OUR OWN actions
+// pointing at the same combo are flagged deterministically on both
+// (real Windows testing found this matters: without it, Windows'
+// RegisterHotKey rejects the SECOND registration of a combo we
+// registered first ourselves, so which action got flagged depended on
+// hotkeys.Actions' iteration order rather than reporting the actual
+// conflict — still not a silent failure, but a confusing one).
 func (m *hotkeyManager) applyAll() map[hotkeys.Action]string {
 	m.mu.Lock()
 	bindings := m.settings.Shortcuts.Clone()
@@ -121,15 +130,15 @@ func (m *hotkeyManager) applyAll() map[hotkeys.Action]string {
 
 	m.unregisterAll()
 
-	errs := map[hotkeys.Action]string{}
+	errs := hotkeys.ValidateBindings(bindings)
 	for _, action := range hotkeys.Actions {
-		comboStr, ok := bindings[action]
-		if !ok || comboStr == "" {
-			errs[action] = "no shortcut set"
+		if _, invalid := errs[action]; invalid {
 			continue
 		}
-		combo, err := hotkeys.ParseCombo(comboStr)
+		combo, err := hotkeys.ParseCombo(bindings[action])
 		if err != nil {
+			// Defensive: ValidateBindings already parsed this combo
+			// successfully, so this can't actually happen.
 			errs[action] = err.Error()
 			continue
 		}
