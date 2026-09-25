@@ -1,9 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { CheckSquare, GitBranch, Loader2, Pencil, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -14,12 +14,60 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { deleteMeeting, getMeeting, refineMeeting, updateMeeting, type Meeting } from "@/lib/api"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  deleteMeeting,
+  getMeeting,
+  getTranscript,
+  refineMeeting,
+  updateActionItemStatus,
+  updateMeeting,
+  type Meeting,
+  type Utterance,
+} from "@/lib/api"
 
 interface MeetingDetailProps {
   meetingId: string
   initialMeeting?: Meeting
   onBack: () => void
+}
+
+const done = (status: string | undefined) => status === "done"
+
+/** Load a whole (ended) transcript by walking the cursor until a page
+ *  comes back empty. Capped so a broken backend can't loop forever. */
+async function loadFullTranscript(id: string): Promise<Utterance[]> {
+  const all: Utterance[] = []
+  let cursor = -1
+  for (let page = 0; page < 500; page++) {
+    const { utterances, cursor: next } = await getTranscript(id, cursor)
+    if (utterances.length === 0) break
+    all.push(...utterances)
+    cursor = next
+  }
+  return all
+}
+
+function groupBySpeaker(us: Utterance[]): { speaker?: string; items: Utterance[] }[] {
+  const groups: { speaker?: string; items: Utterance[] }[] = []
+  for (const u of us) {
+    const last = groups[groups.length - 1]
+    if (last && last.speaker === u.speaker) last.items.push(u)
+    else groups.push({ speaker: u.speaker, items: [u] })
+  }
+  return groups
+}
+
+function Section({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="mb-8">
+      <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
+        {icon}
+        {title}
+      </h2>
+      {children}
+    </section>
+  )
 }
 
 export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDetailProps) {
@@ -33,6 +81,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  const [transcript, setTranscript] = useState<Utterance[] | null>(null)
+  const [transcriptError, setTranscriptError] = useState<string | null>(null)
+
   useEffect(() => {
     setLoading(true)
     getMeeting(meetingId)
@@ -44,6 +95,33 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
       .finally(() => setLoading(false))
   }, [meetingId])
 
+  // Transcript is fetched when its tab is first opened, not up front.
+  // The cancelled flag ignores the result if the component unmounted or
+  // the meeting changed mid-walk (paired with the key={selected.id} remount).
+  const loadTranscriptOnce = () => {
+    if (transcript !== null || transcriptError || loadingRef.current) return
+    loadingRef.current = true
+    loadFullTranscript(meetingId)
+      .then((us) => {
+        if (!cancelledRef.current) setTranscript(us)
+      })
+      .catch((err: unknown) => {
+        if (!cancelledRef.current) setTranscriptError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        loadingRef.current = false
+      })
+  }
+
+  const cancelledRef = useRef(false)
+  const loadingRef = useRef(false)
+  useEffect(
+    () => () => {
+      cancelledRef.current = true
+    },
+    [],
+  )
+
   const openRename = () => {
     setRenameTitle(meeting?.title ?? "")
     setRenameOpen(true)
@@ -52,7 +130,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
   const handleRename = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const title = renameTitle.trim()
-    if (!title || !meetingId || renaming) return
+    if (!title || renaming) return
     setRenaming(true)
     try {
       const m = await updateMeeting(meetingId, { title })
@@ -89,6 +167,24 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
     } finally {
       setRefining(false)
     }
+  }
+
+  // Inline check-off, same API as the Action items page: optimistic flip,
+  // PATCH by index, revert on error.
+  const toggleActionItem = (index: number) => {
+    if (!meeting) return
+    const prev = meeting
+    const item = meeting.action_items?.[index]
+    if (!item) return
+    const status = done(item.status) ? "" : "done"
+    setMeeting({
+      ...meeting,
+      action_items: meeting.action_items?.map((a, i) => (i === index ? { ...a, status } : a)),
+    })
+    updateActionItemStatus(meetingId, index, status).catch((err: unknown) => {
+      setMeeting(prev)
+      setError(err instanceof Error ? err.message : String(err))
+    })
   }
 
   if (loading && !meeting) {
@@ -172,42 +268,19 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
 
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
-      <div className="grid gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {meeting.summary ? (
-              <p className="text-sm">{meeting.summary}</p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No summary yet. Refine the transcript to generate one.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+      <Tabs
+        defaultValue="overview"
+        onValueChange={(v) => {
+          if (v === "transcript") loadTranscriptOnce()
+        }}
+      >
+        <TabsList className="mb-6 flex w-fit">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="transcript">Transcript</TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Participants</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {meeting.participants && meeting.participants.length > 0 ? (
-              <p className="text-sm">{meeting.participants.join(", ")}</p>
-            ) : (
-              <p className="text-sm text-muted-foreground">No participants recorded.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GitBranch className="size-4" /> Decisions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+        <TabsContent value="overview">
+          <Section title="Decisions" icon={<GitBranch className="size-4" />}>
             {meeting.decisions && meeting.decisions.length > 0 ? (
               <ul className="grid gap-2 text-base">
                 {meeting.decisions.map((d, i) => (
@@ -220,38 +293,59 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
             ) : (
               <p className="text-sm text-muted-foreground">No decisions recorded.</p>
             )}
-          </CardContent>
-        </Card>
+          </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CheckSquare className="size-4" /> Action items
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+          <Section title="Action items" icon={<CheckSquare className="size-4" />}>
             {meeting.action_items && meeting.action_items.length > 0 ? (
-              <ul className="grid gap-2 text-base">
+              <ul className="grid gap-3">
                 {meeting.action_items.map((a, i) => (
-                  <li key={i} className="flex flex-wrap items-center gap-2">
-                    <span>{a.text}</span>
-                    {a.owner && <Badge variant="outline">{a.owner}</Badge>}
-                    {a.due && <span className="text-xs text-muted-foreground">due {a.due}</span>}
-                    {a.status && <span className="text-xs text-muted-foreground">{a.status}</span>}
+                  <li key={i} className="flex items-start gap-3">
+                    <Checkbox
+                      id={`detail-item-${i}`}
+                      checked={done(a.status)}
+                      onCheckedChange={() => toggleActionItem(i)}
+                      aria-label={`Mark "${a.text}" done`}
+                      className="mt-0.5"
+                    />
+                    <div className="grid min-w-0 flex-1 gap-1">
+                      <label
+                        htmlFor={`detail-item-${i}`}
+                        className={`cursor-pointer break-words ${done(a.status) ? "line-through" : ""}`}
+                      >
+                        {a.text}
+                      </label>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {a.owner && <Badge variant="outline">{a.owner}</Badge>}
+                        {a.due && <span>due {a.due}</span>}
+                      </div>
+                    </div>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">No loose ends.</p>
             )}
-          </CardContent>
-        </Card>
+          </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Notes</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <Section title="Summary">
+            {meeting.summary ? (
+              <p className="text-base">{meeting.summary}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No summary yet. Refine the transcript to generate one.
+              </p>
+            )}
+          </Section>
+
+          <Section title="Participants">
+            {meeting.participants && meeting.participants.length > 0 ? (
+              <p className="text-base">{meeting.participants.join(", ")}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No participants recorded.</p>
+            )}
+          </Section>
+
+          <Section title="Notes">
             {meeting.notes && meeting.notes.length > 0 ? (
               <ul className="grid gap-1 text-base">
                 {meeting.notes.map((n, i) => (
@@ -261,9 +355,46 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
             ) : (
               <p className="text-sm text-muted-foreground">No notes.</p>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </Section>
+        </TabsContent>
+
+        <TabsContent value="transcript">
+          {transcriptError ? (
+            <p className="text-sm text-destructive">{transcriptError}</p>
+          ) : transcript === null ? (
+            <div className="grid gap-2" aria-busy="true">
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-4 w-full" />
+              ))}
+            </div>
+          ) : transcript.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No transcript was captured.</p>
+          ) : (
+            <div className="grid gap-6">
+              {groupBySpeaker(transcript).map((g, gi) => (
+                <div key={gi}>
+                  {g.speaker && (
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">{g.speaker}</p>
+                  )}
+                  <div className="grid gap-2">
+                    {g.items.map((u) => (
+                      <div key={u.seq}>
+                        <p className="break-words text-base">{u.text}</p>
+                        {u.translated && (
+                          <p className="break-words text-base text-muted-foreground">
+                            {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
+                            {u.translated}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>

@@ -22,9 +22,14 @@ const AT_BOTTOM_THRESHOLD_PX = 120
 interface LiveMeetingProps {
   meeting: Meeting
   onEnded: (meeting: Meeting) => void
+  /** M19 capture_error from the start response: the meeting exists but
+   *  nothing is being recorded. Must stay visible, never a silent no-op. */
+  captureError?: string | null
+  /** Opens settings so the user can fix the cause (e.g. missing API key). */
+  onOpenSettings?: () => void
 }
 
-export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
+export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: LiveMeetingProps) {
   const [utterances, setUtterances] = useState<Utterance[]>([])
   const cursorRef = useRef(-1)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -146,7 +151,7 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
           <h1 className="flex items-start gap-2 break-words text-2xl font-semibold">
             <span className="relative mt-1.5 inline-flex shrink-0">
               <Radio className="size-5 text-primary" />
-              <span className="absolute -top-0.5 -right-0.5 size-1.5 animate-pulse rounded-full bg-primary" />
+              <span className="absolute -top-0.5 -right-0.5 size-1.5 motion-safe:animate-pulse rounded-full bg-primary" />
             </span>{" "}
             {meeting.title}
           </h1>
@@ -159,6 +164,19 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
 
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
+      {captureError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
+          <p className="text-sm text-destructive">
+            <span className="font-medium">Not recording:</span> {captureError}
+          </p>
+          {onOpenSettings && (
+            <Button size="sm" variant="outline" onClick={onOpenSettings}>
+              Open settings
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="relative mb-4">
         <ScrollArea className="h-96 rounded-xl border border-border bg-card">
           <div className="grid gap-3 p-4">
@@ -170,9 +188,9 @@ export function LiveMeeting({ meeting, onEnded }: LiveMeetingProps) {
               utterances.map((u) => (
                 <div key={u.seq}>
                   {u.speaker && <p className="text-xs font-medium text-muted-foreground">{u.speaker}</p>}
-                  <p className="text-base">{u.text}</p>
+                  <p className="break-words text-base">{u.text}</p>
                   {u.translated && (
-                    <p className="text-base text-muted-foreground">
+                    <p className="break-words text-base text-muted-foreground">
                       {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
                       {u.translated}
                     </p>

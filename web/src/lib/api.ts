@@ -67,16 +67,31 @@ export interface Device {
 
 export type SttEngine = "whisper" | "soniox"
 
+/** M19 §4: where the audio comes from. Default "mic" when omitted. */
+export type AudioSource = "mic" | "system" | "both"
+
 /** Body for POST /api/meetings. */
 export interface StartMeetingRequest {
   title: string
   device?: string
+  /** M19: mic device ID (unchanged meaning). */
   engine?: SttEngine | ""
   lang?: string
   translate_to?: string
   /** When true, lang and translate_to are the two conversation languages. */
   two_way?: boolean
   tags?: string[]
+  /** M19 §4: "mic" | "system" | "both". Ignored by pre-M19 backends. */
+  source?: AudioSource
+}
+
+/**
+ * POST /api/meetings response — a Meeting, plus M19's capture_error when
+ * the meeting was created but the engine or audio source failed to start
+ * (absent on success). Never swallow it: the UI must surface it.
+ */
+export interface StartMeetingResponse extends Meeting {
+  capture_error?: string
 }
 
 /** Body for PATCH /api/meetings/{id} — at least one field required. */
@@ -144,16 +159,23 @@ export interface AppConfig {
   }
 }
 
-/** Body for PUT /api/config — like AppConfig but with the write-only
- *  soniox_api_key (optional; omitting/emptying it preserves the stored key). */
+/**
+ * Body for PUT /api/config — a PARTIAL update: the server applies
+ * setIfNonEmpty per field, so only included fields change and omitted or
+ * blank ones are left alone. Every field is optional; send just what a
+ * page changed, never a full snapshot (a stale snapshot would silently
+ * overwrite newer values saved elsewhere). soniox_api_key is write-only
+ * and never present in responses; omitting/emptying it preserves the
+ * stored key.
+ */
 export interface UpdateConfigRequest {
-  engine: string
+  engine?: string
   lang?: string
-  whisper_url: string
-  soniox: { url: string }
+  whisper_url?: string
+  soniox?: { url: string }
   /** Never present in responses. Omitted/empty preserves the stored key. */
   soniox_api_key?: string
-  translate: {
+  translate?: {
     host: string
     live_model: string
     batch_model: string
@@ -209,8 +231,22 @@ export async function listMeetings(q?: string): Promise<Meeting[]> {
   return (await apiFetch<Meeting[] | null>(`/api/meetings${qs}`)) ?? []
 }
 
+/** GET /api/audio/sources — M19 contract (docs/plans/active/m19-audio-sources.md §4).
+ *  Not implemented yet until M19 merges; every field is optional and callers
+ *  must degrade gracefully when the endpoint or fields are missing. */
+export interface AudioSources {
+  mic_devices?: Device[]
+  system?: { supported?: boolean; reason?: string }
+}
+
+/** GET /api/audio/sources — degrades to null when the endpoint doesn't
+ *  exist yet (M19 not merged). */
+export function getAudioSources(): Promise<AudioSources> {
+  return apiFetch("/api/audio/sources")
+}
+
 /** POST /api/meetings */
-export function startMeeting(body: StartMeetingRequest): Promise<Meeting> {
+export function startMeeting(body: StartMeetingRequest): Promise<StartMeetingResponse> {
   return apiFetch("/api/meetings", {
     method: "POST",
     body: JSON.stringify(body),
@@ -388,6 +424,8 @@ export interface CloudStatus {
   email?: string
   logged_in_at?: string
   last_sync_at?: string
+  /** The catchm-cloud instance this install talks to (M18). */
+  api_base_url?: string
 }
 
 /** POST /api/cloud/signup — recovery_code appears exactly once, in this response. */
@@ -414,6 +452,20 @@ export function cloudLogout(): Promise<{ status: string }> {
 /** GET /api/cloud/status */
 export function cloudStatus(): Promise<CloudStatus> {
   return apiFetch("/api/cloud/status")
+}
+
+/**
+ * PUT /api/cloud/server — set which catchm-cloud instance this install
+ * talks to (M18). Only while logged out: 409 "log out before changing
+ * the cloud server" otherwise; 400 with the validation reason (e.g.
+ * "http is only allowed for localhost"). Changing servers clears the
+ * stored account params — the new server needs a fresh signup/login.
+ */
+export function cloudServer(apiBaseURL: string): Promise<{ api_base_url: string }> {
+  return apiFetch("/api/cloud/server", {
+    method: "PUT",
+    body: JSON.stringify({ api_base_url: apiBaseURL }),
+  })
 }
 
 /** POST /api/cloud/sync */

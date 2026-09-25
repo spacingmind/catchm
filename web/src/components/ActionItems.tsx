@@ -1,12 +1,25 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { CheckSquare } from "lucide-react"
+import { cn } from "cn"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
+import { SegmentedControl } from "@/components/settings/pieces"
 import { getMeeting, listActionItems, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
 
 const done = (status: string | undefined) => status === "done"
+
+/** An item is overdue when it has a parseable due date in the past and
+ *  isn't done. Unparseable dates never mark overdue. */
+function isOverdue(item: ActionItemRef): boolean {
+  if (done(item.status) || !item.due) return false
+  const t = Date.parse(item.due)
+  return !Number.isNaN(t) && t < Date.now()
+}
+
+type FilterState = { owner: string | null; meeting: string | null }
 
 interface ActionItemsProps {
   onOpenMeeting: (meeting: Meeting) => void
@@ -15,6 +28,8 @@ interface ActionItemsProps {
 export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
   const [items, setItems] = useState<ActionItemRef[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<"grouped" | "by-due">("grouped")
+  const [filter, setFilter] = useState<FilterState>({ owner: null, meeting: null })
 
   useEffect(() => {
     listActionItems()
@@ -47,6 +62,41 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
   }
 
+  const owners = useMemo(() => {
+    const s = new Set<string>()
+    for (const it of items ?? []) if (it.owner) s.add(it.owner)
+    return [...s].sort()
+  }, [items])
+
+  const meetings = useMemo(() => {
+    const s = new Set<string>()
+    for (const it of items ?? []) s.add(it.meeting_title)
+    return [...s].sort()
+  }, [items])
+
+  const { byMeeting, byDue, closed, openCount } = useMemo(() => {
+    const visible = (items ?? []).filter(
+      (it) =>
+        (!filter.owner || it.owner === filter.owner) &&
+        (!filter.meeting || it.meeting_title === filter.meeting),
+    )
+    const open = visible.filter((it) => !done(it.status))
+    const closed = visible.filter((it) => done(it.status))
+    const map = new Map<string, ActionItemRef[]>()
+    for (const it of open) {
+      const list = map.get(it.meeting_title) ?? []
+      list.push(it)
+      map.set(it.meeting_title, list)
+    }
+    const byDue = [...open].sort((a, b) => {
+      const ta = a.due ? Date.parse(a.due) : Number.POSITIVE_INFINITY
+      const tb = b.due ? Date.parse(b.due) : Number.POSITIVE_INFINITY
+      return ta - tb
+    })
+    return { byMeeting: [...map.entries()], byDue, closed, openCount: open.length }
+  }, [items, filter])
+
+
   if (items === null) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-8">
@@ -70,8 +120,41 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
     )
   }
 
-  const open = items.filter((it) => !done(it.status))
-  const closed = items.filter((it) => done(it.status))
+  const renderItem = (item: ActionItemRef) => (
+    <Card key={`${item.meeting_id}:${item.index}`}>
+      <CardContent className="flex items-start gap-3">
+        <Checkbox
+          id={`item-${item.meeting_id}-${item.index}`}
+          checked={done(item.status)}
+          onCheckedChange={() => toggle(item)}
+          aria-label={done(item.status) ? `Reopen "${item.text}"` : `Mark "${item.text}" done`}
+          className="mt-0.5"
+        />
+        <div className="grid min-w-0 flex-1 gap-1">
+          <label
+            htmlFor={`item-${item.meeting_id}-${item.index}`}
+            className={cn("cursor-pointer break-words", done(item.status) && "line-through")}
+          >
+            {item.text}
+          </label>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => openMeeting(item)}
+              className="rounded-sm font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {item.meeting_title}
+            </button>
+            {item.owner && <Badge variant="outline">{item.owner}</Badge>}
+            {item.due && (
+              <span className={isOverdue(item) ? "text-destructive" : undefined}>due {item.due}</span>
+            )}
+            {isOverdue(item) && <Badge variant="destructive">Overdue</Badge>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -90,68 +173,69 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
         </div>
       ) : (
         <div className="grid gap-3">
-          {open.map((item) => (
-            <Card key={`${item.meeting_id}:${item.index}`}>
-              <CardContent className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={false}
-                  onChange={() => toggle(item)}
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
-                  aria-label={`Mark "${item.text}" done`}
-                />
-                <div className="grid min-w-0 flex-1 gap-1">
-                  <span className="break-words">{item.text}</span>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <button
-                      type="button"
-                      onClick={() => openMeeting(item)}
-                      className="rounded-sm font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      {item.meeting_title}
-                    </button>
-                    {item.owner && <Badge variant="outline">{item.owner}</Badge>}
-                    {item.due && <span>due {item.due}</span>}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {closed.length > 0 && open.length > 0 && (
-            <p className="pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Done
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SegmentedControl
+              label="Grouping"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "grouped", label: "By meeting" },
+                { value: "by-due", label: "By due date" },
+              ]}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              {owners.map((o) => (
+                <Chip key={o} active={filter.owner === o} onClick={() => setFilter((f) => ({ ...f, owner: f.owner === o ? null : o }))}>
+                  {o}
+                </Chip>
+              ))}
+              {meetings.map((m) => (
+                <Chip key={m} active={filter.meeting === m} onClick={() => setFilter((f) => ({ ...f, meeting: f.meeting === m ? null : m }))}>
+                  {m}
+                </Chip>
+              ))}
+            </div>
+          </div>
+
+          {view === "grouped" ? (
+            byMeeting.map(([title, list]) => (
+              <div key={title} className="grid gap-2">
+                <p className="text-sm font-medium text-muted-foreground">{title}</p>
+                {list.map(renderItem)}
+              </div>
+            ))
+          ) : (
+            <div className="grid gap-2">{byDue.map(renderItem)}</div>
           )}
-          {closed.map((item) => (
-            <Card key={`${item.meeting_id}:${item.index}`} className="opacity-60">
-              <CardContent className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked
-                  onChange={() => toggle(item)}
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
-                  aria-label={`Reopen "${item.text}"`}
-                />
-                <div className="grid min-w-0 flex-1 gap-1">
-                  <span className="line-through break-words">{item.text}</span>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <button
-                      type="button"
-                      onClick={() => openMeeting(item)}
-                      className="rounded-sm font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      {item.meeting_title}
-                    </button>
-                    {item.owner && <Badge variant="outline">{item.owner}</Badge>}
-                    {item.due && <span>due {item.due}</span>}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+
+          {closed.length > 0 && openCount === 0 && (
+            <p className="pt-2 text-sm font-medium text-muted-foreground">All caught up.</p>
+          )}
+          {closed.length > 0 && (
+            <div className="grid gap-2">
+              <p className="pt-2 text-sm font-medium text-muted-foreground">Done</p>
+              {closed.map(renderItem)}
+            </div>
+          )}
         </div>
       )}
-
     </div>
   )
 }
+
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "cursor-pointer rounded-full border border-border px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60",
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
