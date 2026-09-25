@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -204,11 +205,125 @@ func TestMeetingLevelsShape(t *testing.T) {
 	if _, ok := body["dropped_ticks"]; !ok {
 		t.Fatalf("dropped_ticks missing: %v", body)
 	}
+	// fakeEngine (used by startPipelinedMeeting) doesn't implement
+	// stt.EngineStatusReporter — the M21 §2 contract is to omit
+	// "engine" entirely for an engine with nothing truthful to report,
+	// not synthesize a value.
+	if _, ok := body["engine"]; ok {
+		t.Fatalf("engine present for a non-status-reporting fake engine: %v", body)
+	}
 
 	// 404 without a pipeline.
 	res = do(t, s, http.MethodGet, "/api/meetings/zzz/levels", "")
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("no-pipeline levels code = %d, want 404", res.Code)
+	}
+}
+
+// fakeStatefulEngineStatus is the immutable snapshot fakeStatefulEngine
+// swaps in — atomic.Pointer, not a mutex, matching SonioxEngine's own
+// pattern, so a test can flip the state from outside while the HTTP
+// handler polls it concurrently.
+type fakeStatefulEngineStatus struct {
+	state stt.EngineState
+	err   string
+}
+
+// fakeStatefulEngine is a stt.StreamEngine + stt.EngineStatusReporter
+// stand-in whose reported state a test sets directly, for exercising
+// the GET /api/meetings/{id}/levels "engine" field end to end (M21 §2
+// AC2's "extended levels shape").
+type fakeStatefulEngine struct {
+	status atomic.Pointer[fakeStatefulEngineStatus]
+}
+
+func newFakeStatefulEngine(state stt.EngineState) *fakeStatefulEngine {
+	e := &fakeStatefulEngine{}
+	e.setStatus(state, "")
+	return e
+}
+
+func (e *fakeStatefulEngine) setStatus(state stt.EngineState, errMsg string) {
+	e.status.Store(&fakeStatefulEngineStatus{state: state, err: errMsg})
+}
+
+func (e *fakeStatefulEngine) EngineStatus() (stt.EngineState, string) {
+	s := e.status.Load()
+	return s.state, s.err
+}
+
+func (*fakeStatefulEngine) SupportsDiarization() bool { return false }
+func (*fakeStatefulEngine) SupportsTranslation() bool { return false }
+
+func (*fakeStatefulEngine) Stream(_ context.Context, _ stt.Options) (chan<- stt.PCM, <-chan stt.Result, error) {
+	pcmCh := make(chan stt.PCM)
+	resultCh := make(chan stt.Result)
+	go func() {
+		defer close(resultCh)
+		for range pcmCh {
+			// Drain and discard: this fake is only for exercising the
+			// engine-state wiring, not for producing results.
+		}
+	}()
+	return pcmCh, resultCh, nil
+}
+
+// TestMeetingLevelsEngineState is the server-level half of M21 §2's
+// "extended levels shape" AC: proves the "engine" field in GET
+// /api/meetings/{id}/levels actually reflects Pipeline.EngineState(),
+// end to end through the real HTTP handler, for both a healthy and an
+// errored engine.
+func TestMeetingLevelsEngineState(t *testing.T) {
+	s, _ := newTestServer(t)
+	engine := newFakeStatefulEngine(stt.EngineStreaming)
+	s.newEngine = func(string, *config.Config) (stt.StreamEngine, error) { return engine, nil }
+	mic := newFakeInputStream()
+	s.newSource = func(string) (capture.Source, error) { return mic, nil }
+
+	res := do(t, s, http.MethodPost, "/api/meetings", `{"title":"Engine state","engine":"whisper","source":"mic"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("start meeting: %d %s", res.Code, res.Body.String())
+	}
+	var m struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &m); err != nil {
+		t.Fatal(err)
+	}
+
+	getEngineField := func() map[string]any {
+		t.Helper()
+		res := do(t, s, http.MethodGet, "/api/meetings/"+m.ID+"/levels", "")
+		if res.Code != http.StatusOK {
+			t.Fatalf("levels: %d %s", res.Code, res.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		eng, ok := body["engine"]
+		if !ok {
+			t.Fatalf("engine missing from levels: %v", body)
+		}
+		return eng.(map[string]any)
+	}
+
+	eng := getEngineField()
+	if eng["state"] != "streaming" {
+		t.Fatalf("engine.state = %v, want streaming", eng["state"])
+	}
+	if _, ok := eng["error"]; ok {
+		t.Fatalf("engine.error present in the streaming state: %v", eng)
+	}
+
+	engine.setStatus(stt.EngineError, "soniox: connection closed: unexpected EOF")
+
+	eng = getEngineField()
+	if eng["state"] != "error" {
+		t.Fatalf("engine.state = %v, want error", eng["state"])
+	}
+	if eng["error"] != "soniox: connection closed: unexpected EOF" {
+		t.Fatalf("engine.error = %v, want the set message", eng["error"])
 	}
 }
 

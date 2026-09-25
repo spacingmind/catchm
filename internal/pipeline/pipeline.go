@@ -18,9 +18,23 @@ import (
 type Pipeline struct {
 	cancel      context.CancelFunc
 	src         capture.Source
+	engine      stt.StreamEngine
 	wav         *audio.Writer
 	feederDone  chan struct{}
 	resultsDone chan struct{}
+}
+
+// EngineState reports the underlying engine's connection state (M21
+// §2), when the engine tracks one — see stt.EngineStatusReporter. ok is
+// false for an engine with nothing truthful to report; callers should
+// omit any engine-state field entirely rather than show a made-up value.
+func (p *Pipeline) EngineState() (state stt.EngineState, errMsg string, ok bool) {
+	r, ok := p.engine.(stt.EngineStatusReporter)
+	if !ok {
+		return "", "", false
+	}
+	state, errMsg = r.EngineStatus()
+	return state, errMsg, true
 }
 
 // Mixer returns the pipeline's capture source when it is a *capture.Mixer
@@ -59,6 +73,7 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 	p := &Pipeline{
 		cancel:      cancel,
 		src:         src,
+		engine:      engine,
 		wav:         wav,
 		feederDone:  make(chan struct{}),
 		resultsDone: make(chan struct{}),

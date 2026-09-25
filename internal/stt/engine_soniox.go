@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,6 +20,31 @@ type SonioxEngine struct {
 	url    string
 	apiKey string
 	dialer *websocket.Dialer
+	status atomic.Pointer[sonioxStatus]
+}
+
+// sonioxStatus is the immutable snapshot swapped in by status.Store —
+// atomic.Pointer, not a mutex, so EngineStatus (polled at ~5 Hz by
+// GET /api/meetings/{id}/levels) never blocks on the writer/reader
+// goroutines below.
+type sonioxStatus struct {
+	state EngineState
+	err   string
+}
+
+// EngineStatus implements EngineStatusReporter.
+func (e *SonioxEngine) EngineStatus() (EngineState, string) {
+	if s := e.status.Load(); s != nil {
+		return s.state, s.err
+	}
+	// Stream hasn't set an initial status yet (Stream always does so
+	// before returning on success) — reached only if EngineStatus is
+	// somehow called before Stream, which no caller does today.
+	return "", ""
+}
+
+func (e *SonioxEngine) setStatus(state EngineState, err string) {
+	e.status.Store(&sonioxStatus{state: state, err: err})
 }
 
 // NewSonioxEngine returns an engine that connects to wsURL (e.g.
@@ -123,18 +149,38 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 		conn.Close()
 		return nil, nil, fmt.Errorf("soniox: send config: %w", err)
 	}
+	// Reachable here only once the dial and config handshake both
+	// succeeded — see EngineState's doc comment for why "connecting" is
+	// never observable through Pipeline/levels: a failed connect returns
+	// an error above instead of a Pipeline ever existing to report one.
+	e.setStatus(EngineStreaming, "")
 
 	pcmCh := make(chan PCM)
 	resultCh := make(chan Result)
 	var closeOnce sync.Once
 	closeConn := func() { closeOnce.Do(func() { conn.Close() }) }
 
+	// Set right before the writer attempts its end-of-audio frame, so
+	// the reader can tell "the connection closed because the server is
+	// responding to our own shutdown" (expected) apart from "the
+	// connection dropped while we were still actively streaming"
+	// (EngineError) — ctx.Done() isn't a usable signal for that
+	// distinction here: Pipeline.stop's grace period keeps ctx alive
+	// throughout a normal end too (§0), so ctx.Err() is nil at the
+	// moment of both a normal and an abnormal close.
+	var endOfAudioSent atomic.Bool
+
 	go func() {
 		for chunk := range pcmCh {
 			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
+				// The only normal way this loop ends is pcmCh closing,
+				// not a write failing — so a write error here is always
+				// a genuine, unexpected connection problem.
+				e.setStatus(EngineError, fmt.Sprintf("soniox: send audio: %v", err))
 				return
 			}
 		}
+		endOfAudioSent.Store(true)
 		// Signal end-of-audio the way a real Soniox client does
 		// (confirmed against phuc-nt/my-translator's disconnect()): an
 		// empty binary frame, not an abrupt WebSocket close. The server
@@ -191,6 +237,12 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
+				if !endOfAudioSent.Load() {
+					// We hadn't asked to end the session yet — the
+					// connection closing now is an unexpected drop, not
+					// the server's normal response to our end-of-audio.
+					e.setStatus(EngineError, fmt.Sprintf("soniox: connection closed: %v", err))
+				}
 				flush()
 				return
 			}

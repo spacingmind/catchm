@@ -211,10 +211,60 @@ M22), multi-window, Wails v3 migration, dark mode.
   dropped every time at this timing, not just occasionally) and passes
   against the bounded-drain fix.
 
+- **§2 engine state in `/levels`.** Added `stt.EngineState` (a plain
+  string, not a closed enum — see below) and an optional
+  `stt.EngineStatusReporter` interface (`EngineStatus() (state
+  EngineState, errMsg string)`), the same opt-in pattern
+  `capture.DropCounter` already uses. `Pipeline` stores the engine it
+  was given and exposes `EngineState()`, a type-assertion + delegate;
+  `handleMeetingLevels` adds `"engine": {"state": "...", "error":
+  "..."}` (error omitted when empty) only when the pipeline's engine
+  implements the interface — `ok == false` omits the field entirely
+  rather than inventing a value, kept existing fields unchanged.
+  **Only `streaming` and `error` are ever produced; `connecting` and
+  `reconnecting` are not, and this is a structural fact, not a
+  to-do:** both engines' `Stream` establishes (or fails) their
+  connection *synchronously*, before `Start` returns and a `Pipeline` —
+  and so a `/levels` entry — exists to observe an in-between state; a
+  failed connect surfaces as the meeting's `capture_error` instead.
+  Neither engine retries a dropped connection (Soniox's session simply
+  ends), so there is no `reconnecting` to report either. Per-engine:
+  - **Whisper** has no persistent connection and, by design, no chunk
+    failure that stops the stream (a failed request is dropped and the
+    loop tries the next chunk — see its own comment). There is nothing
+    else true to report, so it always returns `("streaming", "")`: an
+    honest, if constant, signal that the loop is alive and willing to
+    process audio (and gives the live view something to show for every
+    engine, not just Soniox).
+  - **Soniox** starts at `streaming` once its dial + config handshake
+    succeed (inside `Stream`, before it returns). Its writer and reader
+    goroutines both watch for connection failures, but a normal end
+    *also* makes the reader's `ReadMessage` fail (the server closes the
+    connection after flushing finals in response to our end-of-audio
+    frame) — indistinguishable from a real drop by the error alone, and
+    `ctx.Err()` cannot be used to tell them apart either, since §0's
+    bounded-drain fix deliberately keeps `ctx` alive throughout a normal
+    end too. The actual signal: an `atomic.Bool` the writer sets *after*
+    `pcmCh` closes, right before it sends the end-of-audio frame. The
+    reader only reports `EngineError` if that flag is still unset —
+    i.e. the connection went away before we ever asked to end things.
+  Hermetic tests, no real network: `internal/stt/engine_state_test.go`
+  (`TestWhisperEngineStatusAlwaysStreaming`;
+  `TestSonioxEngineStatusStreamsAfterConnect`;
+  `TestSonioxEngineStatusNormalEndNotError` — confirmed it fails if the
+  `endOfAudioSent` guard is removed;
+  `TestSonioxEngineStatusUnexpectedDropIsError`, all against an
+  `httptest` + `gorilla/websocket` fake server) plus
+  `internal/server/sources_api_test.go`'s
+  `TestMeetingLevelsEngineState` (a controllable fake engine, proving
+  the HTTP response shape end to end for both states) and an addition
+  to `TestMeetingLevelsShape` proving `engine` is omitted for an engine
+  that doesn't implement the reporter.
+
 ## Progress
 
 - [x] Go: `/end` hang root cause + fix + regression test
-- [ ] Go: engine state in levels (+ tests)
+- [x] Go: engine state in levels (+ tests)
 - [ ] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
 - [ ] Transcript: fill viewport, grouping, view modes, font size, notes label
 - [ ] Compact overlay mode (+ API verification against module source)
