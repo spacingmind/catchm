@@ -9,16 +9,11 @@ package main
 
 import (
 	"context"
-	_ "embed"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
@@ -33,8 +28,11 @@ import (
 	"github.com/spacingmind/catchm/internal/tools"
 )
 
-// How often the tray tooltip re-checks for an active (un-ended) meeting.
-const tooltipPollInterval = 3 * time.Second
+// appID is a stable reverse-DNS identifier shared by SingleInstanceLock
+// (below) and the AUMID toast notifications need (M22 §5,
+// SetCurrentProcessExplicitAppUserModelID) — the spec asks for the same
+// string in both places.
+const appID = "com.catchm.desktop"
 
 // Brand colours (web/src/index.css: --background #FBF7EA, --foreground/
 // --primary #6C3524, --secondary/--muted #D9C4B4), packed for
@@ -47,12 +45,6 @@ var (
 	titleTextColour   = wailswindows.RGB(0x6C, 0x35, 0x24) // --foreground
 	titleBorderColour = wailswindows.RGB(0xD9, 0xC4, 0xB4) // --secondary
 )
-
-// Systray's SetIcon on Windows wants raw .ico file bytes, so the mascot
-// art is shipped as a pre-sized 16/32px ICO next to appicon.png.
-//
-//go:embed build/trayicon.ico
-var trayIcon []byte
 
 // Shared between the Wails callbacks and the systray goroutine: the
 // runtime context from OnStartup, and the flag the tray's Quit item
@@ -95,7 +87,7 @@ func run() error {
 	defer stopPoll()
 
 	go systray.Run(
-		func() { onTrayReady(pollCtx, handler) },
+		func() { onTrayReady(pollCtx, handler, cfg) },
 		stopPoll,
 	)
 
@@ -111,6 +103,24 @@ func run() error {
 		},
 		Bind: []interface{}{
 			&DesktopBridge{},
+		},
+		// SingleInstanceLock: verified against
+		// internal/frontend/desktop/windows/{single_instance,frontend}.go
+		// — a second launch's args are forwarded via WM_COPYDATA to a
+		// hidden message-only window in the first instance (which then
+		// os.Exit(0)s itself) and OnSecondInstanceLaunch fires on the
+		// FIRST instance; WindowShow already un-minimizes and focuses
+		// (win32.RestoreWindow when minimized, else ShowWindow, always
+		// finishing with SetForegroundWindow — read directly in
+		// frontend.go's ShowWindow), so no separate unminimize/focus
+		// calls are needed here.
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: appID,
+			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+				if ctx := appContext(); ctx != nil {
+					runtime.WindowShow(ctx)
+				}
+			},
 		},
 		// Native title bar kept (see docs/plans/active/m22-native-shell.md:
 		// frameless loses Snap Layouts/Alt+Space, and Wails v2 has no
@@ -154,81 +164,8 @@ func run() error {
 	})
 }
 
-// onTrayReady builds the tray menu and starts the tooltip poll. It runs
-// inside systray.Run's event loop startup.
-func onTrayReady(ctx context.Context, handler http.Handler) {
-	systray.SetIcon(trayIcon)
-	systray.SetTooltip("CatchM")
-
-	mOpen := systray.AddMenuItem("Open CatchM", "Show the CatchM window")
-	mOpen.Click(func() {
-		if appCtx := appContext(); appCtx != nil {
-			runtime.WindowShow(appCtx)
-		}
-	})
-
-	mQuit := systray.AddMenuItem("Quit", "Quit CatchM (ends any in-progress capture)")
-	mQuit.Click(func() {
-		mu.Lock()
-		reallyQuit = true
-		mu.Unlock()
-		systray.Quit()
-		if appCtx := appContext(); appCtx != nil {
-			runtime.Quit(appCtx)
-		}
-	})
-
-	go pollActiveMeeting(ctx, handler)
-}
-
 func appContext() context.Context {
 	mu.Lock()
 	defer mu.Unlock()
 	return wailsCtx
-}
-
-// pollActiveMeeting keeps the tray tooltip honest about capture state:
-// "CatchM — Recording" while any meeting is un-ended, plain "CatchM"
-// otherwise. It serves GET /api/meetings through the same in-process
-// handler the window uses, so no HTTP listener is involved.
-func pollActiveMeeting(ctx context.Context, handler http.Handler) {
-	ticker := time.NewTicker(tooltipPollInterval)
-	defer ticker.Stop()
-	for {
-		recording, err := anyMeetingActive(handler)
-		if err == nil {
-			if recording {
-				systray.SetTooltip("CatchM — Recording")
-			} else {
-				systray.SetTooltip("CatchM")
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func anyMeetingActive(handler http.Handler) (bool, error) {
-	req, err := http.NewRequest(http.MethodGet, "/api/meetings", nil)
-	if err != nil {
-		return false, err
-	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		return false, fmt.Errorf("list meetings: status %d", rec.Code)
-	}
-	var meetings []meeting.Meeting
-	if err := json.Unmarshal(rec.Body.Bytes(), &meetings); err != nil {
-		return false, err
-	}
-	for _, m := range meetings {
-		if m.EndedAt == nil {
-			return true, nil
-		}
-	}
-	return false, nil
 }

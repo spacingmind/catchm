@@ -36,6 +36,7 @@ interface WailsWindowRuntime {
   WindowSetPosition(x: number, y: number): void
   WindowSetAlwaysOnTop(b: boolean): void
   WindowShow(): void
+  EventsOn(eventName: string, callback: (...data: unknown[]) => void): () => void
 }
 
 declare global {
@@ -116,6 +117,19 @@ export function windowSetAlwaysOnTop(b: boolean): void {
 
 export function windowShow(): void {
   window.runtime!.WindowShow!()
+}
+
+/**
+ * Subscribes to a Wails backend event (e.g. the tray's "Compact mode"
+ * item emitting "tray:toggle-compact" — cmd/catchm-desktop/tray.go's
+ * trayToggleCompactEvent const, which MUST match this string exactly).
+ * Returns the cancel function EventsOn itself returns, verified against
+ * internal/frontend/runtime/desktop/events.js. A no-op (returns a no-op
+ * canceller) outside the Wails window.
+ */
+export function windowEventsOn(eventName: string, callback: (...data: unknown[]) => void): () => void {
+  if (!hasWindowControls()) return () => {}
+  return window.runtime!.EventsOn!(eventName, callback)
 }
 
 /**

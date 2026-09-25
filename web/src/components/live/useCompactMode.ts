@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   hasWindowControls,
   notifyCompactMode,
+  windowEventsOn,
   windowGetPosition,
   windowGetSize,
   windowRestoreAbsolutePosition,
@@ -10,6 +11,10 @@ import {
   windowSetMinSize,
   windowSetSize,
 } from "@/lib/wailsRuntime"
+
+// Must match cmd/catchm-desktop/tray.go's trayToggleCompactEvent const
+// exactly — the tray's "Compact mode" menu item emits this.
+const TRAY_TOGGLE_COMPACT_EVENT = "tray:toggle-compact"
 
 const COMPACT_WIDTH = 480
 const COMPACT_HEIGHT = 260
@@ -98,6 +103,14 @@ export function useCompactMode() {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
+  }, [available, toggle])
+
+  // M22 §3: the tray's "Compact mode" menu item (no direct Go->JS call
+  // surface other than Wails events — DesktopBridge, M22 §2, only goes
+  // JS->Go).
+  useEffect(() => {
+    if (!available) return
+    return windowEventsOn(TRAY_TOGGLE_COMPACT_EVENT, toggle)
   }, [available, toggle])
 
   return { compact, available, toggle }
