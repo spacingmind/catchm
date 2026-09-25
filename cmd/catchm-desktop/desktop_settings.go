@@ -284,6 +284,16 @@ func (d DesktopBridge) SetNotificationsEnabled(enabled bool) {
 	d.hk.setNotificationsEnabled(enabled)
 }
 
+// ReadyForEvents is the frontend's half of the cold-start protocol-
+// activation handshake: App.tsx calls it once its openMeetingEvent
+// subscription is in place, flipping frontendReady so
+// handleLaunchURI's EventsEmit (a catchm://meeting/<id> toast click
+// that launched the whole app) is guaranteed a listener instead of
+// being emitted into the void before the webview ran any JS.
+func (DesktopBridge) ReadyForEvents() {
+	frontendReady.Store(true)
+}
+
 // NotifyCloudSyncConflict is called by SettingsCloudSync.tsx right
 // after a manual sync's response shows conflicted meetings — there is
 // no background/automatic sync loop in this codebase to poll for this
@@ -300,5 +310,5 @@ func (d DesktopBridge) NotifyCloudSyncConflict(count int) {
 	if count == 1 {
 		plural = ""
 	}
-	notify(d.hk, "CatchM", fmt.Sprintf("Cloud sync: %d meeting%s need attention", count, plural))
+	notify(d.hk, "CatchM", fmt.Sprintf("Cloud sync: %d meeting%s need attention", count, plural), "")
 }

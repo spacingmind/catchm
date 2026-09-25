@@ -59,6 +59,7 @@ declare global {
           GetNotificationsEnabled?(): Promise<boolean>
           SetNotificationsEnabled?(enabled: boolean): Promise<void>
           NotifyCloudSyncConflict?(count: number): void
+          ReadyForEvents?(): void
         }
       }
     }
@@ -207,4 +208,15 @@ export function setNotificationsEnabled(enabled: boolean): Promise<void> {
  *  polls capture state). A no-op outside the Wails window. */
 export function notifyCloudSyncConflict(count: number): void {
   window.go?.main?.DesktopBridge?.NotifyCloudSyncConflict?.(count)
+}
+
+/**
+ * The frontend's half of the cold-start protocol-activation handshake
+ * (cmd/catchm-desktop/activate.go's handleLaunchURI): call once the
+ * app:open-meeting subscription is in place, so a catchm://meeting/<id>
+ * toast click that launched the whole app isn't emitted into the void
+ * before this page ran any JS. A no-op outside the Wails window.
+ */
+export function notifyReadyForEvents(): void {
+  window.go?.main?.DesktopBridge?.ReadyForEvents?.()
 }

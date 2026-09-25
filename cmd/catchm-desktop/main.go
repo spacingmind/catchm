@@ -101,6 +101,14 @@ func run() error {
 	autostartLaunch := slices.Contains(os.Args[1:], "--autostart")
 	windowVisible.Store(!autostartLaunch)
 
+	// catchm://meeting/<id> protocol activation (toast click): captured
+	// here because os.Args is read-once at process start; handled in
+	// OnStartup (the Wails runtime context doesn't exist yet here).
+	// A second instance never gets this far — SingleInstanceLock
+	// forwards its args to the first instance and exits first — so
+	// this is exclusively the app-not-running (cold start) case.
+	launchMeetingID := parseMeetingURI(meetingArgFromArgs(os.Args))
+
 	setProcessAUMID(appID)
 
 	pollCtx, stopPoll := context.WithCancel(context.Background())
@@ -152,8 +160,17 @@ func run() error {
 		// calls are needed here.
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: appID,
-			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
 				if ctx := appContext(); ctx != nil {
+					// A toast click while the app is already running:
+					// Windows launches a second exe with the
+					// catchm://meeting/<id> arg; the lock forwards it
+					// here (WM_COPYDATA) and this instance exits the
+					// second one. Navigate when the arg is a meeting
+					// URI, always show the window.
+					if id := parseMeetingURI(meetingArgFromArgs(data.Args)); id != "" {
+						runtime.EventsEmit(ctx, openMeetingEvent, id)
+					}
 					windowVisible.Store(true)
 					runtime.WindowShow(ctx)
 				}
@@ -194,6 +211,13 @@ func run() error {
 			mu.Unlock()
 			stateTracker.restore(ctx)
 			hkManager.applyAll()
+			// Cold-start protocol activation: the webview may not have
+			// run any JS yet (EventsEmit before the frontend subscribes
+			// would be lost), so this is deferred a beat — see
+			// handleLaunchURI.
+			if launchMeetingID != "" {
+				go handleLaunchURI(ctx, launchMeetingID)
+			}
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
 			stateTracker.saveIfChanged(ctx)

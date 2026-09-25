@@ -89,13 +89,28 @@ export interface StartMeetingRequest {
   source?: AudioSource
 }
 
+/** Classification of a capture start/switch failure — the stable wire
+ *  value of capture_error_kind (internal/server/server.go's
+ *  CaptureErrorKind), which the UI switches on instead of matching the
+ *  human-readable capture_error text. */
+export type CaptureErrorKind =
+  | "missing_api_key"
+  | "device_unavailable"
+  | "unsupported"
+  | "engine"
+  | "internal"
+
 /**
  * POST /api/meetings response — a Meeting, plus M19's capture_error when
  * the meeting was created but the engine or audio source failed to start
  * (absent on success). Never swallow it: the UI must surface it.
+ * capture_error_kind (present exactly when capture_error is) says which
+ * class of failure it is so callers can act without string-matching the
+ * message.
  */
 export interface StartMeetingResponse extends Meeting {
   capture_error?: string
+  capture_error_kind?: CaptureErrorKind
 }
 
 /** Body for PATCH /api/meetings/{id} — at least one field required. */

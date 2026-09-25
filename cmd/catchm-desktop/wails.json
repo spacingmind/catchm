@@ -13,6 +13,13 @@
     "productName": "CatchM",
     "productVersion": "0.1.0",
     "copyright": "Copyright © 2026 CatchM",
-    "comments": "Local-first meeting transcription and translation"
+    "comments": "Local-first meeting transcription and translation",
+    "protocols": [
+      {
+        "scheme": "catchm",
+        "description": "CatchM Meeting URI",
+        "role": "Editor"
+      }
+    ]
   }
 }
