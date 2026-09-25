@@ -41,6 +41,18 @@ func NewWhisperEngine(baseURL string) *WhisperEngine {
 func (e *WhisperEngine) SupportsDiarization() bool { return false }
 func (e *WhisperEngine) SupportsTranslation() bool { return false }
 
+// EngineStatus implements EngineStatusReporter. Whisper has no
+// persistent connection and no chunk failure that stops the stream —
+// Stream's loop drops a failed chunk and keeps trying the next one
+// (see the comment there) — so "streaming" (the loop is alive and
+// willing to process audio) is the only truthful, ever-changing-never
+// state to report; there is no honest "error" to surface here (a
+// server that's been unreachable for the whole meeting still looks
+// like this from Whisper's side, since it never gives up).
+func (e *WhisperEngine) EngineStatus() (EngineState, string) {
+	return EngineStreaming, ""
+}
+
 func (e *WhisperEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-chan Result, error) {
 	pcmCh := make(chan PCM)
 	resultCh := make(chan Result)

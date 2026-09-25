@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowDown, Radio } from "lucide-react"
+import { ArrowDown, Minus, Plus, Radio } from "lucide-react"
+import { cn } from "cn"
 
+import { SegmentedControl } from "@/components/settings/pieces"
+import { CompactOverlay } from "@/components/live/CompactOverlay"
+import { StatusRow } from "@/components/live/StatusRow"
+import { useCompactMode } from "@/components/live/useCompactMode"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { addNote, endMeeting, getTranscript, type Meeting, type Utterance } from "@/lib/api"
+import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
 
 /** How often the live transcript is polled for new utterances. */
 const POLL_INTERVAL_MS = 1500
@@ -19,6 +25,27 @@ const POLL_INTERVAL_MS = 1500
  */
 const AT_BOTTOM_THRESHOLD_PX = 120
 
+const VIEW_MODE_OPTIONS: { value: TranscriptViewMode; label: string }[] = [
+  { value: "stacked", label: "Original + translation" },
+  { value: "side-by-side", label: "Side by side" },
+  { value: "translation-only", label: "Translation only" },
+]
+
+/** Consecutive utterances from the same speaker render under one label
+ *  (M21 §3), instead of repeating it on every line. */
+function groupBySpeaker(utterances: Utterance[]): Utterance[][] {
+  const groups: Utterance[][] = []
+  for (const u of utterances) {
+    const last = groups[groups.length - 1]
+    if (last && last[0].speaker === u.speaker) {
+      last.push(u)
+    } else {
+      groups.push([u])
+    }
+  }
+  return groups
+}
+
 interface LiveMeetingProps {
   meeting: Meeting
   onEnded: (meeting: Meeting) => void
@@ -27,9 +54,13 @@ interface LiveMeetingProps {
   captureError?: string | null
   /** Opens settings so the user can fix the cause (e.g. missing API key). */
   onOpenSettings?: () => void
+  /** M21 §4: reports compact-overlay mode up to App, which hides the
+   *  sidebar/shell while it's active — a 480x260 window has no room
+   *  for both. */
+  onCompactChange?: (compact: boolean) => void
 }
 
-export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: LiveMeetingProps) {
+export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, onCompactChange }: LiveMeetingProps) {
   const [utterances, setUtterances] = useState<Utterance[]>([])
   const cursorRef = useRef(-1)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -44,6 +75,9 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
   // Non-null while new lines arrived off-screen and the user hasn't
   // come back down — drives the "New lines ↓" affordance.
   const [newLines, setNewLines] = useState(false)
+
+  const [viewMode, setViewMode] = useState<TranscriptViewMode>(readViewMode)
+  const [fontSize, setFontSize] = useState<number>(readFontSize)
 
   const [note, setNote] = useState("")
   const [noteStatus, setNoteStatus] = useState<string | null>(null)
@@ -144,8 +178,44 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
     }
   }
 
+  const changeFontSize = (delta: 1 | -1) => {
+    const i = FONT_SIZES.indexOf(fontSize as (typeof FONT_SIZES)[number])
+    const next = FONT_SIZES[Math.min(FONT_SIZES.length - 1, Math.max(0, (i < 0 ? 1 : i) + delta))]
+    setFontSize(next)
+    writeFontSize(next)
+  }
+
+  const changeViewMode = (mode: TranscriptViewMode) => {
+    setViewMode(mode)
+    writeViewMode(mode)
+  }
+
+  const translationOn = Boolean(meeting.translate_to) || Boolean(meeting.two_way)
+  const groups = groupBySpeaker(utterances)
+
+  const { compact, available: compactAvailable, toggle: toggleCompact } = useCompactMode()
+
+  // Report the flag up to App, which hides the sidebar/shell while
+  // compact mode is active — a 480x260 window has no room for both.
+  useEffect(() => {
+    onCompactChange?.(compact)
+    return () => onCompactChange?.(false)
+  }, [compact, onCompactChange])
+
+  if (compact) {
+    return (
+      <CompactOverlay
+        meetingId={meeting.id}
+        audioSource={meeting.audio_source ?? "mic"}
+        utterances={utterances}
+        viewMode={viewMode}
+        onExit={toggleCompact}
+      />
+    )
+  }
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col px-6 py-8">
+    <div className="mx-auto flex h-svh max-w-4xl flex-col px-6 py-8">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <h1 className="flex items-start gap-2 break-words text-2xl font-semibold">
@@ -177,24 +247,81 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
         </div>
       )}
 
-      <div className="relative mb-4">
-        <ScrollArea className="h-96 rounded-xl border border-border bg-card">
+      <StatusRow
+        meetingId={meeting.id}
+        startedAt={meeting.started_at}
+        initialSource={meeting.audio_source ?? "mic"}
+        compactAvailable={compactAvailable}
+        onToggleCompact={toggleCompact}
+      />
+
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        {translationOn ? (
+          <SegmentedControl label="Transcript view" value={viewMode} onChange={changeViewMode} options={VIEW_MODE_OPTIONS} />
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label="Decrease text size"
+            disabled={fontSize <= FONT_SIZES[0]}
+            onClick={() => changeFontSize(-1)}
+          >
+            <Minus />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label="Increase text size"
+            disabled={fontSize >= FONT_SIZES[FONT_SIZES.length - 1]}
+            onClick={() => changeFontSize(1)}
+          >
+            <Plus />
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative mb-4 min-h-0 flex-1">
+        <ScrollArea className="h-full rounded-xl border border-border bg-card">
           <div className="grid gap-3 p-4">
-            {utterances.length === 0 ? (
+            {groups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Waiting for the first utterance. Start talking to fill the transcript.
               </p>
             ) : (
-              utterances.map((u) => (
-                <div key={u.seq}>
-                  {u.speaker && <p className="text-xs font-medium text-muted-foreground">{u.speaker}</p>}
-                  <p className="break-words text-base">{u.text}</p>
-                  {u.translated && (
-                    <p className="break-words text-base text-muted-foreground">
-                      {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
-                      {u.translated}
-                    </p>
-                  )}
+              groups.map((group) => (
+                <div key={group[0].seq}>
+                  {group[0].speaker && <p className="text-[13px] font-medium text-muted-foreground">{group[0].speaker}</p>}
+                  <div className="grid gap-2">
+                    {group.map((u) => (
+                      <div
+                        key={u.seq}
+                        className={cn(viewMode === "side-by-side" && "grid grid-cols-2 gap-4")}
+                      >
+                        {viewMode !== "translation-only" && (
+                          <p className="max-w-[72ch] break-words leading-[1.6]" style={{ fontSize }}>
+                            {u.text}
+                          </p>
+                        )}
+                        {viewMode === "translation-only" && (
+                          <p className="max-w-[72ch] break-words leading-[1.6]" style={{ fontSize }}>
+                            {u.translated || u.text}
+                          </p>
+                        )}
+                        {viewMode !== "translation-only" && u.translated && (
+                          <p
+                            className="max-w-[72ch] break-words leading-[1.6] text-muted-foreground"
+                            style={{ fontSize }}
+                          >
+                            {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
+                            {u.translated}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))
             )}
@@ -216,15 +343,19 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
         )}
       </div>
 
-      <div className="grid gap-2">
+      <div className="grid shrink-0 gap-2">
+        <label htmlFor="live-note" className="text-sm font-medium">
+          Note
+        </label>
         <Textarea
+          id="live-note"
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Add a note about this meeting…"
           rows={3}
         />
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={handleAddNote} disabled={!note.trim()}>
+          <Button onClick={handleAddNote} disabled={!note.trim()}>
             Add note
           </Button>
           {noteStatus && <span className="text-sm text-muted-foreground">{noteStatus}</span>}

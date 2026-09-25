@@ -43,8 +43,12 @@ export interface Meeting {
   participants?: string[]
   langs?: string[]
   engine?: string
+  /** M19 §4: which input(s) this meeting is (or was) capturing from. */
+  audio_source?: AudioSource
   lang?: string
   translate_to?: string
+  /** When true, lang and translate_to are the two conversation languages. */
+  two_way?: boolean
   tags?: string[]
   decisions?: Decision[]
   action_items?: ActionItem[]
@@ -243,6 +247,53 @@ export interface AudioSources {
  *  exist yet (M19 not merged). */
 export function getAudioSources(): Promise<AudioSources> {
   return apiFetch("/api/audio/sources")
+}
+
+/** POST /api/meetings/{id}/source — switches a live meeting's audio
+ *  source mid-session (M19 §4, M21 §1). 404 when the meeting has no
+ *  live pipeline; 400 for a bad source value; 422 when the new source
+ *  can't open (device busy, unsupported, ...) — the old input stays
+ *  active, and the thrown ApiError's .message is the human-readable
+ *  reason and .status is 422, so callers can show it inline without
+ *  losing the current selection. */
+export function setMeetingSource(id: string, source: AudioSource, device?: string): Promise<{ source: AudioSource; device: string }> {
+  return apiFetch(`/api/meetings/${id}/source`, {
+    method: "POST",
+    body: JSON.stringify({ source, device }),
+  })
+}
+
+/** One input's level + drop diagnostics, from GET /api/meetings/{id}/levels. */
+export interface InputLevels {
+  rms: number
+  peak: number
+  dropped_chunks: number
+  dropped_samples: number
+}
+
+/** M21 §2: an engine's connection state, present only when the running
+ *  engine tracks one truthfully (see stt.EngineStatusReporter — Whisper
+ *  always reports "streaming", Soniox reports "streaming"/"error"; no
+ *  engine currently produces "connecting"/"reconnecting", so treat this
+ *  as an open string, not an exhaustive union). */
+export interface EngineLevelsStatus {
+  state: string
+  error?: string
+}
+
+/** GET /api/meetings/{id}/levels — polled at ~5 Hz while the Live view
+ *  is mounted and visible. mic/system are present only while that input
+ *  is active; engine is present only when the running engine reports a
+ *  state (M21 §2). 404 when the meeting has no live pipeline. */
+export interface MeetingLevels {
+  dropped_ticks: number
+  mic?: InputLevels
+  system?: InputLevels
+  engine?: EngineLevelsStatus
+}
+
+export function getMeetingLevels(id: string): Promise<MeetingLevels> {
+  return apiFetch(`/api/meetings/${id}/levels`)
 }
 
 /** POST /api/meetings */

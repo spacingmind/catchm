@@ -248,6 +248,13 @@ func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
 			"dropped_chunks": sys.DroppedChunks, "dropped_samples": sys.DroppedSamples,
 		}
 	}
+	if state, errMsg, ok := p.EngineState(); ok {
+		engineBody := map[string]any{"state": string(state)}
+		if errMsg != "" {
+			engineBody["error"] = errMsg
+		}
+		body["engine"] = engineBody
+	}
 	writeJSON(w, http.StatusOK, body)
 }
 
