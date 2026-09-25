@@ -99,12 +99,18 @@ func run() error {
 		stopPoll,
 	)
 
+	stateTracker := newWindowStateTracker(filepath.Join(home, windowStateFileName))
+	go stateTracker.poll(pollCtx)
+
 	return wails.Run(&options.App{
 		Title:  "CatchM",
 		Width:  1180,
 		Height: 760,
 		AssetServer: &assetserver.Options{
 			Handler: handler,
+		},
+		Bind: []interface{}{
+			&DesktopBridge{},
 		},
 		// Native title bar kept (see docs/plans/active/m22-native-shell.md:
 		// frameless loses Snap Layouts/Alt+Space, and Wails v2 has no
@@ -132,8 +138,10 @@ func run() error {
 			mu.Lock()
 			wailsCtx = ctx
 			mu.Unlock()
+			stateTracker.restore(ctx)
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
+			stateTracker.saveIfChanged(ctx)
 			mu.Lock()
 			quit := reallyQuit
 			mu.Unlock()

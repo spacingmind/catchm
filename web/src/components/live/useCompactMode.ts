@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   hasWindowControls,
+  notifyCompactMode,
   windowGetPosition,
   windowGetSize,
+  windowRestoreAbsolutePosition,
   windowSetAlwaysOnTop,
   windowSetMinSize,
-  windowSetPosition,
   windowSetSize,
 } from "@/lib/wailsRuntime"
 
@@ -38,6 +39,7 @@ export function useCompactMode() {
     windowSetMinSize(0, 0)
     windowSetSize(COMPACT_WIDTH, COMPACT_HEIGHT)
     windowSetAlwaysOnTop(true)
+    notifyCompactMode(true)
     setCompact(true)
   }, [available, compact])
 
@@ -47,11 +49,16 @@ export function useCompactMode() {
     const saved = savedRef.current
     if (saved) {
       windowSetSize(saved.w, saved.h)
-      windowSetPosition(saved.x, saved.y)
+      // windowRestoreAbsolutePosition, not a raw windowSetPosition(x, y)
+      // round-trip of what windowGetPosition returned in enter() above
+      // — that was M21's exact bug (a 24px drift on this exact call),
+      // root-caused and fixed in wailsRuntime.ts.
+      void windowRestoreAbsolutePosition(saved.x, saved.y)
     }
     // The app (cmd/catchm-desktop) never sets its own min-size, so (0,0)
     // is the correct restored value, not a placeholder.
     windowSetMinSize(0, 0)
+    notifyCompactMode(false)
     setCompact(false)
   }, [available, compact])
 
