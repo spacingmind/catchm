@@ -104,6 +104,19 @@ func run() error {
 		Bind: []interface{}{
 			&DesktopBridge{},
 		},
+		// M22 §4 WebView hardening. EnableDefaultContextMenu and Debug are
+		// deliberately left unset: verified against frontend.go directly
+		// — PutAreDefaultContextMenusEnabled(f.debug ||
+		// EnableDefaultContextMenu) and PutAreDevToolsEnabled(devtoolsEnabled)
+		// (gated on the `devtools` build tag Taskfile's desktop:build never
+		// passes) already disable the context menu and devtools in a
+		// production build and re-enable both in `wails dev`, matching the
+		// spec exactly with no extra code. File/URL drops onto the webview:
+		// DragAndDrop.DisableWebViewDrop (its own doc comment: "prevent
+		// accidental file opening of dragged in files in the webview").
+		DragAndDrop: &options.DragAndDrop{
+			DisableWebViewDrop: true,
+		},
 		// SingleInstanceLock: verified against
 		// internal/frontend/desktop/windows/{single_instance,frontend}.go
 		// — a second launch's args are forwarded via WM_COPYDATA to a
@@ -135,6 +148,13 @@ func run() error {
 			WindowIsTranslucent: true,
 			BackdropType:        wailswindows.Mica,
 			Theme:               wailswindows.Light,
+			// M22 §4: browser zoom off (Ctrl+±, Ctrl+wheel, pinch) — verified
+			// against frontend.go: IsZoomControlEnabled maps straight to
+			// WebView2's PutIsZoomControlEnabled (its own docs: gates
+			// Ctrl+/Ctrl-/Ctrl+MouseWheel), DisablePinchZoom to
+			// PutIsPinchZoomEnabled(!DisablePinchZoom).
+			IsZoomControlEnabled: false,
+			DisablePinchZoom:     true,
 			CustomTheme: &wailswindows.ThemeSettings{
 				LightModeTitleBar:          titleBarColour,
 				LightModeTitleText:         titleTextColour,

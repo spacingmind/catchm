@@ -51,7 +51,9 @@ export function CompactOverlay({ meetingId, audioSource, utterances, viewMode, o
 
   return (
     <div className="flex h-svh flex-col bg-background px-3 py-2 text-foreground">
-      <div className="mb-1.5 flex shrink-0 items-center gap-2 border-b border-border pb-1.5 text-xs text-muted-foreground">
+      {/* select-none (M22 §4): status chrome only — the transcript lines
+          below keep the default selectable text. */}
+      <div className="mb-1.5 flex shrink-0 items-center gap-2 border-b border-border pb-1.5 text-xs text-muted-foreground select-none">
         <span className="relative inline-flex shrink-0">
           <Radio className="size-3.5 text-primary" />
           <span className="absolute -top-0.5 -right-0.5 size-1 motion-safe:animate-pulse rounded-full bg-primary" />
