@@ -54,9 +54,13 @@ interface LiveMeetingProps {
   captureError?: string | null
   /** Opens settings so the user can fix the cause (e.g. missing API key). */
   onOpenSettings?: () => void
+  /** M21 §4: reports compact-overlay mode up to App, which hides the
+   *  sidebar/shell while it's active — a 480x260 window has no room
+   *  for both. */
+  onCompactChange?: (compact: boolean) => void
 }
 
-export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: LiveMeetingProps) {
+export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, onCompactChange }: LiveMeetingProps) {
   const [utterances, setUtterances] = useState<Utterance[]>([])
   const cursorRef = useRef(-1)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -190,6 +194,13 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
   const groups = groupBySpeaker(utterances)
 
   const { compact, available: compactAvailable, toggle: toggleCompact } = useCompactMode()
+
+  // Report the flag up to App, which hides the sidebar/shell while
+  // compact mode is active — a 480x260 window has no room for both.
+  useEffect(() => {
+    onCompactChange?.(compact)
+    return () => onCompactChange?.(false)
+  }, [compact, onCompactChange])
 
   if (compact) {
     return (

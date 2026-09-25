@@ -41,6 +41,12 @@ function App() {
   // capture_error from the start response (M19): the meeting exists but
   // recording didn't start. Shown as a live-view banner until ended.
   const [captureError, setCaptureError] = useState<string | null>(null)
+  // M21 §4: LiveMeeting owns the compact-overlay hook (it needs the
+  // transcript state that lives there), but the sidebar/shell has to
+  // disappear too — a 480x260 window has no room for both. LiveMeeting
+  // reports the flag up through this callback rather than the hook
+  // itself moving, so the transcript polling doesn't have to move too.
+  const [liveCompact, setLiveCompact] = useState(false)
 
   // Server is the source of truth for "is anything recording": refresh on
   // mount and every few seconds so a reload/restart or a meeting started
@@ -110,23 +116,34 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [startMeeting, openSettings])
 
-  return (
-    <div className="flex min-h-svh bg-background text-foreground">
-      <AppSidebar
-        view={view}
-        onNavigate={(v) => (v === "live" ? openLive() : setView(v))}
-        liveTitle={live?.title ?? null}
-        onStartMeeting={startMeeting}
-        startButtonRef={startBtnRef}
-      />
+  // M21 §4: a 480x260 compact window has no room for the sidebar or
+  // anything else. LiveMeeting stays mounted at the same position in
+  // the tree either way (only the wrapper/siblings around it change) so
+  // toggling compact mode never remounts it — losing the transcript
+  // poll's cursor or an in-progress note draft on every toggle would be
+  // a bad trade for a CSS-only problem.
+  const showCompactShell = liveCompact && view === "live" && selected && !selected.ended_at
 
-      <main className="min-w-0 flex-1">
-        {view === "list" && <MeetingList onOpenMeeting={openMeeting} />}
+  return (
+    <div className={showCompactShell ? "bg-background text-foreground" : "flex min-h-svh bg-background text-foreground"}>
+      {!showCompactShell && (
+        <AppSidebar
+          view={view}
+          onNavigate={(v) => (v === "live" ? openLive() : setView(v))}
+          liveTitle={live?.title ?? null}
+          onStartMeeting={startMeeting}
+          startButtonRef={startBtnRef}
+        />
+      )}
+
+      <main className={showCompactShell ? "" : "min-w-0 flex-1"}>
+        {!showCompactShell && view === "list" && <MeetingList onOpenMeeting={openMeeting} />}
         {view === "live" && selected && !selected.ended_at && (
           <LiveMeeting
             meeting={selected}
             captureError={captureError}
             onOpenSettings={captureError ? () => openSettings(captureErrorSection(captureError)) : undefined}
+            onCompactChange={setLiveCompact}
             onEnded={(m) => {
               setLive(null)
               setCaptureError(null)
@@ -135,19 +152,16 @@ function App() {
             }}
           />
         )}
-        {view === "detail" && selected && (
+        {!showCompactShell && view === "detail" && selected && (
           <MeetingDetail key={selected.id} meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
         )}
-        {view === "action-items" && <ActionItems onOpenMeeting={openMeeting} />}
-        {view === "settings" && <Settings initialSection={settingsSection} />}
+        {!showCompactShell && view === "action-items" && <ActionItems onOpenMeeting={openMeeting} />}
+        {!showCompactShell && view === "settings" && <Settings initialSection={settingsSection} />}
       </main>
 
-      <StartMeetingPopover
-        open={startOpen}
-        onOpenChange={setStartOpen}
-        onStarted={handleStarted}
-        anchor={startBtnRef}
-      />
+      {!showCompactShell && (
+        <StartMeetingPopover open={startOpen} onOpenChange={setStartOpen} onStarted={handleStarted} anchor={startBtnRef} />
+      )}
     </div>
   )
 }
