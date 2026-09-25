@@ -84,4 +84,4 @@ tasks:
         msg: "VERSION must be x.y.z or vx.y.z (plain numbers only — NSIS's VIProductVersion rejects pre-release suffixes)"
     cmds:
       - sed -i -E 's/"productVersion": "[^"]*"/"productVersion": "${VERSION}"/' wails.json
-      - wails build -s -skipbindings -ldflags "-X main.version=${VERSION}"
+      - wails build -s -skipbindings -nsis -ldflags "-X main.version=${VERSION}"
