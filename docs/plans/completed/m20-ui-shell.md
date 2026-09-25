@@ -1,7 +1,8 @@
 # Plan: M20 — UI shell redesign: sidebar, settings, forms, start flow
 
-- Status: active
+- Status: complete
 - Created: 2026-09-24
+- Completed: 2026-09-25
 - Repo: `catchm`, **`web/` only** (plus `web/dist` build output). No Go
   changes: M19 is changing the backend in parallel. Build against the
   M19 API contract (`docs/plans/active/m19-audio-sources.md` §4) and
@@ -132,8 +133,107 @@ dual-pane / compact always-on-top overlay (M21), command palette
 - [x] Settings pages (Recording, Transcription, Translation, Cloud incl. server URL)
 - [x] Start-meeting popover + remembered defaults + capture_error surfacing
 - [x] Form polish sweep (4a audit: contrast, a11y, ToggleGroup/Checkbox, language Selects, validation UX)
-- [ ] Visual verification (window-only screenshots)
+- [x] Visual verification (headless Chromium screenshots + capture_error flow)
 
 ## Validation
 
-(to be filled)
+**How verified (honest framing):** headless Chromium via Playwright driving
+`catchm serve` directly, in a `m20-verification` worktree —
+**not** the Wails WebView2 desktop window (M5/M11 toolchain). This
+environment has no Windows/Wails build available, so the WebView2-specific
+chrome (title bar, native menu, DPI scaling) was not exercised. Everything
+below is the web UI as `catchm serve` renders it.
+
+Setup: `cd web && bun install --frozen-lockfile && bun run build` (clean);
+`CATCHM_HOME=/tmp/catchm-m20v-home CATCHM_ADDR=127.0.0.1:44983 go run
+./cmd/catchm serve`. Playwright + headless Chromium installed standalone
+under `/tmp/catchm-m20v-pw` (not in the repo; `--with-deps` needed sudo and
+was unavailable non-interactively, so only the Chromium binary was
+installed — it launched and rendered fine without the extra OS libs).
+Seed data: 4 meetings created via `POST /api/meetings` (3 ended, 1 left
+live), tags/notes/action-item-status set through their real API endpoints
+(`PATCH /api/meetings/{id}`, `POST .../notes`, `PATCH
+.../action-items/{index}`), decisions/action items/participants/summary
+hand-written into `meeting.md` frontmatter and `utterances.jsonl` per the
+`internal/meeting` schema (no app code touched — verified with `git status`
+on `web/`, `internal/`, `cmd/` before committing).
+
+**AC3 (visual verification).** 16 screenshots in `docs/screenshots/m20/`,
+1280×800 plus a 900px-wide pass for the sidebar/list:
+`sidebar-expanded(-narrow)`, `sidebar-collapsed(-narrow)`,
+`meetings-list(-narrow)`, `meeting-detail-overview`,
+`meeting-detail-transcript`, `action-items-grouped`,
+`action-items-by-due-date`, `settings-recording`, `settings-transcription`,
+`settings-translation`, `settings-cloud-logged-out-advanced`,
+`start-meeting-popover-collapsed`, `start-meeting-popover-expanded`. All
+pages render without overflow/clipping at both widths; no missing Settings
+fields versus the old → new mapping in Decisions.
+
+**AC4 (capture_error, real end-to-end).** `PUT /api/config
+{"engine":"soniox"}` with no key configured
+(`soniox_api_key_set: false`); Playwright opened the sidebar Start-meeting
+popover and submitted it (mic/default device, no manual field changes —
+`configEngine` resolves to `soniox` automatically since it's the only
+usable engine when no key is set). Live view showed
+`role="alert"` with the exact text "Not recording: Soniox API key is not
+set — add it in Settings → Transcription." plus an "Open settings" action;
+clicking it navigated to Settings. Screenshots: `live-capture-error-banner`,
+`live-capture-error-open-settings-landed`. **No microphone was touched**:
+confirmed by reading `internal/server/server.go`'s `startPipeline` —
+`s.newEngine(...)` runs first and returns `errSonioxNoKey` before
+`s.newSource(device)` (mic open) is ever reached, so the failure short-circuits
+ahead of any audio-source open. `GET /api/audio/sources` was still called
+once by the popover on open (device enumeration for the Microphone
+dropdown, not a recording open) — expected, not a violation of this claim.
+
+**UX findings from clicking through** (ranked; none blocking, none fixed —
+verification only):
+
+1. **Medium — "Open settings" from the capture_error banner lands on
+   Settings → Recording, not Transcription.** The banner text says "add it
+   in Settings → Transcription," but `onOpenSettings` only switches the
+   view to Settings, which defaults to its first section (Recording). The
+   Soniox key field the user needs is one more click away.
+   (`live-capture-error-open-settings-landed.png`; `App.tsx`'s
+   `openSettings` / `web/src/components/settings/Settings.tsx`'s
+   `useState<Section>("recording")` default.)
+2. **Low — collapsed sidebar nav buttons lose their accessible name.**
+   `AppSidebar.tsx`'s `NavButton` only renders visible text when
+   `!collapsed`; the collapsed icon-only button falls back to a `title`
+   attribute, which isn't a reliable accessible-name equivalent to
+   `aria-label` for screen readers. The sidebar's own Start-meeting and
+   collapse-toggle buttons already carry `aria-label` — the plain nav
+   items (Meetings/Live/Action items/Settings) don't.
+   (`sidebar-collapsed.png`; `AppSidebar.tsx:32-54`.)
+3. **Low — meeting-count copy doesn't pluralize.** `MeetingList.tsx` prints
+   `"{n} decisions"` / `"{n} action items"` unconditionally, so a
+   single-item meeting reads "1 decisions" / "1 action items"
+   (`meetings-list.png`, Weekly Standup card; `MeetingList.tsx:165-166`).
+4. **Low — Translation status takes ~5s to settle, with only a bare
+   skeleton in between.** `GET /api/translate/status` genuinely takes
+   about 5 seconds server-side when nothing listens on the configured
+   Ollama host (confirmed by timing the request in Playwright, and it's
+   not a client-side hang — the endpoint itself is just slow to fail this
+   dial). The Skeleton placeholder gives no indication anything is still
+   in progress versus stuck. First screenshot attempt caught the
+   mid-flight skeleton state; a longer wait resolved it to the correct
+   "Unreachable" / "Not installed" badges (kept in
+   `settings-translation.png`).
+5. **Cosmetic — Start-meeting popover overlaps the Live view for ~1s
+   after submit.** The popover's close transition takes about a second to
+   finish after `onOpenChange(false)`, so a screenshot taken immediately
+   after starting a meeting catches it still open over the freshly-shown
+   capture_error banner. Purely a transition-timing artifact (confirmed:
+   gone by 1s, not stuck) — the first AC4 capture caught this moment; the
+   kept `live-capture-error-banner.png` waits it out.
+6. **Nit — `AppSidebar.tsx:82`'s `transition-[width]` animates a layout
+   property** (width) rather than transform/opacity per the project's own
+   web-design-guidelines skill; likely fine at this size/frequency but
+   flagged since the guideline is explicit about it.
+
+`web-design-guidelines` skill run against `AppSidebar.tsx`,
+`StartMeetingPopover.tsx`, `LiveMeeting.tsx`, `MeetingList.tsx`,
+`ActionItems.tsx`, `Settings.tsx` (+ subpages): the two AppSidebar items
+above were the only findings; everything else passed (labeled controls,
+`aria-pressed`/`aria-label` where needed, proper ellipsis character,
+`truncate`/`min-w-0` on card text).
