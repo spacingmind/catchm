@@ -196,7 +196,7 @@ func TestMeetingLevelsShape(t *testing.T) {
 		t.Fatalf("inactive system input present in levels: %v", body)
 	}
 	mic := body["mic"].(map[string]any)
-	for _, k := range []string{"rms", "peak", "dropped_samples"} {
+	for _, k := range []string{"rms", "peak", "dropped_chunks", "dropped_samples"} {
 		if _, ok := mic[k]; !ok {
 			t.Fatalf("mic levels missing %q: %v", k, mic)
 		}

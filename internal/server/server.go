@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -236,21 +237,19 @@ func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
 
 	mic, sys, droppedTicks := mixer.Stats()
 	body := map[string]any{"dropped_ticks": droppedTicks}
-	if mic.RMS != 0 || mic.Peak != 0 || micActive(mixer) {
-		body["mic"] = map[string]any{"rms": mic.RMS, "peak": mic.Peak, "dropped_samples": mic.DroppedSamples}
+	if mixer.HasInput(true) {
+		body["mic"] = map[string]any{
+			"rms": mic.RMS, "peak": mic.Peak,
+			"dropped_chunks": mic.DroppedChunks, "dropped_samples": mic.DroppedSamples,
+		}
 	}
-	if sys.RMS != 0 || sys.Peak != 0 || sysActive(mixer) {
-		body["system"] = map[string]any{"rms": sys.RMS, "peak": sys.Peak, "dropped_samples": sys.DroppedSamples}
+	if mixer.HasInput(false) {
+		body["system"] = map[string]any{
+			"rms": sys.RMS, "peak": sys.Peak,
+			"dropped_chunks": sys.DroppedChunks, "dropped_samples": sys.DroppedSamples,
+		}
 	}
 	writeJSON(w, http.StatusOK, body)
-}
-
-func micActive(m *capture.Mixer) bool { return sourceActive(m, true) }
-func sysActive(m *capture.Mixer) bool { return sourceActive(m, false) }
-func sourceActive(m *capture.Mixer, mic bool) bool {
-	// Active = the mixer has that input wired (regardless of momentary
-	// level); the mixer exposes this via Stats inputs presence below.
-	return m.HasInput(mic)
 }
 
 func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
@@ -359,6 +358,9 @@ func (m SourceMode) valid() bool {
 func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
+		if strings.Contains(err.Error(), "soniox") && strings.Contains(err.Error(), "api key") {
+			return "Soniox API key is not set — add it in Settings → Transcription."
+		}
 		return err.Error()
 	}
 
