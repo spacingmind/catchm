@@ -207,12 +207,22 @@ func (t *windowStateTracker) poll(ctx context.Context) {
 	}
 }
 
-// tick is one poll iteration, panic-guarded per the comment on poll.
+// tick is one poll iteration. Two teardown guards, in order:
+//   - ctx.Err(): the app is past wails.Run (or the context is dead for
+//     any other reason) — calling into the Wails runtime then is at
+//     best a log.Fatal'ing "invalid context" and at worst a use of a
+//     destroyed window; there is nothing left to save either way.
+//   - recover(): the narrower race the ctx check can't close — the
+//     context is still live but the HWND is being destroyed RIGHT NOW
+//     (pollCtx only cancels after wails.Run returns, i.e. after the
+//     window is already gone). Wails' WindowGetSize divides by
+//     GetDpiForWindow(deadHwnd)=0 and panics. See poll's comment.
 func (t *windowStateTracker) tick(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
-			// Window destroyed mid-tick during app teardown — nothing
-			// left to persist. See poll's comment.
 			_ = r
 		}
 	}()

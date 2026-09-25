@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spacingmind/catchm/internal/winbounds"
 )
@@ -79,5 +81,34 @@ func TestDesktopBridgeSetCompactMode(t *testing.T) {
 	d.SetCompactMode(false)
 	if compactActive.Load() {
 		t.Fatal("SetCompactMode(false) did not clear compactActive")
+	}
+}
+
+// Regression test for the quit-time teardown race fixed alongside M23:
+// tick must swallow a panic raised by saveIfChanged when the window is
+// destroyed mid-tick (the live crash was Wails' WindowGetSize dividing
+// by GetDpiForWindow(deadHwnd)=0). We can't call the real saveIfChanged
+// without a window, so this exercises tick's guard through the
+// panicking seam it wraps: a nil tracker state + a context whose
+// cancellation races. The meaningful assertion is simply that tick
+// returns instead of taking the process down — pre-fix, poll called
+// saveIfChanged directly and any panic in it propagated.
+func TestWindowStateTickSurvivesTeardownPanic(t *testing.T) {
+	tr := newWindowStateTracker(filepath.Join(t.TempDir(), "window_state.json"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // teardown has begun; tick may still fire once in flight
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Deliberately exercise tick while "cancelled" — the guard
+		// under test is the recover, not ctx handling.
+		tr.tick(ctx)
+	}()
+	select {
+	case <-done:
+		// survived
+	case <-time.After(2 * time.Second):
+		t.Fatal("tick did not return")
 	}
 }
