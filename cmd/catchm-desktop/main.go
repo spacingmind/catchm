@@ -223,8 +223,6 @@ func run() error {
 				go handleLaunchURI(ctx, launchMeetingID)
 			}
 			updates.startBackgroundChecks(ctx)
-			// M23 live-test hook (no-op without CATCHM_UPDATE_AUTOAPPLY).
-			maybeAutoApplyUpdate(ctx, updates)
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
 			stateTracker.saveIfChanged(ctx)
