@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react"
-import { ArrowLeftRight } from "lucide-react"
+import { ArrowLeftRight, ChevronDown } from "lucide-react"
 import { cn } from "cn"
 
 import { SegmentedControl } from "@/components/settings/pieces"
@@ -54,6 +54,10 @@ function defaultTitle(): string {
   return `Meeting ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
 }
 
+function usableEngineLabel(e: SttEngine): string {
+  return e === "soniox" ? "Soniox" : "Whisper"
+}
+
 interface StartMeetingPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -78,6 +82,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pairError, setPairError] = useState<string | null>(null)
+  const [optionsOpen, setOptionsOpen] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   const langRef = useRef<HTMLButtonElement | null>(null)
 
@@ -134,6 +139,14 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
         ]
       : []
   const activeEngine = usableEngines.length > 0 ? engine : configEngine
+
+  const optionsSummary = [
+    lang || translateTo ? `${lang || "auto"} → ${translateTo || "auto"}` : null,
+    twoWay ? "two-way" : null,
+    usableEngineLabel(activeEngine),
+  ]
+    .filter(Boolean)
+    .join(" · ")
 
   const handleStart = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -211,7 +224,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
               </label>
               <Select value={device || undefined} onValueChange={setDevice}>
                 <SelectTrigger id="start-device" className="w-full">
-                  <SelectValue placeholder={devices.length === 0 ? "Default device" : "Default device"} />
+                  <SelectValue placeholder="Default device" />
                 </SelectTrigger>
                 <SelectContent>
                   {devices.map((d) => (
@@ -226,69 +239,94 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
           )}
 
           <div className="grid gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Translation</span>
-              <button
-                type="button"
-                onClick={() => setTwoWay((v) => !v)}
-                aria-pressed={twoWay}
-                title="Two-way: both languages translate into each other"
-                className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  twoWay ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <ArrowLeftRight className="size-3.5" />
-                Two-way
-              </button>
-            </div>
-            <div className="flex items-center gap-2" id="start-pair">
-              <Select value={lang || undefined} onValueChange={setLang}>
-                <SelectTrigger id="start-lang" ref={langRef} className="w-40" aria-label={twoWay ? "Language A" : "From language"} aria-describedby={pairError ? "start-pair-error" : undefined}>
-                  <SelectValue placeholder={twoWay ? "Language A" : "From"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {LANGUAGES.map((l) => (
-                    <SelectItem key={l.code} value={l.code}>
-                      {l.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <span aria-hidden className="text-sm text-muted-foreground">
-                →
+            <button
+              type="button"
+              onClick={() => setOptionsOpen((o) => !o)}
+              aria-expanded={optionsOpen}
+              className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <span className="font-medium">Options</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-muted-foreground">{optionsSummary || "Defaults"}</span>
+                <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", optionsOpen && "rotate-180")} />
               </span>
-              <Select value={translateTo || undefined} onValueChange={setTranslateTo}>
-                <SelectTrigger id="start-translate-to" className="w-40" aria-label={twoWay ? "Language B" : "To language"}>
-                  <SelectValue placeholder={twoWay ? "Language B" : "To"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {LANGUAGES.map((l) => (
-                    <SelectItem key={l.code} value={l.code}>
-                      {l.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {pairError && (
-              <p id="start-pair-error" className="text-sm text-destructive" role="alert">
-                {pairError}
-              </p>
+            </button>
+
+            {optionsOpen && (
+              <div className="grid gap-4">
+                <div className="grid gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Translation</span>
+                    <button
+                      type="button"
+                      onClick={() => setTwoWay((v) => !v)}
+                      aria-pressed={twoWay}
+                      title="Two-way: both languages translate into each other"
+                      className={cn(
+                        "flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                        twoWay ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <ArrowLeftRight className="size-3.5" />
+                      Two-way
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select value={lang || undefined} onValueChange={setLang}>
+                      <SelectTrigger
+                        id="start-lang"
+                        ref={langRef}
+                        className="w-40"
+                        aria-label={twoWay ? "Language A" : "From language"}
+                        aria-describedby={pairError ? "start-pair-error" : undefined}
+                      >
+                        <SelectValue placeholder={twoWay ? "Language A" : "From"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LANGUAGES.map((l) => (
+                          <SelectItem key={l.code} value={l.code}>
+                            {l.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span aria-hidden className="text-sm text-muted-foreground">
+                      →
+                    </span>
+                    <Select value={translateTo || undefined} onValueChange={setTranslateTo}>
+                      <SelectTrigger id="start-translate-to" className="w-40" aria-label={twoWay ? "Language B" : "To language"}>
+                        <SelectValue placeholder={twoWay ? "Language B" : "To"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LANGUAGES.map((l) => (
+                          <SelectItem key={l.code} value={l.code}>
+                            {l.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {pairError && (
+                    <p id="start-pair-error" className="text-sm text-destructive" role="alert">
+                      {pairError}
+                    </p>
+                  )}
+                </div>
+
+                {usableEngines.length > 1 && (
+                  <div className="grid gap-1.5">
+                    <span className="text-sm font-medium">Engine</span>
+                    <SegmentedControl
+                      label="Transcription engine"
+                      value={engine}
+                      onChange={setEngine}
+                      options={usableEngines}
+                    />
+                  </div>
+                )}
+              </div>
             )}
           </div>
-
-          {usableEngines.length > 1 && (
-            <div className="grid gap-1.5">
-              <span className="text-sm font-medium">Engine</span>
-              <SegmentedControl
-                label="Transcription engine"
-                value={engine}
-                onChange={setEngine}
-                options={usableEngines}
-              />
-            </div>
-          )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
