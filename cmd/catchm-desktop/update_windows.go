@@ -72,18 +72,27 @@ const errWinCancelled = syscall.Errno(1223)
 
 // babysitterScript waits for the old pid to die, runs the installer
 // (/S), and relaunches the updated exe unelevated via explorer.exe.
-// Values arrive via environment variables inherited from this process
-// (same mechanism project.nsi uses for New-AumidShortcut.ps1 — never
-// interpolated into the command line, so no quoting/escaping surface).
-const babysitterScript = `
+// The three values (old pid, installer path, exe path) are formatted
+// into the script BEFORE -EncodedCommand encoding — live-tested
+// finding: env vars do NOT survive the runas elevation boundary (the
+// broker builds a fresh environment), so $env: passing silently
+// delivered $null and the babysitter died doing nothing. Paths are
+// base64-encoded into the script body (never string-interpolated into
+// a PowerShell expression) so no quoting/escaping surface exists.
+func babysitterScript(oldPID int, installerPath, exePath string) string {
+	return `
 $ErrorActionPreference = 'Stop'
-try { Wait-Process -Id $env:CATCHM_UPDATE_OLD_PID -ErrorAction SilentlyContinue } catch {}
+$oldPid = ` + fmt.Sprint(oldPID) + `
+$installer = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('` + base64.StdEncoding.EncodeToString([]byte(installerPath)) + `'))
+$exe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('` + base64.StdEncoding.EncodeToString([]byte(exePath)) + `'))
+try { Wait-Process -Id $oldPid -ErrorAction SilentlyContinue } catch {}
 Start-Sleep -Milliseconds 800   # let file handles drain after process exit
-$p = Start-Process $env:CATCHM_UPDATE_INSTALLER -ArgumentList '/S' -PassThru -Wait
+$p = Start-Process $installer -ArgumentList '/S' -PassThru -Wait
 if ($p.ExitCode -ne 0) { exit 2 }
-Start-Process explorer.exe $env:CATCHM_UPDATE_EXE
+Start-Process explorer.exe $exe
 exit 0
 `
+}
 
 // encodePowerShell builds a powershell -EncodedCommand payload
 // (UTF-16LE + base64 — the encoding PowerShell's -EncodedCommand
@@ -105,28 +114,19 @@ func encodePowerShell(script string) string {
 // launchUpdateBabysitter starts the elevated babysitter (single UAC
 // prompt). ERROR_CANCELLED maps to errUACCanceled ("update deferred",
 // not an error state). Returns once the babysitter has been handed to
-// the elevated broker — it does not wait for it.
+// the elevated broker — it does not wait for it (it waits for us).
 func launchUpdateBabysitter(installerPath string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("update relaunch: %w", err)
 	}
-	// Env for the babysitter; inherited at ShellExecuteEx's
-	// CreateProcess (parent env copied synchronously at call time).
-	// Cleaned up immediately after launch either way — the child has
-	// its own copy.
-	os.Setenv("CATCHM_UPDATE_OLD_PID", fmt.Sprint(os.Getpid()))
-	os.Setenv("CATCHM_UPDATE_INSTALLER", installerPath)
-	os.Setenv("CATCHM_UPDATE_EXE", exe)
-	defer func() {
-		os.Unsetenv("CATCHM_UPDATE_OLD_PID")
-		os.Unsetenv("CATCHM_UPDATE_INSTALLER")
-		os.Unsetenv("CATCHM_UPDATE_EXE")
-	}()
+	powershell := os.Getenv("windir") + `\System32\WindowsPowerShell\v1.0\powershell.exe`
+	cmdline := "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " +
+		encodePowerShell(babysitterScript(os.Getpid(), installerPath, exe))
 
 	verb, _ := syscall.UTF16PtrFromString("runas")
-	file, _ := syscall.UTF16PtrFromString(os.Getenv("windir") + `\System32\WindowsPowerShell\v1.0\powershell.exe`)
-	args, _ := syscall.UTF16PtrFromString("-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encodePowerShell(babysitterScript))
+	file, _ := syscall.UTF16PtrFromString(powershell)
+	args, _ := syscall.UTF16PtrFromString(cmdline)
 	sei := shellExecuteInfo{
 		cbSize:       uint32(unsafe.Sizeof(shellExecuteInfo{})),
 		fMask:        seeMaskNOCloseProcess,
