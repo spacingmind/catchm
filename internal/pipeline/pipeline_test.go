@@ -211,6 +211,75 @@ func TestPipelineLifecycle(t *testing.T) {
 	}
 }
 
+// stuckEngine is a stt.StreamEngine stand-in for an engine goroutine
+// wedged inside blocking work that doesn't read pcmCh at all — e.g. the
+// real WhisperEngine blocked in http.Client.Do against a whisper server
+// that accepted the TCP connection but never responds (a silent black
+// hole, not a fast connection-refused). It only gives up when ctx is
+// cancelled, exactly like the real engines' blocking calls do.
+type stuckEngine struct{}
+
+func (stuckEngine) SupportsDiarization() bool { return false }
+func (stuckEngine) SupportsTranslation() bool { return false }
+
+func (stuckEngine) Stream(ctx context.Context, _ stt.Options) (chan<- stt.PCM, <-chan stt.Result, error) {
+	pcmCh := make(chan stt.PCM)
+	resultCh := make(chan stt.Result)
+	go func() {
+		defer close(resultCh)
+		<-ctx.Done() // never drains pcmCh until told to stop
+	}()
+	return pcmCh, resultCh, nil
+}
+
+// TestPipelineStopUnblocksStuckEngine is the §0 regression test: a
+// meeting must always be endable, even when the engine goroutine is
+// wedged in blocking work and never reads pcmCh. Before the fix, Stop
+// waited for the feeder to finish before cancelling ctx — but the
+// feeder's only way to give up on a non-draining pcmCh *was* ctx
+// cancellation, so Stop() never returned. Bounded by a deadline: this
+// test fails (rather than hangs the test suite) if the regression comes
+// back.
+func TestPipelineStopUnblocksStuckEngine(t *testing.T) {
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{Engine: "whisper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A real (fast-paced) source, so the feeder actually has a chunk to
+	// try handing to the engine — an idle mixer producing nothing would
+	// never exercise the blocked send this test is about.
+	src, err := capture.NewFileSource(fixtureWAV(t, 3200), 800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audioPath := filepath.Join(store.Root(), m.ID, "audio.wav")
+	p, err := Start(store, m.ID, src, stuckEngine{}, stt.Options{}, audioPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Let the feeder actually reach (and block on) its send-or-done
+	// select before we ask it to stop.
+	time.Sleep(50 * time.Millisecond)
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- p.Stop() }()
+
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() did not return within 2s against a stuck engine — the §0 deadlock regressed")
+	}
+}
+
 // TestEngineUtterancesCompatWithReadLiveTranscript proves M1's cursor-based
 // read_live_transcript path (internal/tools.Surface.ReadLiveTranscript)
 // works unchanged over a transcript mixing an M1-style fixture utterance

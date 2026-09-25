@@ -121,12 +121,28 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 // Stop closes the capture source, lets the engine drain and close, waits
 // for both pipeline goroutines to exit, and finalizes audio.wav. It is
 // safe to call once; calling it leaves no goroutines running.
+//
+// cancel MUST run before either wait, not after: the feeder's only way to
+// give up on a stuck engine (one not currently reading pcmCh — e.g. an
+// http.Client.Do to a whisper server that never responds, blocked inside
+// engine.Stream's goroutine) is its own `case <-ctx.Done()`. Waiting for
+// the feeder to finish before cancelling made that the feeder's ONLY exit
+// ever depend on a signal Stop() hadn't sent yet — a real, reproduced
+// deadlock (§0, found ending a whisper+mic meeting whose whisper server
+// wasn't reachable: goroutine dump showed Stop() parked on
+// <-p.feederDone, the feeder parked on its send-or-done select, and the
+// engine goroutine parked inside http.Client.Do — nothing left to move
+// any of them). Every engine already wires this same ctx into its
+// blocking work (http.NewRequestWithContext for Whisper; Soniox dials
+// with DialContext and force-closes its websocket conn shortly after
+// ctx.Done if the server hasn't already closed it), so cancelling first
+// aborts whatever the engine is stuck in and unblocks the whole chain.
 func (p *Pipeline) Stop() error {
 	// The source is always a Mixer since M19; its Close closes the
 	// installed input devices (displaced ones were closed at swap time).
 	srcErr := p.src.Close()
-	<-p.feederDone
 	p.cancel()
+	<-p.feederDone
 	<-p.resultsDone
 	wavErr := p.wav.Close()
 	if srcErr != nil {

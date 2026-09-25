@@ -145,11 +145,45 @@ M22), multi-window, Wails v3 migration, dark mode.
 
 ## Decisions
 
-(fill in)
+- **§0 `/end` hang — root cause.** `Pipeline.Stop()` closed the source
+  and waited for the feeder goroutine to finish *before* cancelling the
+  pipeline's `context.Context`. The feeder's only way to give up on an
+  engine that isn't currently reading `pcmCh` is its own
+  `case <-ctx.Done()` — so if the engine goroutine is blocked inside
+  synchronous work that doesn't involve reading `pcmCh` (the real
+  trigger: `WhisperEngine.transcribe`'s `http.Client.Do` against a
+  whisper server that accepts the TCP connection but never responds —
+  confirmed in this sandbox, connecting to a closed local port times
+  out instead of refusing instantly, so the window is long enough to
+  hit every time), `Stop()`'s wait and the feeder's only unblock signal
+  were circularly ordered: `Stop()` → wait for feeder → feeder needs
+  `ctx.Done()` → `ctx` is cancelled only after `Stop()`'s wait returns.
+  Reproduced with a real `whisper` + `mic` meeting against an
+  unreachable `whisper_url`; `SIGQUIT`'d the process mid-hang and read
+  the goroutine dump: `Pipeline.Stop` parked on `<-p.feederDone`
+  (pipeline.go:128), the feeder parked on its send-or-done select
+  (pipeline.go:71), the results goroutine parked on `for range resultCh`
+  (pipeline.go:81), and `WhisperEngine.Stream`'s goroutine parked inside
+  `http.Client.Do` (engine_whisper.go:102) — nothing left free to move
+  any of them. **Fix:** call `p.cancel()` immediately after
+  `p.src.Close()`, before either `<-p.feederDone` or `<-p.resultsDone`.
+  Every engine already wires the same `ctx` into its blocking work
+  (Whisper via `http.NewRequestWithContext`; Soniox dials with
+  `DialContext` and force-closes its websocket conn on a grace timer
+  after `ctx.Done()`), so this fix is engine-agnostic and needed no
+  changes to either engine. **Does not touch M19's Mixer ownership
+  protocol** — `Mixer.Close()`/`SetInputs` and their input-ownership
+  rules are untouched; the bug and the fix are entirely in
+  `pipeline.go`'s shutdown ordering, one level above the Mixer.
+  Regression test: `TestPipelineStopUnblocksStuckEngine` (a fake engine
+  that never reads `pcmCh` until `ctx.Done()`), asserting `Stop()`
+  returns within a 2 s deadline via `select`/`time.After` — confirmed it
+  fails (hangs past the deadline) against the pre-fix code and passes
+  against the fix.
 
 ## Progress
 
-- [ ] Go: `/end` hang root cause + fix + regression test
+- [x] Go: `/end` hang root cause + fix + regression test
 - [ ] Go: engine state in levels (+ tests)
 - [ ] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
 - [ ] Transcript: fill viewport, grouping, view modes, font size, notes label
