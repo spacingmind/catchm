@@ -261,12 +261,37 @@ M22), multi-window, Wails v3 migration, dark mode.
   to `TestMeetingLevelsShape` proving `engine` is omitted for an engine
   that doesn't implement the reporter.
 
+- **§1/§3 status row + transcript.** `StatusRow` (new
+  `components/live/StatusRow.tsx`) is fully self-contained — owns its
+  own polling for devices/system-capability, levels (~5 Hz,
+  `visibilitychange`-gated), and the source-switch request — so
+  `LiveMeeting` only has to pass `meetingId`/`startedAt`/the initial
+  source; nothing about a mid-session switch needs to flow back up
+  through `App`. Level meters use `peak` (more visually responsive than
+  `rms`) as a 0-100% bar fill. "No signal" and the drops warning are
+  each held for a few seconds past the triggering poll rather than
+  toggling every ~200 ms, so a normal pause between sentences or a
+  single dropped tick doesn't flicker the UI. View modes and font size
+  are hidden/shown as a unit: the segmented control for view mode only
+  renders when the meeting actually has translation on
+  (`translate_to`/`two_way`); font-size buttons always show (useful
+  regardless of translation). `Meeting`'s client-side type was missing
+  `audio_source`/`two_way` (the backend has sent both since M19; only
+  M21 needed them) — added rather than routing around it.
+  Smoke-tested by hand against an isolated `catchm serve` with a real
+  `whisper` + `mic` meeting (no seeded/stubbed data): status row,
+  drops detection (whisper server unreachable → the mixer's output
+  buffer genuinely dropped ~2400 ticks over ~30s, correctly surfaced),
+  and engine state (`streaming`) all reflected real pipeline data; then
+  ended that meeting through the UI — the exact §0 scenario — in
+  539 ms, confirming the fix end to end beyond the hermetic tests.
+
 ## Progress
 
 - [x] Go: `/end` hang root cause + fix + regression test
 - [x] Go: engine state in levels (+ tests)
-- [ ] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
-- [ ] Transcript: fill viewport, grouping, view modes, font size, notes label
+- [x] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
+- [x] Transcript: fill viewport, grouping, view modes, font size, notes label
 - [ ] Compact overlay mode (+ API verification against module source)
 - [ ] Screenshots + real Windows compact-mode check
 
