@@ -1,20 +1,29 @@
 import { useState, type ComponentType } from "react"
-import { Cloud, Languages, Mic, Settings2, Speech } from "lucide-react"
+import { Cloud, Keyboard, Languages, Mic, Settings2, Speech } from "lucide-react"
 import { cn } from "cn"
 
 import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
+import { SettingsShortcuts } from "@/components/settings/SettingsShortcuts"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
+import { hasWindowControls } from "@/lib/wailsRuntime"
 
-export type Section = "recording" | "transcription" | "translation" | "cloud"
+export type Section = "recording" | "transcription" | "translation" | "cloud" | "shortcuts"
 
-const SECTIONS: { id: Section; label: string; icon: ComponentType<{ className?: string }> }[] = [
+const ALL_SECTIONS: { id: Section; label: string; icon: ComponentType<{ className?: string }>; desktopOnly?: boolean }[] = [
   { id: "recording", label: "Recording", icon: Mic },
   { id: "transcription", label: "Transcription", icon: Speech },
   { id: "translation", label: "Translation", icon: Languages },
   { id: "cloud", label: "Cloud sync", icon: Cloud },
+  // M22 §5: global shortcuts/launch-at-login/notifications only mean
+  // anything inside the real Wails window — hidden entirely in
+  // `catchm serve`, same hasWindowControls() convention M21 set for
+  // the compact-mode button.
+  { id: "shortcuts", label: "Shortcuts", icon: Keyboard, desktopOnly: true },
 ]
+
+const SECTIONS = ALL_SECTIONS.filter((s) => !s.desktopOnly || hasWindowControls())
 
 export function Settings({ initialSection = "recording" }: { initialSection?: Section }) {
   const [section, setSection] = useState<Section>(initialSection)
@@ -52,6 +61,7 @@ export function Settings({ initialSection = "recording" }: { initialSection?: Se
         {section === "transcription" && <SettingsTranscription />}
         {section === "translation" && <SettingsTranslation />}
         {section === "cloud" && <SettingsCloudSync />}
+        {section === "shortcuts" && <SettingsShortcuts />}
       </div>
     </div>
   )

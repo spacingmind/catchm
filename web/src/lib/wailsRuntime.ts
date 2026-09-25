@@ -39,6 +39,12 @@ interface WailsWindowRuntime {
   EventsOn(eventName: string, callback: (...data: unknown[]) => void): () => void
 }
 
+/** Matches cmd/catchm-desktop/desktop_settings.go's ShortcutsInfo. */
+export interface ShortcutsInfo {
+  bindings: Record<string, string>
+  errors: Record<string, string>
+}
+
 declare global {
   interface Window {
     runtime?: Partial<WailsWindowRuntime>
@@ -46,6 +52,13 @@ declare global {
       main?: {
         DesktopBridge?: {
           SetCompactMode?(active: boolean): void
+          GetShortcuts?(): Promise<ShortcutsInfo>
+          SetShortcuts?(bindings: Record<string, string>): Promise<ShortcutsInfo>
+          GetAutostart?(): Promise<boolean>
+          SetAutostart?(enabled: boolean): Promise<void>
+          GetNotificationsEnabled?(): Promise<boolean>
+          SetNotificationsEnabled?(enabled: boolean): Promise<void>
+          NotifyCloudSyncConflict?(count: number): void
         }
       }
     }
@@ -143,4 +156,43 @@ export function windowEventsOn(eventName: string, callback: (...data: unknown[])
  */
 export function notifyCompactMode(active: boolean): void {
   window.go?.main?.DesktopBridge?.SetCompactMode?.(active)
+}
+
+/** M22 §5: current global-shortcut bindings + any registration error
+ *  per action (an already-taken combo, invalid, or unsupported on this
+ *  OS) — surfaced inline, never silently dropped. */
+export function getShortcuts(): Promise<ShortcutsInfo> {
+  return window.go!.main!.DesktopBridge!.GetShortcuts!()
+}
+
+/** Replaces the bindings and re-registers every hotkey; same shape as
+ *  getShortcuts() for the resulting (possibly partial) success. */
+export function setShortcuts(bindings: Record<string, string>): Promise<ShortcutsInfo> {
+  return window.go!.main!.DesktopBridge!.SetShortcuts!(bindings)
+}
+
+/** M22 §5 launch-at-login (HKCU Run key, opt-in). */
+export function getAutostart(): Promise<boolean> {
+  return window.go!.main!.DesktopBridge!.GetAutostart!()
+}
+
+export function setAutostart(enabled: boolean): Promise<void> {
+  return window.go!.main!.DesktopBridge!.SetAutostart!(enabled)
+}
+
+/** M22 §5 toast notifications opt-out. */
+export function getNotificationsEnabled(): Promise<boolean> {
+  return window.go!.main!.DesktopBridge!.GetNotificationsEnabled!()
+}
+
+export function setNotificationsEnabled(enabled: boolean): Promise<void> {
+  return window.go!.main!.DesktopBridge!.SetNotificationsEnabled!(enabled)
+}
+
+/** Fires a toast for the cloud-sync-conflict case — called right after
+ *  a manual sync's response shows conflicted meetings (there's no
+ *  background sync loop in this app to poll for this the way tray.go
+ *  polls capture state). A no-op outside the Wails window. */
+export function notifyCloudSyncConflict(count: number): void {
+  window.go?.main?.DesktopBridge?.NotifyCloudSyncConflict?.(count)
 }

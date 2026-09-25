@@ -13,7 +13,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
@@ -55,6 +57,14 @@ var (
 	reallyQuit bool
 )
 
+// windowVisible tracks show/hide state ourselves — Wails v2 has no
+// WindowIsVisible getter (checked pkg/runtime/window.go) — so the M22
+// §5 show/hide hotkey knows which direction to toggle, and toasts only
+// fire while the window is actually hidden. Starts true: the window
+// opens visible on a normal launch (false only for --autostart, which
+// sets StartHidden below).
+var windowVisible atomic.Bool
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -83,11 +93,23 @@ func run() error {
 
 	handler := server.New(tools.New(store), cfg)
 
+	// M22 §5 launch-at-login: autostart_windows.go writes this exact
+	// flag into the HKCU Run command line (internal/autostart.
+	// CommandLine); starting hidden here is what makes "launch at
+	// login" open to the tray instead of popping the window on every
+	// sign-in.
+	autostartLaunch := slices.Contains(os.Args[1:], "--autostart")
+	windowVisible.Store(!autostartLaunch)
+
+	setProcessAUMID(appID)
+
 	pollCtx, stopPoll := context.WithCancel(context.Background())
 	defer stopPoll()
 
+	hkManager := newHotkeyManager(filepath.Join(home, desktopSettingsFileName), newPlatformHotkeys(), handler, cfg)
+
 	go systray.Run(
-		func() { onTrayReady(pollCtx, handler, cfg) },
+		func() { onTrayReady(pollCtx, handler, cfg, hkManager) },
 		stopPoll,
 	)
 
@@ -95,14 +117,15 @@ func run() error {
 	go stateTracker.poll(pollCtx)
 
 	return wails.Run(&options.App{
-		Title:  "CatchM",
-		Width:  1180,
-		Height: 760,
+		Title:       "CatchM",
+		Width:       1180,
+		Height:      760,
+		StartHidden: autostartLaunch,
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
 		Bind: []interface{}{
-			&DesktopBridge{},
+			&DesktopBridge{hk: hkManager},
 		},
 		// M22 §4 WebView hardening. EnableDefaultContextMenu and Debug are
 		// deliberately left unset: verified against frontend.go directly
@@ -131,6 +154,7 @@ func run() error {
 			UniqueId: appID,
 			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
 				if ctx := appContext(); ctx != nil {
+					windowVisible.Store(true)
 					runtime.WindowShow(ctx)
 				}
 			},
@@ -169,6 +193,7 @@ func run() error {
 			wailsCtx = ctx
 			mu.Unlock()
 			stateTracker.restore(ctx)
+			hkManager.applyAll()
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
 			stateTracker.saveIfChanged(ctx)
@@ -178,8 +203,16 @@ func run() error {
 			if quit {
 				return false
 			}
+			windowVisible.Store(false)
 			runtime.WindowHide(ctx)
 			return true
+		},
+		// M22 §5: unregister every global hotkey on quit — a stale
+		// RegisterHotKey would otherwise keep intercepting its combo
+		// system-wide even after the process exits, if the OS is slow to
+		// reclaim it.
+		OnShutdown: func(context.Context) {
+			hkManager.unregisterAll()
 		},
 	})
 }

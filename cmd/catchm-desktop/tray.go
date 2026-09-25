@@ -68,11 +68,12 @@ type trayState struct {
 
 // onTrayReady builds the tray menu and starts the state poll. It runs
 // inside systray.Run's event loop startup.
-func onTrayReady(ctx context.Context, handler http.Handler, cfg *config.Config) {
+func onTrayReady(ctx context.Context, handler http.Handler, cfg *config.Config, hkManager *hotkeyManager) {
 	systray.SetIcon(trayIconIdle)
 	systray.SetTooltip("CatchM — Ready")
 	systray.SetOnClick(func(systray.IMenu) {
 		if appCtx := appContext(); appCtx != nil {
+			windowVisible.Store(true)
 			runtime.WindowShow(appCtx)
 		}
 	})
@@ -80,6 +81,7 @@ func onTrayReady(ctx context.Context, handler http.Handler, cfg *config.Config) 
 	mOpen := systray.AddMenuItem("Open CatchM", "Show the CatchM window")
 	mOpen.Click(func() {
 		if appCtx := appContext(); appCtx != nil {
+			windowVisible.Store(true)
 			runtime.WindowShow(appCtx)
 		}
 	})
@@ -105,22 +107,57 @@ func onTrayReady(ctx context.Context, handler http.Handler, cfg *config.Config) 
 		}
 	})
 
-	go pollTrayState(ctx, handler)
+	go pollTrayState(ctx, handler, hkManager)
 }
 
 // pollTrayState keeps the tray icon, tooltip, and start/stop menu label
 // honest about real capture state (M11's core lesson: never let the
-// tray look idle or recording when it isn't).
-func pollTrayState(ctx context.Context, handler http.Handler) {
+// tray look idle or recording when it isn't), and — M22 §5 — fires a
+// toast for the two transitions that matter while the window is
+// hidden: capture starting to error, and the active meeting ending.
+func pollTrayState(ctx context.Context, handler http.Handler, hkManager *hotkeyManager) {
 	ticker := time.NewTicker(tooltipPollInterval)
 	defer ticker.Stop()
+	var prev trayState
+	haveBaseline := false
 	for {
-		applyTrayState(currentTrayState(handler))
+		cur := currentTrayState(handler)
+		applyTrayState(cur)
+		if haveBaseline {
+			notifyTrayTransition(hkManager, prev, cur)
+		}
+		prev, haveBaseline = cur, true
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// notifyTrayTransition toasts on the two edges the spec calls out —
+// never on the steady state (only checked once haveBaseline is true,
+// above, so launching with a meeting already active from a prior
+// session doesn't toast on the very first poll). Toasts only matter
+// while the window is hidden — the whole point is surfacing state the
+// user can't otherwise see.
+func notifyTrayTransition(hkManager *hotkeyManager, prev, cur trayState) {
+	if windowVisible.Load() {
+		return
+	}
+	if prev.label != "error" && cur.label == "error" {
+		msg := cur.errMsg
+		if msg == "" {
+			msg = "capture stopped"
+		}
+		notify(hkManager, "CatchM", "Not recording: "+msg)
+	}
+	// The previously-active meeting is no longer active: it ended (or a
+	// different meeting became active via the web UI/MCP tools — either
+	// way the old one isn't live anymore). No title (screen-share
+	// privacy, same rule as the tooltip).
+	if prev.meetingID != "" && cur.meetingID != prev.meetingID {
+		notify(hkManager, "CatchM", "Meeting ended")
 	}
 }
 

@@ -31,15 +31,18 @@ const windowStateFileName = "window_state.json"
 const windowStatePollInterval = 2 * time.Second
 
 // compactActive mirrors the frontend's compact-mode flag, set via the
-// DesktopBridge.SetCompactMode Wails bind method — the frontend has no
-// other way to reach Go state (the app deliberately has no other Bind
-// surface; everything else goes through the HTTP API per M5). While
-// true, saves are skipped: compact's 480x260 geometry must never
-// overwrite the normal bounds it isn't a substitute for.
+// DesktopBridge.SetCompactMode Wails bind method. While true, saves
+// are skipped: compact's 480x260 geometry must never overwrite the
+// normal bounds it isn't a substitute for.
 var compactActive atomic.Bool
 
-// DesktopBridge is bound to the frontend (options.App.Bind).
-type DesktopBridge struct{}
+// DesktopBridge is bound to the frontend (options.App.Bind) — the only
+// Go<->JS surface this app has (everything else goes through the HTTP
+// API per M5); M22 §2/§3 added SetCompactMode, §5 added the rest
+// (desktop_settings.go: shortcuts, launch-at-login, notifications).
+type DesktopBridge struct {
+	hk *hotkeyManager
+}
 
 // SetCompactMode is called by useCompactMode's enter/exit.
 func (DesktopBridge) SetCompactMode(active bool) {
