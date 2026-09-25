@@ -235,11 +235,15 @@ func (stuckEngine) Stream(ctx context.Context, _ stt.Options) (chan<- stt.PCM, <
 // TestPipelineStopUnblocksStuckEngine is the §0 regression test: a
 // meeting must always be endable, even when the engine goroutine is
 // wedged in blocking work and never reads pcmCh. Before the fix, Stop
-// waited for the feeder to finish before cancelling ctx — but the
+// cancelled ctx only after waiting for the feeder to finish — but the
 // feeder's only way to give up on a non-draining pcmCh *was* ctx
-// cancellation, so Stop() never returned. Bounded by a deadline: this
-// test fails (rather than hangs the test suite) if the regression comes
-// back.
+// cancellation, so Stop() never returned. Uses the internal stop(grace)
+// seam with a short grace so the test itself stays fast; production
+// Stop() wires the same method to stopGraceDeadline. Bounded by a
+// deadline well past grace: this test fails (rather than hangs the test
+// suite) if the regression comes back, and the tight bound also proves
+// stop() doesn't overshoot grace by much when it does have to force a
+// cancel.
 func TestPipelineStopUnblocksStuckEngine(t *testing.T) {
 	store, err := meeting.NewStore(t.TempDir())
 	if err != nil {
@@ -267,16 +271,114 @@ func TestPipelineStopUnblocksStuckEngine(t *testing.T) {
 	// select before we ask it to stop.
 	time.Sleep(50 * time.Millisecond)
 
+	const grace = 100 * time.Millisecond
+	start := time.Now()
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- p.Stop() }()
+	go func() { stopDone <- p.stop(grace) }()
 
 	select {
 	case err := <-stopDone:
 		if err != nil {
 			t.Fatal(err)
 		}
+		if elapsed := time.Since(start); elapsed > grace+500*time.Millisecond {
+			t.Fatalf("stop(grace=%s) took %s — grace deadline is not actually bounding it", grace, elapsed)
+		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Stop() did not return within 2s against a stuck engine — the §0 deadlock regressed")
+		t.Fatal("stop() did not return within 2s against a stuck engine — the §0 deadlock regressed")
+	}
+}
+
+// delayedFinalEngine is a stt.StreamEngine stand-in for the ordinary
+// "flush the tail after end-of-audio" pattern real engines use: Soniox
+// sends an empty end-of-audio frame once pcmCh closes and then waits for
+// the server to send back final tokens before closing resultCh; Whisper
+// transcribes whatever chunk was still in flight. It drains pcmCh
+// normally, then — after pcmCh closes — waits delay (standing in for
+// that server round-trip) before emitting one last Result.
+type delayedFinalEngine struct {
+	delay  time.Duration
+	result stt.Result
+}
+
+func (delayedFinalEngine) SupportsDiarization() bool { return false }
+func (delayedFinalEngine) SupportsTranslation() bool { return false }
+
+func (e delayedFinalEngine) Stream(ctx context.Context, _ stt.Options) (chan<- stt.PCM, <-chan stt.Result, error) {
+	pcmCh := make(chan stt.PCM)
+	resultCh := make(chan stt.Result)
+	go func() {
+		defer close(resultCh)
+		for range pcmCh {
+			// Drain and discard — this test is about the post-close tail,
+			// not the chunks themselves.
+		}
+		select {
+		case <-time.After(e.delay):
+		case <-ctx.Done():
+			return
+		}
+		select {
+		case resultCh <- e.result:
+		case <-ctx.Done():
+		}
+	}()
+	return pcmCh, resultCh, nil
+}
+
+// TestPipelineStopDrainsTailBeforeCancelling is the companion regression
+// test to TestPipelineStopUnblocksStuckEngine: a normal end (nothing
+// stuck) must not race an already-cancelled ctx against the engine's
+// legitimate post-end-of-audio tail and drop it. Before this fix, stop()
+// cancelled ctx immediately after closing the source, so this exact
+// scenario — an engine that finishes draining and then, shortly after,
+// sends its last result — would non-deterministically lose that result
+// (or, with Soniox specifically, get its whole grace-close timer started
+// too early). A short grace here still comfortably covers delay, proving
+// the drain is awaited rather than raced.
+func TestPipelineStopDrainsTailBeforeCancelling(t *testing.T) {
+	store, err := meeting.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{Engine: "whisper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	src, err := capture.NewFileSource(fixtureWAV(t, 3200), 800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audioPath := filepath.Join(store.Root(), m.ID, "audio.wav")
+	const delay = 150 * time.Millisecond
+	engine := delayedFinalEngine{delay: delay, result: stt.Result{Text: "final words", Final: true}}
+	p, err := Start(store, m.ID, src, engine, stt.Options{}, audioPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Let the file source finish its (fast) playback so pcmCh has
+	// already closed and the engine is inside its post-close delay
+	// before Stop is even called — the scenario under test.
+	time.Sleep(100 * time.Millisecond)
+
+	if err := p.stop(500 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+
+	us, _, err := store.ReadSince(m.ID, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range us {
+		if u.Text == "final words" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("tail result dropped by stop(); utterances = %+v", us)
 	}
 }
 

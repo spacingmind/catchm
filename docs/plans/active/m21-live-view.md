@@ -165,21 +165,51 @@ M22), multi-window, Wails v3 migration, dark mode.
   (pipeline.go:71), the results goroutine parked on `for range resultCh`
   (pipeline.go:81), and `WhisperEngine.Stream`'s goroutine parked inside
   `http.Client.Do` (engine_whisper.go:102) — nothing left free to move
-  any of them. **Fix:** call `p.cancel()` immediately after
-  `p.src.Close()`, before either `<-p.feederDone` or `<-p.resultsDone`.
-  Every engine already wires the same `ctx` into its blocking work
-  (Whisper via `http.NewRequestWithContext`; Soniox dials with
-  `DialContext` and force-closes its websocket conn on a grace timer
-  after `ctx.Done()`), so this fix is engine-agnostic and needed no
-  changes to either engine. **Does not touch M19's Mixer ownership
-  protocol** — `Mixer.Close()`/`SetInputs` and their input-ownership
-  rules are untouched; the bug and the fix are entirely in
-  `pipeline.go`'s shutdown ordering, one level above the Mixer.
-  Regression test: `TestPipelineStopUnblocksStuckEngine` (a fake engine
-  that never reads `pcmCh` until `ctx.Done()`), asserting `Stop()`
-  returns within a 2 s deadline via `select`/`time.After` — confirmed it
-  fails (hangs past the deadline) against the pre-fix code and passes
-  against the fix.
+  any of them.
+  **First fix attempt was wrong, caught in review before merging:**
+  cancelling `ctx` immediately after `src.Close()` does unblock the
+  stuck case, but it also makes every drain-path `select { case ch <-
+  x: ; case <-ctx.Done(): }` (the feeder's send to `pcmCh`, Soniox's
+  send to `resultCh`) race an already-closed `ctx.Done()` against a
+  genuinely-successful send — Go's `select` picks pseudo-randomly
+  between ready cases, so a perfectly healthy shutdown could
+  non-deterministically drop the last chunk or utterance. Worse for
+  Soniox specifically: its reader's 3 s force-close timer starts
+  counting from `ctx.Done()`, which would now fire before the
+  end-of-audio frame is even sent, shrinking the window the server has
+  to flush its final tokens instead of only kicking in as a backstop
+  after a normal handshake.
+  **Actual fix: bounded graceful drain.** `Pipeline.stop(grace)` closes
+  the source, then waits (via a combiner goroutine + `select`) for both
+  the feeder and results goroutines to finish **without touching
+  `ctx`** for up to `grace` (`stopGraceDeadline` = 5 s in production;
+  `Stop()` is a one-line wrapper `stop(stopGraceDeadline)`). Every
+  drain-path `ctx.Done()` case stays unready during that window, so the
+  real send/receive always wins — a normal end (including an engine's
+  legitimate post-end-of-audio tail, e.g. Soniox's finals or a
+  slightly-delayed last chunk) is never raced. Only if the drain hasn't
+  finished within `grace` — the stuck case — does it call `p.cancel()`
+  and wait (now unbounded but fast, since every engine wires this same
+  `ctx` into its blocking work) for the drain to actually finish;
+  `cancel()` is always called exactly once on every path, to release
+  `ctx`'s resources. **Does not touch M19's Mixer ownership protocol**
+  — `Mixer.Close()`/`SetInputs` and their input-ownership rules are
+  untouched; the bug and the fix are entirely in `pipeline.go`'s
+  shutdown ordering, one level above the Mixer.
+  Regression tests (both use an unexported `stop(grace)` seam so they
+  run with a short grace instead of the production 5 s):
+  `TestPipelineStopUnblocksStuckEngine` (a fake engine that never reads
+  `pcmCh` until `ctx.Done()`) asserts `stop()` both returns within a
+  generous deadline *and* doesn't overshoot `grace` by much — confirmed
+  it fails (hangs past the deadline) with the original immediate-cancel
+  code and passes with the bounded-drain fix.
+  `TestPipelineStopDrainsTailBeforeCancelling` (a fake engine that
+  drains `pcmCh` normally, then — after it closes, like Soniox waiting
+  for its server's finals — waits a short delay before emitting one
+  last `Result`) asserts that result lands in the transcript; confirmed
+  it fails 10/10 runs against the immediate-cancel version (the tail is
+  dropped every time at this timing, not just occasionally) and passes
+  against the bounded-drain fix.
 
 ## Progress
 

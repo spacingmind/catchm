@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"time"
 
 	"github.com/spacingmind/catchm/internal/audio"
 	"github.com/spacingmind/catchm/internal/capture"
@@ -118,32 +119,66 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 	return p, nil
 }
 
+// stopGraceDeadline bounds how long Stop gives the feeder and engine to
+// drain naturally (deliver whatever was still buffered, let the engine
+// send its end-of-audio signal and receive any trailing finals) before
+// forcing a hard stop. Ending a meeting must never hang (§0), but a
+// normal end must also not race an already-cancelled ctx against
+// genuinely in-flight sends: every `select { case ch <- x: ; case
+// <-ctx.Done(): }` on the drain path picks pseudo-randomly once both
+// cases are ready, so cancelling ctx before the drain finishes can drop
+// the last chunk or utterance even when nothing is actually stuck.
+const stopGraceDeadline = 5 * time.Second
+
 // Stop closes the capture source, lets the engine drain and close, waits
 // for both pipeline goroutines to exit, and finalizes audio.wav. It is
 // safe to call once; calling it leaves no goroutines running.
-//
-// cancel MUST run before either wait, not after: the feeder's only way to
-// give up on a stuck engine (one not currently reading pcmCh — e.g. an
-// http.Client.Do to a whisper server that never responds, blocked inside
-// engine.Stream's goroutine) is its own `case <-ctx.Done()`. Waiting for
-// the feeder to finish before cancelling made that the feeder's ONLY exit
-// ever depend on a signal Stop() hadn't sent yet — a real, reproduced
-// deadlock (§0, found ending a whisper+mic meeting whose whisper server
-// wasn't reachable: goroutine dump showed Stop() parked on
-// <-p.feederDone, the feeder parked on its send-or-done select, and the
-// engine goroutine parked inside http.Client.Do — nothing left to move
-// any of them). Every engine already wires this same ctx into its
-// blocking work (http.NewRequestWithContext for Whisper; Soniox dials
-// with DialContext and force-closes its websocket conn shortly after
-// ctx.Done if the server hasn't already closed it), so cancelling first
-// aborts whatever the engine is stuck in and unblocks the whole chain.
 func (p *Pipeline) Stop() error {
+	return p.stop(stopGraceDeadline)
+}
+
+// stop is Stop's implementation, taking the grace deadline as a
+// parameter so tests can exercise both the normal-drain and
+// forced-cancel paths without waiting on the production deadline.
+//
+// Ordering, and why: close the source, then give the feeder+engine up to
+// grace to finish on their own — ctx is NOT cancelled during this
+// window, so every drain-path select's `case <-ctx.Done()` stays
+// unready and the corresponding send/receive always wins, exactly as
+// before §0's fix existed. Only if the drain doesn't finish within grace
+// (a stuck engine — see §0's Decisions for the reproduced case: an
+// engine goroutine blocked in synchronous work that never reads pcmCh)
+// do we cancel ctx to force it: every engine already wires this same ctx
+// into its blocking work (http.NewRequestWithContext for Whisper; Soniox
+// dials with DialContext and force-closes its websocket conn on a grace
+// timer after ctx.Done, which now starts only once we've actually given
+// up — not on every ordinary end), so cancelling unblocks whatever the
+// engine is stuck in. cancel is always called exactly once, on every
+// path, to release ctx's resources (a no-op if the drain already
+// finished on its own).
+func (p *Pipeline) stop(grace time.Duration) error {
 	// The source is always a Mixer since M19; its Close closes the
 	// installed input devices (displaced ones were closed at swap time).
 	srcErr := p.src.Close()
+
+	drained := make(chan struct{})
+	go func() {
+		<-p.feederDone
+		<-p.resultsDone
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		// Normal end: every buffered chunk was fed through, the engine
+		// sent its end-of-audio signal and returned any trailing finals
+		// on its own.
+	case <-time.After(grace):
+		p.cancel()
+		<-drained
+	}
 	p.cancel()
-	<-p.feederDone
-	<-p.resultsDone
+
 	wavErr := p.wav.Close()
 	if srcErr != nil {
 		return srcErr
