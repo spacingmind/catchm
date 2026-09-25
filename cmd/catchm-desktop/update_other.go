@@ -7,7 +7,7 @@ package main
 
 import "errors"
 
-func launchInstallerElevated(installerPath string) error {
+func launchUpdateBabysitter(installerPath string) error {
 	return errors.New("update: not supported on this OS")
 }
 

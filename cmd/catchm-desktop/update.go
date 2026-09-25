@@ -198,12 +198,13 @@ func (d DesktopBridge) DownloadUpdate() (DownloadResult, error) {
 	return DownloadResult{SHA256: verified.SHA256}, nil
 }
 
-// ApplyUpdate (bound): launches the verified installer elevated (the
-// install is per-machine under Program Files, so UAC is unavoidable)
-// with NSIS's silent flag, then quits the app so the installer can
-// replace the running files. The actual relaunch of the updated app is
-// finished in main() after wails.Run returns — see
-// finishUpdateRelaunch (update_windows.go) for the where/why.
+// ApplyUpdate (bound): launches the elevated update babysitter (one
+// UAC prompt; the install is per-machine under Program Files, so
+// elevation is unavoidable), then quits the app. The babysitter waits
+// for this process to exit (releasing the exe lock NSIS /S silently
+// fails against), runs the installer, and relaunches the updated exe
+// unelevated — see update_windows.go for why the waiter must not be
+// the replaced process (live-tested finding).
 //
 // The user canceling the UAC prompt is "update deferred", not an
 // error: nil is returned and the deferred flag stops further prompting
@@ -217,7 +218,7 @@ func (d DesktopBridge) ApplyUpdate() error {
 		return fmt.Errorf("no verified installer downloaded")
 	}
 
-	if err := launchInstallerElevated(verified.Path); err != nil {
+	if err := launchUpdateBabysitter(verified.Path); err != nil {
 		if errors.Is(err, errUACCanceled) {
 			m.mu.Lock()
 			m.deferred = true
