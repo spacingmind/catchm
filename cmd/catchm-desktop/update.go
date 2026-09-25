@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -57,7 +58,14 @@ type updateManager struct {
 }
 
 func newUpdateManager() *updateManager {
-	return &updateManager{client: update.NewGitHubClient(updateRepo)}
+	c := update.NewGitHubClient(updateRepo)
+	// Test hook: point the update client at a local server instead of
+	// the real GitHub API (live end-to-end update trials per M23's spec
+	// — never publishes or fetches real releases). Empty in production.
+	if base := os.Getenv("CATCHM_UPDATE_BASE_URL"); base != "" {
+		c.BaseURL = base
+	}
+	return &updateManager{client: c}
 }
 
 // startBackgroundChecks runs the startup-delayed + 24h-periodic check
