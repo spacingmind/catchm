@@ -116,6 +116,7 @@ func (m *updateManager) check(ctx context.Context) UpdateStatus {
 		status.LatestVersion = info.Version
 		status.Notes = info.Notes
 		status.NotesURL = info.NotesURL
+		status.PublishedAt = info.PublishedAt.Format("2006-01-02")
 	}
 	m.mu.Lock()
 	m.lastChecked = time.Now()
@@ -131,6 +132,7 @@ type UpdateStatus struct {
 	LatestVersion   string `json:"latestVersion,omitempty"`
 	Notes           string `json:"notes,omitempty"`
 	NotesURL        string `json:"notesURL,omitempty"`
+	PublishedAt     string `json:"publishedAt,omitempty"`
 	CheckedAt       string `json:"checkedAt,omitempty"`
 	Error           string `json:"error,omitempty"`
 }

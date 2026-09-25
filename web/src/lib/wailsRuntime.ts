@@ -60,6 +60,12 @@ declare global {
           SetNotificationsEnabled?(enabled: boolean): Promise<void>
           NotifyCloudSyncConflict?(count: number): void
           ReadyForEvents?(): void
+          GetAppVersion?(): string
+          CheckForUpdate?(): Promise<UpdateStatus>
+          GetLastChecked?(): Promise<string>
+          DownloadUpdate?(): Promise<DownloadResult>
+          ApplyUpdate?(): Promise<void>
+          DeferUpdate?(): void
         }
       }
     }
@@ -219,4 +225,51 @@ export function notifyCloudSyncConflict(count: number): void {
  */
 export function notifyReadyForEvents(): void {
   window.go?.main?.DesktopBridge?.ReadyForEvents?.()
+}
+
+/** Matches cmd/catchm-desktop/update.go's UpdateStatus. */
+export interface UpdateStatus {
+  currentVersion: string
+  publishedAt?: string
+  updateAvailable: boolean
+  latestVersion?: string
+  notes?: string
+  notesURL?: string
+  checkedAt?: string
+  error?: string
+}
+
+/** Matches cmd/catchm-desktop/update.go's DownloadResult. */
+export interface DownloadResult {
+  sha256: string
+}
+
+/** M23: the running app version ("dev" for local builds). */
+export function getAppVersion(): string {
+  return window.go?.main?.DesktopBridge?.GetAppVersion?.() ?? "dev"
+}
+
+/** M23: manual update check — same path the background check uses. */
+export function checkForUpdate(): Promise<UpdateStatus> {
+  return window.go!.main!.DesktopBridge!.CheckForUpdate!()
+}
+
+/** M23: when the last check (any kind) ran, "" if never. */
+export function getLastChecked(): Promise<string> {
+  return window.go!.main!.DesktopBridge!.GetLastChecked!()
+}
+
+/** M23: download + SHA-256-verify the installer for the latest release. */
+export function downloadUpdate(): Promise<DownloadResult> {
+  return window.go!.main!.DesktopBridge!.DownloadUpdate!()
+}
+
+/** M23: run the verified installer elevated and quit. */
+export function applyUpdate(): Promise<void> {
+  return window.go!.main!.DesktopBridge!.ApplyUpdate!()
+}
+
+/** M23: stop prompting for this session. */
+export function deferUpdate(): void {
+  window.go?.main?.DesktopBridge?.DeferUpdate?.()
 }

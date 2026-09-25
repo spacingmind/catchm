@@ -6,6 +6,7 @@ import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
+import { UpdateBanner } from "@/components/UpdateBanner"
 import { Settings, type Section as SettingsSection } from "@/components/settings/Settings"
 import { listMeetings, type CaptureErrorKind, type Meeting, type StartMeetingResponse } from "@/lib/api"
 import { getMeeting } from "@/lib/api"
@@ -181,12 +182,16 @@ function App() {
   const showCompactShell = liveCompact && view === "live" && selected && !selected.ended_at
 
   return (
-    // Compact mode always stays opaque (a small floating reading window,
-    // unaffected by M22 — Mica is out of its scope). The normal shell
-    // drops its own bg-background so html.desktop-mica's transparent
-    // body (index.css) can show Mica through here and the sidebar; a
-    // plain browser still gets an opaque page from body's own rule.
     <div className={showCompactShell ? "bg-background text-foreground" : "flex min-h-svh text-foreground"}>
+      {/* M23: update banner (self-mounted, no-op until "update:available"
+          fires). Hidden in compact mode — a 480x260 overlay has no room. */}
+      {!showCompactShell && <UpdateBanner />}
+
+      {/* Compact mode always stays opaque (a small floating reading window,
+          unaffected by M22 — Mica is out of its scope). The normal shell
+          drops its own bg-background so html.desktop-mica's transparent
+          body (index.css) can show Mica through here and the sidebar; a
+          plain browser still gets an opaque page from body's own rule. */}
       {!showCompactShell && (
         <AppSidebar
           view={view}
