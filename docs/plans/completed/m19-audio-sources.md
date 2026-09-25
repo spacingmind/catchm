@@ -1,6 +1,7 @@
 # Plan: M19 — Audio sources: microphone, system audio, both (mixed)
 
-- Status: active
+- Status: complete
+- Completed: 2026-09-25
 - Created: 2026-09-24
 - Repo: `catchm`, **Go only** (`internal/capture`, `internal/pipeline`,
   `internal/server`, `internal/meeting` if needed). No `web/` changes:
@@ -156,16 +157,52 @@ non-default playback device for loopback, macOS system audio.
 
 ## Decisions
 
-(fill in)
-
+- **Linux "system" audio: unsupported, by design.** miniaudio has no loopback device type outside Windows. Rather than guess which capture device is "the default sink's monitor" across PulseAudio/PipeWire/ALSA, "system" on Linux returns a clear reason string pointing at the existing escape hatch: M4's mic device list already enumerates capture devices, which includes `*.monitor` under PulseAudio — selecting one as the mic gives system audio today. macOS: unsupported (ScreenCaptureKit out of scope). `SystemAudioSupported()` is the single source of truth; `NewSystemSource` errors on unsupported platforms instead of no-op'ing.
+- **Mixer numbers**: tick = 20 ms (320 samples @16 kHz, absolute-schedule pacing so output never runs fast); per-input jitter buffer bound = 400 ms (6400 samples) with drop-oldest on overflow; output channel = 25 ticks (~500 ms) to absorb a normal WebSocket/engine write hiccup before dropping; bounded warmup ≤100 ms at start so the first ticks carry content when content exists (a silent system-only source times out into padding mode, per spec). Padding (underflow) is excluded from level computation so a starved input meters 0.
+- **Drop counters (no silent degradation)**: output-side drops under a slow consumer → `dropped_ticks` (atomic, mixer-global); jitter-buffer trims under clock drift → per-input `dropped_samples`. Both surface via `GET /api/meetings/{id}/levels`.
+- **Input ownership protocol (final, post-review)**: the opener owns every source it opens. `Mixer.SetInputs` atomically installs the new pair and RETURNS the displaced sources — the swapper (server) closes them immediately after the swap; on any open failure the swapper never calls SetInputs and closes only what it just opened (old inputs untouched). `Mixer.Close` (reached via pipeline Stop) closes whatever is currently installed. All input sources' `Close` is idempotent (`sync.Once`), so a close race between swap and teardown cannot double-close. `SetInputs` on a closed mixer errors; the handler then closes the new sources, returns "meeting ended during switch", and writes no timeline note. Output channel + tick loop are never touched by a swap, so STT + audio.wav see one continuous stream; at most one tick's window straddles a swap. Proven by `TestOwnershipEverySourceClosedExactlyOnce` (start→switch→switch→end, every source closed exactly once) and `TestSwitchFailureKeepsOldInput422`.
+- **One code path**: every mode (mic/system/both) runs through a Mixer — a one-input mixer for mic-only. `Pipeline.Mixer()` exposes it for switching/levels.
+- **Switch failure status**: 422 (Unprocessable Entity) with the platform/open-failure reason when the NEW source can't open (old input stays live); 400 for a malformed source value; 404 when the meeting has no live pipeline. Chosen over 409 because 409 elsewhere on this endpoint family means "state conflict, retry differently" while here the fix is environmental (plug in / pick another device).
+- **Timeline record**: `audio_source` frontmatter field on the meeting (set at start and on every switch) plus a timestamped note (`audio source switched to X at <RFC3339>`) appended to `meeting.Notes` — notes are the existing free-form timeline surface, visible in MeetingDetail today.
+- **Start-failure surfacing**: `POST /api/meetings` response stays the Meeting object at top level (M20 contract) with `capture_error` added ONLY on failure; `audio_source` always set. Legacy `"source"` omitted → `"mic"` (old UIs unchanged). `/api/devices` kept as-is; `GET /api/audio/sources` is additive.
 ## Progress
 
-- [ ] SystemSource (Windows loopback; Linux/macOS decision)
-- [ ] Mixer (pacing, padding, saturation, jitter buffer, levels)
-- [ ] Mid-session switching
-- [ ] Server API + capture_error
-- [ ] Real Windows verification
+- [x] SystemSource (Windows loopback; Linux/macOS decision)
+- [x] Mixer (pacing, padding, saturation, jitter buffer, levels)
+- [x] Mid-session switching
+- [x] Server API + capture_error
+- [x] Real Windows verification
 
 ## Validation
 
-(to be filled)
+Hermetic: `go build/vet/gofmt` clean; `go test -race -count=3 ./...`
+green (independent review + delta re-review: verdict **merge**).
+
+**Real Windows 11** (2026-09-25; `catchm serve` built on the Windows
+machine from this branch, isolated test `CATCHM_HOME`, no Soniox key
+used, test data deleted afterward):
+
+- **Bug found only on real hardware:** miniaudio's WASAPI loopback takes
+  its client format from the *Capture* subconfig. With only Playback
+  set, audio arrived at the endpoint's native 48 kHz and the mixer
+  dropped ~2/3 of the samples. Fixed in `internal/capture/system.go`
+  (set Capture format/channels too).
+- `GET /api/audio/sources` → `system: {supported: true}`; mic device
+  "Microphone (Realtek(R) Audio)" listed as default.
+- **Silence pacing (system, nothing playing):** wall 38.12 s,
+  `audio.wav` 38.1 s. The stream stays continuous through silence.
+- **Mid-session switching:** mic → both → system → mic in one meeting.
+  All three switches were recorded as timestamped notes, `audio.wav`
+  58.9 s vs 58.99 s wall, no gap.
+- **Audible system capture:** a ~13 s Windows-TTS speech WAV played
+  through the speakers during a `source: "system"` meeting. Levels at
+  0.5 s polls: silence rms 0.001 → speech rms 0.02–0.08 (peak up to
+  0.37, with inter-phrase dips) → back to 0.002 after. **`dropped_chunks`,
+  `dropped_samples`, `dropped_ticks` stayed 0 throughout.** `audio.wav`
+  16.86 s vs 16.90 s wall; per-second RMS 0.004, 0.001, then
+  0.021–0.055 for ~13 s, so the speech is in the file.
+- **Device reopen / no leak:** a `source: "mic"` meeting started right
+  after opened the mic fine; mic levels tracked the room noise floor
+  (rms 0.003–0.006), 0 drops.
+- Not done: STT transcription of captured system audio (needs the
+  user's Soniox key; capture and levels above don't depend on it).

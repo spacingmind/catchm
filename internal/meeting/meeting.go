@@ -51,6 +51,7 @@ type Meeting struct {
 	Participants  []string          `yaml:"participants,omitempty" json:"participants,omitempty"`
 	Langs         []string          `yaml:"langs,omitempty" json:"langs,omitempty"`
 	Engine        string            `yaml:"engine,omitempty" json:"engine,omitempty"`
+	AudioSource   string            `yaml:"audio_source,omitempty" json:"audio_source,omitempty"`
 	Lang          string            `yaml:"lang,omitempty" json:"lang,omitempty"`
 	TranslateTo   string            `yaml:"translate_to,omitempty" json:"translate_to,omitempty"`
 	TwoWay        bool              `yaml:"two_way,omitempty" json:"two_way,omitempty"`
