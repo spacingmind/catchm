@@ -1,6 +1,7 @@
 # Plan: M21 — Live view: status row, mid-session source switch, levels, dual pane, compact overlay
 
-- Status: active
+- Status: complete
+- Completed: 2026-09-25
 - Created: 2026-09-25
 - Repo: `catchm`, mostly `web/`, plus a small Go change (engine state).
 - Depends on: M19 (merged: `/api/audio/sources`, `POST
@@ -324,8 +325,83 @@ M22), multi-window, Wails v3 migration, dark mode.
 - [x] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
 - [x] Transcript: fill viewport, grouping, view modes, font size, notes label
 - [x] Compact overlay mode (+ API verification against module source)
-- [ ] Screenshots + real Windows compact-mode check
+- [x] Screenshots + real Windows compact-mode check
 
 ## Validation
 
-(to be filled)
+**Hermetic (all sections):** `go build ./... && go vet ./... && gofmt -l . && go test -race ./...` clean, including the §0 regression pair
+(`TestPipelineStopUnblocksStuckEngine`, `TestPipelineStopDrainsTailBeforeCancelling`) and the §2 engine-state tests
+(`internal/stt/engine_state_test.go`, `TestMeetingLevelsEngineState`). `cd web && bun run build` (tsc + vite) and `bun run lint`
+(oxlint) clean — only pre-existing warnings in files this milestone didn't touch.
+
+**§0 real-world confirmation, beyond the hermetic tests.** Smoke-tested by hand against an isolated `catchm serve` with a real
+`whisper` + `mic` meeting (whisper server unreachable — the exact production trigger): the status row's drops indicator correctly
+showed the mixer genuinely dropping ~2400 ticks over ~30s (engine goroutine wedged in a slow HTTP call), and ending that meeting
+through the actual UI completed in 539 ms instead of hanging.
+
+**AC3 — screenshots.** 11 PNGs in `docs/screenshots/m21/`, headless Chromium + Playwright against an isolated `catchm serve`
+seeded with a two-way-translation meeting (3 utterances, mixed EN/VI), `page.route` stubbing `GET
+/api/meetings/{id}/levels` and `POST /api/meetings/{id}/source` for the states a live pipeline can't reliably reproduce on
+demand:
+- `status-row-streaming`, `status-row-error`, `status-row-drops`, `status-row-no-signal` — the four status-row states.
+- `source-switch-success`, `source-switch-422` — a mid-session switch to System, then a switch back to Mic that fails with a
+  stubbed 422; the UI keeps the prior selection (System) and shows the reason inline, matching the backend's own contract
+  (old input stays live on failure).
+- `transcript-original-plus-translation`, `transcript-side-by-side`, `transcript-translation-only` — the three view modes.
+- `transcript-font-size-larger` — A+ pressed three times.
+- `compact-overlay-480x260` — headless Chromium is never actually inside the Wails webview, so `window.runtime` was mocked
+  via `page.addInitScript` (matching the real API shape verified against the module source, §4's Decisions) and the
+  viewport set to 480×260 to match the real compact window size.
+
+  **A real bug surfaced by this exact screenshot** (not by inspection): compact mode only swapped `LiveMeeting`'s own inner
+  content for `CompactOverlay` — the sidebar and app shell live one level up in `App.tsx` and kept rendering right
+  alongside it, leaving no room for the compact content in an actual 480×260 window. Fixed by having `LiveMeeting` report
+  its compact flag up via a new `onCompactChange` prop; `App.tsx` hides the sidebar/`MeetingList`/`StartMeetingPopover`
+  while it's set, but `LiveMeeting` stays mounted at the same tree position either way (only wrapper classNames and
+  sibling elements change), so toggling compact mode never remounts it and never loses the transcript poll's cursor or an
+  in-progress note draft. Re-screenshotted after the fix — clean.
+
+**AC4 — real Windows compact-mode check.** This WSL sandbox runs on the Windows host (`PC-I5-14600K`) with full
+`powershell.exe` interop, i.e. it *is* "the Windows machine" the toolchain lives on — confirmed Go 1.27.0 windows/amd64,
+MinGW-W64/WinLibs gcc 16.1.0, Wails CLI v2.16.0 before starting (every `powershell.exe` call prefixed `$env:Path` from the
+Machine+User registry values, per the task). Copied the worktree to `C:\Users\ADMIN\src\catchm-m21v` (not `\\wsl$`; `web/dist`
+was built in WSL with `bun` — not present on the Windows side — and copied over, since it's just static output), then `wails
+build` from `cmd\catchm-desktop` → `catchm-desktop.exe` (14.2 MB; a `.rsrc merge failure: multiple non-default manifests`
+linker warning from `ld.exe` is pre-existing/benign — the exe still built and ran correctly).
+
+Ran with an isolated `CATCHM_HOME` (`%LOCALAPPDATA%\Temp\catchm-m21-wintest`, pre-seeded `config.yaml` with `engine: soniox`
+and no API key — never touched or read `C:\Users\ADMIN\.catchm`, confirmed by its untouched `LastWriteTime` after the run).
+No UI-automation framework was available for the WebView2 content, so the app was driven via real keyboard input
+(`System.Windows.Forms.SendKeys` after `AppActivate`) exactly the way a user would: `Ctrl+N` opened the Start-meeting
+popover, `Enter` submitted it (title auto-generated, engine resolves to `soniox` automatically since it's the only usable
+engine with no key set — confirmed by reading the created meeting's `meeting.md` from the WSL-mounted path afterward:
+`engine: soniox`, `audio_source: mic`). Because Soniox's engine construction fails on the missing key *before* any
+`capture.Source` is opened (verified in M20's AC4 and unchanged since), **the microphone was never opened** — this is a
+structural guarantee from the code path, not just an assumption for this run.
+
+Window state read via `user32.dll` P/Invoke (`GetWindowLong`/`GWL_EXSTYLE` for `WS_EX_TOPMOST` = `0x8`, `GetWindowRect` for
+the rect), before and after each `Ctrl+Shift+L`:
+
+| | topmost | rect |
+|---|---|---|
+| Before | `False` | `690,328` 1180×760 |
+| After enter | **`True`** | `690,328` **480×260** |
+| After exit | `False` | `690,352` 1180×760 |
+
+Always-on-top and the exact compact size both toggle and restore correctly. One honest discrepancy: the restored *position*
+was `690,352`, 24px lower than the original `690,328` — the X coordinate and both dimensions restored exactly, only Y
+drifted. `useCompactMode` saves and restores position through Wails' own `WindowGetPosition`/`WindowSetPosition` verbatim
+(no coordinate math of its own to get wrong), so this reads as a Wails/WebView2 position-reporting quirk (DPI rounding or a
+window-chrome frame-of-reference difference between what `GetWindowRect` reports and what Wails tracks internally) rather
+than a bug in this code — noted rather than silently accepted, and small enough (24px) not to be user-visible as a
+"lost" window.
+
+Cleaned up: stopped the process, deleted both the isolated `CATCHM_HOME` and the `C:\Users\ADMIN\src\catchm-m21v` copy
+(confirmed via `Test-Path` → `False` for both), confirmed no `catchm*` process remained.
+
+**Not done / out of scope for this milestone (recorded, not silently dropped):**
+- NSIS (`makensis`) isn't installed on this Windows machine — not needed here (AC4 only asks for the `.exe`, not an
+  installer build); flagging in case a future milestone assumes it's available.
+- The compact overlay's own level indicator and the status row's meters were only exercised against stubbed/real-but-idle
+  levels, never a genuinely loud/clipping signal — cosmetic only (the bar-fill math is a simple clamp), not re-verified
+  separately.
