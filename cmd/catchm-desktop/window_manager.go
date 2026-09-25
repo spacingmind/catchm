@@ -181,6 +181,17 @@ func rectEqual(a, b *winbounds.Rect) bool {
 // save is a separate, direct call from OnBeforeClose (not ctx.Done()
 // here) since window teardown timing around a cancelled context isn't
 // something to race against.
+//
+// The recover below guards a teardown race found live in M23's update
+// flow but latent since M22 (reproduced as pre-existing mechanism, not
+// M23-specific): this goroutine polls on its own cadence while any
+// quit path (tray Quit, update apply, OS shutdown) destroys the HWND
+// inside wails.Run — Wails' WindowGetSize then divides by the DPI of a
+// dead window (GetDpiForWindow returns 0) and panics, killing the
+// whole process mid-shutdown (an in-flight update apply dies with it).
+// pollCtx is only cancelled after wails.Run RETURNS (run's defer), so
+// no ordering fix can close this window; a tick that finds the window
+// gone has nothing left to save anyway. Panics are swallowed by design.
 func (t *windowStateTracker) poll(ctx context.Context) {
 	ticker := time.NewTicker(windowStatePollInterval)
 	defer ticker.Stop()
@@ -190,8 +201,20 @@ func (t *windowStateTracker) poll(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if wc := appContext(); wc != nil {
-				t.saveIfChanged(wc)
+				t.tick(wc)
 			}
 		}
 	}
+}
+
+// tick is one poll iteration, panic-guarded per the comment on poll.
+func (t *windowStateTracker) tick(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Window destroyed mid-tick during app teardown — nothing
+			// left to persist. See poll's comment.
+			_ = r
+		}
+	}()
+	t.saveIfChanged(ctx)
 }
