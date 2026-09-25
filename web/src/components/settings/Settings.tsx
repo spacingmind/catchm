@@ -6,6 +6,7 @@ import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
 import { SettingsShortcuts } from "@/components/settings/SettingsShortcuts"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
+import { SettingsAbout } from "@/components/settings/SettingsAbout"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
 import { hasWindowControls } from "@/lib/wailsRuntime"
 
@@ -61,7 +62,12 @@ export function Settings({ initialSection = "recording" }: { initialSection?: Se
         {section === "transcription" && <SettingsTranscription />}
         {section === "translation" && <SettingsTranslation />}
         {section === "cloud" && <SettingsCloudSync />}
-        {section === "shortcuts" && <SettingsShortcuts />}
+        {section === "shortcuts" && (
+          <>
+            <SettingsShortcuts />
+            <SettingsAbout />
+          </>
+        )}
       </div>
     </div>
   )

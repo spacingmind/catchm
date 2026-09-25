@@ -1,0 +1,60 @@
+name: release
+
+# M23: build + publish the NSIS installer and its SHA-256 checksum on
+# v* tag push. Tagging itself is a separate manual step (the spec's
+# open question about develop-merge tagging stays with the user).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # creating the release + uploading its assets
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Derive version from tag
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Reuses Taskfile's desktop:release rather than duplicating the
+      # wails build + ldflags + wails.json productVersion stamping in
+      # YAML — one place decides how a versioned installer is built.
+      - name: Build installer
+        shell: bash
+        run: |
+          curl -sSL https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip -o task.zip
+          unzip -o task.zip task.exe
+          ./task.exe desktop:release VERSION=${{ steps.ver.outputs.version }}
+
+      - name: Compute checksum
+        shell: bash
+        run: |
+          cd cmd/catchm-desktop/bin
+          sha256sum catchm-desktop-amd64-installer.exe > catchm-desktop-amd64-installer.exe.sha256
+          cat catchm-desktop-amd64-installer.exe.sha256
+
+      # GITHUB_TOKEN suffices for same-repo release creation — no new
+      # secret (verified against the workflow permissions model).
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "CatchM ${GITHUB_REF_NAME}" \
+            --notes "See release notes below." \
+            --generate-notes \
+            cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe \
+            cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe.sha256

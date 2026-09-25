@@ -42,6 +42,8 @@ var compactActive atomic.Bool
 // (desktop_settings.go: shortcuts, launch-at-login, notifications).
 type DesktopBridge struct {
 	hk *hotkeyManager
+	// updates wires M23's auto-update bound methods (update.go).
+	updates *updateManager
 }
 
 // SetCompactMode is called by useCompactMode's enter/exit.
@@ -179,6 +181,17 @@ func rectEqual(a, b *winbounds.Rect) bool {
 // save is a separate, direct call from OnBeforeClose (not ctx.Done()
 // here) since window teardown timing around a cancelled context isn't
 // something to race against.
+//
+// The recover below guards a teardown race found live in M23's update
+// flow but latent since M22 (reproduced as pre-existing mechanism, not
+// M23-specific): this goroutine polls on its own cadence while any
+// quit path (tray Quit, update apply, OS shutdown) destroys the HWND
+// inside wails.Run — Wails' WindowGetSize then divides by the DPI of a
+// dead window (GetDpiForWindow returns 0) and panics, killing the
+// whole process mid-shutdown (an in-flight update apply dies with it).
+// pollCtx is only cancelled after wails.Run RETURNS (run's defer), so
+// no ordering fix can close this window; a tick that finds the window
+// gone has nothing left to save anyway. Panics are swallowed by design.
 func (t *windowStateTracker) poll(ctx context.Context) {
 	ticker := time.NewTicker(windowStatePollInterval)
 	defer ticker.Stop()
@@ -188,8 +201,30 @@ func (t *windowStateTracker) poll(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if wc := appContext(); wc != nil {
-				t.saveIfChanged(wc)
+				t.tick(wc)
 			}
 		}
 	}
+}
+
+// tick is one poll iteration. Two teardown guards, in order:
+//   - ctx.Err(): the app is past wails.Run (or the context is dead for
+//     any other reason) — calling into the Wails runtime then is at
+//     best a log.Fatal'ing "invalid context" and at worst a use of a
+//     destroyed window; there is nothing left to save either way.
+//   - recover(): the narrower race the ctx check can't close — the
+//     context is still live but the HWND is being destroyed RIGHT NOW
+//     (pollCtx only cancels after wails.Run returns, i.e. after the
+//     window is already gone). Wails' WindowGetSize divides by
+//     GetDpiForWindow(deadHwnd)=0 and panics. See poll's comment.
+func (t *windowStateTracker) tick(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = r
+		}
+	}()
+	t.saveIfChanged(ctx)
 }
