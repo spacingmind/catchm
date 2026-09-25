@@ -3,10 +3,10 @@ import { CheckSquare } from "lucide-react"
 import { cn } from "cn"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
+import { SegmentedControl } from "@/components/settings/pieces"
 import { getMeeting, listActionItems, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
 
 const done = (status: string | undefined) => status === "done"
@@ -174,9 +174,14 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       ) : (
         <div className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControlish
+            <SegmentedControl
+              label="Grouping"
               value={view}
               onChange={setView}
+              options={[
+                { value: "grouped", label: "By meeting" },
+                { value: "by-due", label: "By due date" },
+              ]}
             />
             <div className="flex flex-wrap items-center gap-2">
               {owners.map((o) => (
@@ -234,31 +239,3 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   )
 }
 
-function SegmentedControlish({
-  value,
-  onChange,
-}: {
-  value: "grouped" | "by-due"
-  onChange: (v: "grouped" | "by-due") => void
-}) {
-  return (
-    <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5" role="group" aria-label="Grouping">
-      <Button
-        size="sm"
-        variant={value === "grouped" ? "secondary" : "ghost"}
-        onClick={() => onChange("grouped")}
-        aria-pressed={value === "grouped"}
-      >
-        By meeting
-      </Button>
-      <Button
-        size="sm"
-        variant={value === "by-due" ? "secondary" : "ghost"}
-        onClick={() => onChange("by-due")}
-        aria-pressed={value === "by-due"}
-      >
-        By due date
-      </Button>
-    </div>
-  )
-}

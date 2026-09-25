@@ -48,6 +48,9 @@ export function SettingsCloudSync() {
   }>({})
   const emailRef = useRef<HTMLInputElement | null>(null)
   const passwordRef = useRef<HTMLInputElement | null>(null)
+  const recoverEmailRef = useRef<HTMLInputElement | null>(null)
+  const recoverCodeRef = useRef<HTMLInputElement | null>(null)
+  const newPasswordRef = useRef<HTMLInputElement | null>(null)
   const [authBusy, setAuthBusy] = useState<"signup" | "login" | "recover" | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
 
@@ -136,6 +139,9 @@ export function SettingsCloudSync() {
     if (!recoveryCodeInput.trim()) errs.recoverCode = "Enter your recovery code."
     if (!newPassword.trim()) errs.newPassword = "Enter a new password."
     setFieldErrors(errs)
+    if (errs.recoverEmail) recoverEmailRef.current?.focus()
+    else if (errs.recoverCode) recoverCodeRef.current?.focus()
+    else if (errs.newPassword) newPasswordRef.current?.focus()
     if (Object.keys(errs).length > 0) return
     setAuthBusy("recover")
     setAuthError(null)
@@ -320,6 +326,7 @@ export function SettingsCloudSync() {
                 <div className="grid w-72 justify-items-end gap-1">
                   <Input
                     id="recover-email"
+                    ref={recoverEmailRef}
                     type="email"
                     autoComplete="email"
                     value={email}
@@ -343,6 +350,7 @@ export function SettingsCloudSync() {
                 <div className="grid w-72 justify-items-end gap-1">
                   <Input
                     id="recover-code"
+                    ref={recoverCodeRef}
                     autoComplete="one-time-code"
                     spellCheck={false}
                     value={recoveryCodeInput}
@@ -367,6 +375,7 @@ export function SettingsCloudSync() {
                 <div className="grid w-72 justify-items-end gap-1">
                   <Input
                     id="recover-new-password"
+                    ref={newPasswordRef}
                     type="password"
                     autoComplete="new-password"
                     value={newPassword}

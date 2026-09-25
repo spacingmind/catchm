@@ -117,7 +117,7 @@ function App() {
           />
         )}
         {view === "detail" && selected && (
-          <MeetingDetail meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
+          <MeetingDetail key={selected.id} meetingId={selected.id} initialMeeting={selected} onBack={goToList} />
         )}
         {view === "action-items" && <ActionItems onOpenMeeting={openMeeting} />}
         {view === "settings" && <Settings />}

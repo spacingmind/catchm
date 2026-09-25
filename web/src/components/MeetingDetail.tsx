@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { CheckSquare, GitBranch, Loader2, Pencil, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -96,12 +96,31 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
   }, [meetingId])
 
   // Transcript is fetched when its tab is first opened, not up front.
+  // The cancelled flag ignores the result if the component unmounted or
+  // the meeting changed mid-walk (paired with the key={selected.id} remount).
   const loadTranscriptOnce = () => {
-    if (transcript !== null || transcriptError) return
+    if (transcript !== null || transcriptError || loadingRef.current) return
+    loadingRef.current = true
     loadFullTranscript(meetingId)
-      .then(setTranscript)
-      .catch((err: unknown) => setTranscriptError(err instanceof Error ? err.message : String(err)))
+      .then((us) => {
+        if (!cancelledRef.current) setTranscript(us)
+      })
+      .catch((err: unknown) => {
+        if (!cancelledRef.current) setTranscriptError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        loadingRef.current = false
+      })
   }
+
+  const cancelledRef = useRef(false)
+  const loadingRef = useRef(false)
+  useEffect(
+    () => () => {
+      cancelledRef.current = true
+    },
+    [],
+  )
 
   const openRename = () => {
     setRenameTitle(meeting?.title ?? "")
@@ -249,12 +268,15 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack }: MeetingDeta
 
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
-      <Tabs defaultValue="overview">
+      <Tabs
+        defaultValue="overview"
+        onValueChange={(v) => {
+          if (v === "transcript") loadTranscriptOnce()
+        }}
+      >
         <TabsList className="mb-6 flex w-fit">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="transcript" onClick={loadTranscriptOnce}>
-            Transcript
-          </TabsTrigger>
+          <TabsTrigger value="transcript">Transcript</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
