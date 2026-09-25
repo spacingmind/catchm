@@ -107,22 +107,32 @@ Section
 
     !insertmacro wails.files
 
-    CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
-    # M22 §5: stamp the Start-menu shortcut with our AUMID so Windows
-    # attributes toast notifications to CatchM instead of a generic/
-    # PowerShell identity — required in addition to
+    # M22 §5: the Start-menu shortcut needs its System.AppUserModel.ID
+    # property stamped for toast notifications to attribute to CatchM
+    # instead of a generic/PowerShell identity (required in addition to
     # SetCurrentProcessExplicitAppUserModelID at process startup, not
-    # instead of it (both must agree — see aumid_windows.go). NSIS has
-    # no built-in switch for this (verified: CreateShortcut's full
-    # parameter list ends at an optional description, nothing sets
-    # System.AppUserModel.ID); WinShell is the standard third-party
-    # plugin for it. If WinShell.dll isn't present in this NSIS
-    # install's Plugins directory, this line will fail to compile —
-    # flagged for the real Windows build/verification pass to confirm
-    # one way or the other, not silently assumed to work.
-    WinShell::SetLnkAUMI "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "${APP_AUMID}"
+    # instead of it — both must agree, see aumid_windows.go). NSIS's own
+    # CreateShortcut has no AUMID switch, and the standard third-party
+    # plugin for it (WinShell) isn't installed on this build machine's
+    # NSIS (confirmed live: the installer aborted with "Plugin not
+    # found, cannot call WinShell::SetLnkAUMI" the first time this was
+    # tried). Even where WinShell IS available, live testing found
+    # stamping a shortcut AFTER a separate tool (CreateShortcut) already
+    # created it is unreliable — IPersistFile::Load on a shortcut this
+    # process didn't create intermittently returns a degraded property
+    # store (S_FALSE, near-empty) where every subsequent write call
+    # still reports S_OK but silently doesn't persist. New-
+    # AumidShortcut.ps1 (embedded via File below, run through the
+    # PowerShell that ships with every supported Windows version — no
+    # NSIS plugin needed) creates the Start-menu shortcut AND stamps the
+    # AUMID in ONE COM session instead, which persists reliably (tested
+    # 5/5 against a fresh process re-open before relying on it here).
+    File "/oname=$PLUGINSDIR\New-AumidShortcut.ps1" "New-AumidShortcut.ps1"
+    nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\New-AumidShortcut.ps1" -ShortcutPath "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" -TargetPath "$INSTDIR\${PRODUCT_EXECUTABLE}" -WorkingDirectory "$INSTDIR" -IconPath "$INSTDIR\${PRODUCT_EXECUTABLE}" -AppUserModelID "${APP_AUMID}"'
+    Pop $0
+    DetailPrint "New-AumidShortcut.ps1 exit code: $0"
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols

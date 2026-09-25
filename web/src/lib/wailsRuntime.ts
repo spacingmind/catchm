@@ -117,9 +117,21 @@ export function windowSetPosition(x: number, y: number): void {
  * is exact regardless of monitor topology — no monitor enumeration
  * needed (unlike the Go-side restore-on-launch clamping, which does
  * need real monitor positions Wails' ScreenGetAll doesn't expose).
+ *
+ * The short delay before reading it back is load-bearing, found on
+ * real Windows: WindowSetPosition goes through `window.WailsInvoke`, a
+ * fire-and-forget native bridge call, while WindowGetPosition goes
+ * through the async `Call()` RPC channel (both verified in the actual
+ * v2.16.0 desktop/window.js) — two independent transports with no
+ * ordering guarantee between them. Without the delay, GetPosition can
+ * — and, tested live, reliably did — return the PRE-move position,
+ * making the "exact offset" computed below zero and this function a
+ * no-op that leaves the window stranded at (0, 0)'s absolute location
+ * instead of the target.
  */
 export async function windowRestoreAbsolutePosition(x: number, y: number): Promise<void> {
   windowSetPosition(0, 0)
+  await new Promise((resolve) => setTimeout(resolve, 50))
   const origin = await windowGetPosition()
   windowSetPosition(x - origin.x, y - origin.y)
 }

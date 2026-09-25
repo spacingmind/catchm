@@ -48,7 +48,7 @@ export function useCompactMode() {
     setCompact(true)
   }, [available, compact])
 
-  const exit = useCallback(() => {
+  const exit = useCallback(async () => {
     if (!available || !compact) return
     windowSetAlwaysOnTop(false)
     const saved = savedRef.current
@@ -57,8 +57,15 @@ export function useCompactMode() {
       // windowRestoreAbsolutePosition, not a raw windowSetPosition(x, y)
       // round-trip of what windowGetPosition returned in enter() above
       // — that was M21's exact bug (a 24px drift on this exact call),
-      // root-caused and fixed in wailsRuntime.ts.
-      void windowRestoreAbsolutePosition(saved.x, saved.y)
+      // root-caused and fixed in wailsRuntime.ts. MUST be awaited here:
+      // real Windows testing caught that firing it detached (the
+      // previous `void windowRestoreAbsolutePosition(...)`) let the
+      // calls below run before its internal SetPosition(0,0) ->
+      // GetPosition -> corrective-SetPosition chain finished, leaving
+      // the window stranded at the calibration midpoint (the monitor's
+      // work-area origin) instead of the target position — a new,
+      // 100%-reproducible drift, worse than the one this was fixing.
+      await windowRestoreAbsolutePosition(saved.x, saved.y)
     }
     // The app (cmd/catchm-desktop) never sets its own min-size, so (0,0)
     // is the correct restored value, not a placeholder.
@@ -68,7 +75,7 @@ export function useCompactMode() {
   }, [available, compact])
 
   const toggle = useCallback(() => {
-    if (compact) exit()
+    if (compact) void exit()
     else void enter()
   }, [compact, enter, exit])
 
