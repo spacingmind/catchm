@@ -286,13 +286,44 @@ M22), multi-window, Wails v3 migration, dark mode.
   ended that meeting through the UI — the exact §0 scenario — in
   539 ms, confirming the fix end to end beyond the hermetic tests.
 
+- **§4 compact overlay mode.** Verified `window.runtime`'s exact shape
+  against the Wails v2.16.0 module source before writing any code
+  (`go list -m -f '{{.Dir}}' github.com/wailsapp/wails/v2` →
+  `internal/frontend/runtime/desktop/window.js` for the function
+  signatures, `desktop/main.js` for confirmation they're spread onto
+  `window.runtime` verbatim) — all matched the spec's assumptions
+  (`WindowGetSize/GetPosition` return promises, `WindowSetSize/
+  SetMinSize/SetPosition/SetAlwaysOnTop` are fire-and-forget). One
+  thing the module source did *not* have: any event for "window
+  restored/shown" to hook the "re-assert always-on-top" requirement —
+  searched the whole JS runtime bundle for anything window-lifecycle
+  shaped and found nothing beyond drag/resize/theme events. Used the
+  closest portable substitutes instead of inventing a Wails event that
+  doesn't exist: the webview regaining OS `focus`, and
+  `document.visibilitychange` going back to `"visible"`. Documented as
+  a judgment call, not presented as verified Wails behavior.
+  `hasWindowControls()` (`lib/wailsRuntime.ts`) is the single feature-detection
+  point every caller goes through — `catchm serve` in a plain browser
+  never injects `window.runtime` at all, so the compact button and
+  `Ctrl/⌘+Shift+L` are simply never wired up there, not shown-disabled.
+  The app (`cmd/catchm-desktop/main.go`) never sets its own
+  `MinWidth`/`MinHeight`, so restoring min-size to `(0,0)` on exit is
+  the actually-correct prior value, not a placeholder default.
+  Compact's own level indicator polls `GET
+  /api/meetings/{id}/levels` at a slower 1 Hz (vs. the full status
+  row's ~5 Hz) — it only drives one small bar, not per-input meters.
+  Verified in a plain (non-Wails) browser: the Compact button renders
+  0 times, and no console/page errors after navigating to a live
+  meeting and letting `StatusRow`'s levels poll hit its expected 404
+  (no pipeline for an engine-less test meeting).
+
 ## Progress
 
 - [x] Go: `/end` hang root cause + fix + regression test
 - [x] Go: engine state in levels (+ tests)
 - [x] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
 - [x] Transcript: fill viewport, grouping, view modes, font size, notes label
-- [ ] Compact overlay mode (+ API verification against module source)
+- [x] Compact overlay mode (+ API verification against module source)
 - [ ] Screenshots + real Windows compact-mode check
 
 ## Validation
