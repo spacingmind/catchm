@@ -116,6 +116,10 @@ func run() error {
 
 	hkManager := newHotkeyManager(filepath.Join(home, desktopSettingsFileName), newPlatformHotkeys(), handler, cfg)
 
+	// M23: update checks (startup-delayed + 24h periodic). Bound here so
+	// DesktopBridge's update methods (update.go) reach the same manager.
+	updates := newUpdateManager()
+
 	go systray.Run(
 		func() { onTrayReady(pollCtx, handler, cfg, hkManager) },
 		stopPoll,
@@ -124,7 +128,7 @@ func run() error {
 	stateTracker := newWindowStateTracker(filepath.Join(home, windowStateFileName))
 	go stateTracker.poll(pollCtx)
 
-	return wails.Run(&options.App{
+	wailsErr := wails.Run(&options.App{
 		Title:       "CatchM",
 		Width:       1180,
 		Height:      760,
@@ -133,7 +137,7 @@ func run() error {
 			Handler: handler,
 		},
 		Bind: []interface{}{
-			&DesktopBridge{hk: hkManager},
+			&DesktopBridge{hk: hkManager, updates: updates},
 		},
 		// M22 §4 WebView hardening. EnableDefaultContextMenu and Debug are
 		// deliberately left unset: verified against frontend.go directly
@@ -218,6 +222,7 @@ func run() error {
 			if launchMeetingID != "" {
 				go handleLaunchURI(ctx, launchMeetingID)
 			}
+			updates.startBackgroundChecks(ctx)
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
 			stateTracker.saveIfChanged(ctx)
@@ -239,6 +244,16 @@ func run() error {
 			hkManager.unregisterAll()
 		},
 	})
+
+	// M23: after the UI exits, finish a pending update — wait for the
+	// elevated installer to replace files, then relaunch the new exe
+	// (update_windows.go). Runs after wails.Run returns because the
+	// running exe must exit before the installer can overwrite it; an
+	// update-relaunch failure never blocks the exit itself.
+	if err := finishUpdateRelaunch(); err != nil {
+		log.Printf("update: %v", err)
+	}
+	return wailsErr
 }
 
 func appContext() context.Context {

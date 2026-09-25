@@ -42,6 +42,8 @@ var compactActive atomic.Bool
 // (desktop_settings.go: shortcuts, launch-at-login, notifications).
 type DesktopBridge struct {
 	hk *hotkeyManager
+	// updates wires M23's auto-update bound methods (update.go).
+	updates *updateManager
 }
 
 // SetCompactMode is called by useCompactMode's enter/exit.
