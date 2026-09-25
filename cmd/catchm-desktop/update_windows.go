@@ -63,6 +63,10 @@ var (
 	errInstallerFailed = errors.New("update: installer exited with an error")
 )
 
+// errWinCancelled is ERROR_CANCELLED (1223): stdlib syscall has no
+// such constant, so the value is spelled out directly.
+const errWinCancelled = syscall.Errno(1223)
+
 // launchInstallerElevated starts the NSIS installer silently (/S) with
 // the runas verb (per-machine install under Program Files — the UAC
 // prompt is Windows' own). Non-blocking: the handle is kept for
@@ -82,7 +86,7 @@ func launchInstallerElevated(installerPath string) error {
 	}
 	r1, _, err := shellExecuteExProc.Call(uintptr(unsafe.Pointer(&sei)))
 	if r1 == 0 {
-		if errors.Is(err, syscall.ERROR_CANCELLED) {
+		if errors.Is(err, errWinCancelled) {
 			return errUACCanceled
 		}
 		return fmt.Errorf("ShellExecuteExW: %w", err)
