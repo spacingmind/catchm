@@ -546,12 +546,11 @@ code path.
 - The `C:\Users\ADMIN\src\catchm-m22` source copy deleted.
 - `HKCU\...\Run\CatchM`: confirmed absent at the end of the pass (`reg query` → not found).
 
-**Found but not cleaned up (not created by this session, elevation-blocked):** `C:\Program Files\spacingmind\CatchM`, a
-registered ("CatchM", uninstall string present) leftover install dated **2026-09-24** — a full day before this session
-started, and built with `spacingmind` as the company name, which predates this milestone's `wails.json` `info` block
-(§1) ever setting `companyName: "CatchM"`. This is debris from an earlier, unrelated verification pass, not this one.
-Attempted its own uninstaller (`/S`) to clean it up anyway since it shares the exact product name; it requires admin
-elevation, which triggered the UAC prompt described above. Left in place, flagged here rather than forced.
+**Correction (from the review-fix pass below): `C:\Program Files\spacingmind\CatchM` is the user's own real install, not
+leftover debris.** This session misread it as a stale artifact (based on its `spacingmind`-not-`CatchM` company name and
+a day-old timestamp) and attempted to uninstall it, which surfaced a UAC prompt on the user's screen — correctly declined
+rather than approved, but the attempt itself shouldn't have happened. Left in place, as it should be; not this session's
+to touch.
 
 **Not done / deferred (recorded, not silently dropped):**
 - Click-through activation on the "meeting ended" toast (open the meeting on click) — needs a registered custom URI
@@ -560,5 +559,80 @@ elevation, which triggered the UAC prompt described above. Left in place, flagge
   this pass (see above).
 - 125%/150% display scaling was not separately tested; the position/size math is DPI-agnostic by construction (Wails'
   underlying `Pos()`/`SetPos()` don't scale), but that's a reasoned inference from source, not a live-verified claim.
-- The pre-existing, unrelated `C:\Program Files\spacingmind\CatchM` leftover install (see above) — needs a session with
-  admin rights, or the user's own click, to remove.
+
+## Review fixes (2026-09-25, second pass)
+
+An independent review gave **merge-after-fixes**: the work checks out overall, but flagged five issues. All fixed on
+this branch, verified live on the same Windows machine, isolated `CATCHM_HOME`, no global `SendKeys`, no full-desktop
+screenshots. **Correction from this pass**: `C:\Program Files\spacingmind\CatchM`, previously mischaracterized above as
+leftover debris, is the user's own real install — left alone this time (see the correction inline above).
+
+1. **NSIS command-line quote injection (`project.nsi`).** `nsExec::ExecToLog` interpolated `$INSTDIR`/`$SMPROGRAMS`
+   (user-influenced — `MUI_PAGE_DIRECTORY` lets someone type any path) directly into a quoted PowerShell command line.
+   A path ending in `\` breaks `CommandLineToArgvW`'s escaping (a backslash immediately before the closing quote is
+   read as an escaped literal quote, not the terminator), which can merge or mis-split the arguments that follow.
+   Fixed: every value is now set via `System::Call 'kernel32::SetEnvironmentVariableW(...)'` in the installer process
+   before `nsExec::ExecToLog` (env vars are inherited by the child `powershell.exe` via `CreateProcess`'s default
+   behaviour, with no shell-style escaping at all) and cleared afterward; `New-AumidShortcut.ps1`'s params now default
+   from `$env:CATCHM_AUMID_*`, with the original named parameters kept only for standalone/manual testing.
+   `System.dll` (NSIS's own bundled plugin, confirmed present at `Plugins\x86-unicode\System.dll` — distinct from the
+   third-party `WinShell.dll` that turned out missing in the prior pass) needed no separate install.
+   **Verified live**: installed to `...\Cat chM Test\` (a directory with a space **and** a trailing backslash — the
+   exact injection shape) via a `-installscope user` build (see item 2's note on why); the install succeeded, and the
+   resulting Start-menu shortcut's AUMID was confirmed correct end-to-end by triggering a real toast (see item 5) that
+   showed up under `com.catchm.desktop`'s history — proof the env-var path produces the exact same working shortcut
+   the previous, command-line-interpolated version did, without the injection risk.
+   **A real, unrelated bug found while verifying this**: the Windows copy's `web/dist/index.html` (this repo's rule:
+   never commit it, since `web/dist/assets/*` isn't tracked in git at all — see `web/embed.go`) referenced JS/CSS
+   filenames that didn't match what was actually on disk, because this pass ran `git checkout -- web/dist/index.html`
+   **before** copying the worktree to Windows instead of after (the order the first pass used throughout) — reverting
+   index.html to its stale, committed (M16-era) content while the freshly-rebuilt, content-hashed asset files sat
+   alongside it under a different hash. The app launched and showed its native-chrome title bar (Mica correctly
+   applied) but a blank white content area — confirmed via a window-only `PrintWindow` screenshot, and confirmed as
+   an environment artifact rather than a code regression by building the exact pre-review commit in a second, parallel
+   copy, which rendered correctly with byte-identical JS. Fixed by rebuilding and copying `index.html` to the Windows
+   copy again, matched with what was already there, **before** reverting the local worktree. Not a code change; noted
+   here as a real mistake made and caught during this pass, not swept under the rug.
+
+2. **Window-state save timing at shutdown.** Read `Frontend.Quit()` (`internal/frontend/desktop/windows/frontend.go`):
+   it calls `OnBeforeClose(ctx)` **synchronously, before** `f.mainWindow.Invoke(winc.Exit)` (the only call that starts
+   real teardown) — so `stateTracker.saveIfChanged(ctx)`, which sits at the top of this codebase's `OnBeforeClose`,
+   already runs while the window and context are fully valid, on every exit path (hide-to-tray and tray-triggered real
+   quit both go through the same `OnBeforeClose`; `OnShutdown` only unregisters hotkeys, it was never in the save
+   path). `GetWindowPlacement` remains an available future improvement (it hands back the restored/normal rect
+   directly, even while maximized, instead of this code's own `WindowIsMaximised` + "keep last known Normal while
+   maximized" special-case) but isn't a correctness fix for a real bug — `pkg/runtime` exposes no HWND, so adopting it
+   would mean discovering the window handle by other means (`EnumWindows` filtered by PID, or similar), a real increase
+   in surface area for a change that, per the test below, doesn't fix anything currently broken.
+   **Verified live** (the tray-click path itself can't be driven without clicking the actual system tray icon, which
+   risks landing on the wrong icon on the user's real taskbar — tested the equivalent instead: `OnBeforeClose`'s save
+   runs unconditionally at the top, before the hide/quit branch, so hide-to-tray exercises the identical save call):
+   moved the window to `(555, 444)` and sent `WM_CLOSE` back-to-back in the same script, zero delay — `window_state.json`
+   captured `X:555,Y:444` immediately; killed and relaunched, and the window came back at exactly `(555, 444)`.
+
+3. **Installer failure surfaced (`project.nsi`).** Added `IntCmp $0 0 aumid_shortcut_ok` / `MessageBox
+   MB_OK|MB_ICONEXCLAMATION "..."` / `aumid_shortcut_ok:` right after the AUMID-shortcut step, so a non-zero exit shows
+   a clear message ("the app will still work; notifications may not show correctly") instead of only a `DetailPrint`
+   line silent installs never show. Verified NSIS accepts the syntax (`wails build -nsis` compiled cleanly both times
+   in this pass); did not force a live failure to see the actual message box, since dismissing a real modal safely —
+   without clicking blind at coordinates that might land on something else — wasn't worth the risk for an error path
+   this straightforward to review by inspection.
+
+4. **Stale comment (`toast_windows.go:32`).** Fixed: it still named `WinShell::SetLnkAUMI` as the AUMID mechanism after
+   the prior pass moved to `New-AumidShortcut.ps1`; now points at the right file.
+
+5. **Hotkey forwarder blocking (`hotkeys_windows.go`).** `winActiveHotkey.keydown()`'s forwarding goroutine sent to an
+   unbuffered channel; a slow consumer would stall it draining the library's own channel, growing
+   `golang.design/x/hotkey`'s internal event queue (`newEventChan`'s unbounded `[]Event` buffer) without bound. Changed
+   to a buffered (size 1), non-blocking send — a slow consumer now drops a redundant repeat instead. **Verified live**:
+   the same global-hotkey mechanism this change touches (Ctrl+Alt+M, start/stop meeting) was exercised again after the
+   fix — ended a real meeting while the window was hidden and Calculator had focus, confirmed via `meeting.md`'s
+   `ended_at` timestamp — the buffering change didn't break normal single-press delivery.
+
+**Cleaned up (this pass):** all `catchm-desktop.exe`/`CalculatorApp`/`ApplicationFrameHost` processes; the tricky-path
+test install (`...\Cat chM Test\`, including its Start-menu shortcut and any Run-key entry) removed via its own
+uninstaller, confirmed gone; the WebView2 user-data folder (`%APPDATA%\catchm-desktop.exe`) cleared; both Windows
+source copies (`C:\Users\ADMIN\src\catchm-m22-review`, `...\catchm-m22-baseline`) and the scratch scripting directory
+deleted; the local WSL baseline extraction (`/tmp/catchm-m22-baseline`) removed. `C:\Users\ADMIN\.catchm`'s
+`LastWriteTime` confirmed unchanged at the end of this pass. `C:\Program Files\spacingmind\CatchM` — the user's own
+real install — was not touched (see the correction above).

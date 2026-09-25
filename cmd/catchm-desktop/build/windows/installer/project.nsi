@@ -129,10 +129,44 @@ Section
     # NSIS plugin needed) creates the Start-menu shortcut AND stamps the
     # AUMID in ONE COM session instead, which persists reliably (tested
     # 5/5 against a fresh process re-open before relying on it here).
+    #
+    # Review fix: the values below (especially $INSTDIR, which the
+    # MUI_PAGE_DIRECTORY page lets the user type freely, including with
+    # a trailing "\") are passed via environment variables — inherited
+    # by the child powershell.exe process via CreateProcess's default
+    # "copy the parent's environment block" behaviour — never
+    # interpolated into the quoted command line. A user-chosen $INSTDIR
+    # ending in "\" would otherwise make "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    # end in \" right before the closing quote; CommandLineToArgvW reads
+    # a backslash immediately before a closing quote as an escaped
+    # literal quote rather than the argument terminator, which can merge
+    # or mis-split the arguments that follow. Environment variable
+    # values carry no such escaping rules at all.
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_SHORTCUT_PATH", w "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk") i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_TARGET_PATH", w "$INSTDIR\${PRODUCT_EXECUTABLE}") i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_WORKING_DIR", w "$INSTDIR") i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_ICON_PATH", w "$INSTDIR\${PRODUCT_EXECUTABLE}") i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_APP_ID", w "${APP_AUMID}") i .r0'
+
     File "/oname=$PLUGINSDIR\New-AumidShortcut.ps1" "New-AumidShortcut.ps1"
-    nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\New-AumidShortcut.ps1" -ShortcutPath "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" -TargetPath "$INSTDIR\${PRODUCT_EXECUTABLE}" -WorkingDirectory "$INSTDIR" -IconPath "$INSTDIR\${PRODUCT_EXECUTABLE}" -AppUserModelID "${APP_AUMID}"'
+    nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\New-AumidShortcut.ps1"'
     Pop $0
     DetailPrint "New-AumidShortcut.ps1 exit code: $0"
+
+    # Review fix: don't let this fail silently — toast notifications
+    # would otherwise silently degrade to a generic/PowerShell identity
+    # with no visible sign anything went wrong. The app itself still
+    # installs and works either way (this only affects notification
+    # attribution), so this is a warning, not an aborted install.
+    IntCmp $0 0 aumid_shortcut_ok
+    MessageBox MB_OK|MB_ICONEXCLAMATION "CatchM installed, but couldn't finish setting up desktop notifications (New-AumidShortcut.ps1 exited with code $0). The app will still work; notifications may not show correctly until you reinstall."
+    aumid_shortcut_ok:
+
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_SHORTCUT_PATH", i 0) i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_TARGET_PATH", i 0) i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_WORKING_DIR", i 0) i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_ICON_PATH", i 0) i .r0'
+    System::Call 'kernel32::SetEnvironmentVariableW(w "CATCHM_AUMID_APP_ID", i 0) i .r0'
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols

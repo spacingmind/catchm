@@ -10,14 +10,30 @@ S_OK) — while creating fresh + setting the property + saving, all
 against one IShellLinkW instance, persists reliably every time. GUIDs
 and vtable orders per Microsoft's IShellLinkW/IPersistFile/
 IPropertyStore documentation.
+
+project.nsi invokes this with NO -params at all — it sets the
+CATCHM_AUMID_* environment variables (inherited by this child process)
+instead, deliberately never interpolating $INSTDIR/$SMPROGRAMS (user-
+influenced — the directory-picker page lets someone type a path ending
+in "\") into a quoted command line: CommandLineToArgvW treats a
+backslash immediately before the closing quote as an escaped literal
+quote rather than the terminator, which can merge/mis-split arguments.
+Environment variable values need no shell-style quoting at all. The
+explicit parameters below only exist for standalone/manual testing.
 #>
 param(
-    [Parameter(Mandatory=$true)] [string]$ShortcutPath,
-    [Parameter(Mandatory=$true)] [string]$TargetPath,
-    [string]$WorkingDirectory = "",
-    [string]$IconPath = "",
-    [Parameter(Mandatory=$true)] [string]$AppUserModelID
+    [string]$ShortcutPath = $env:CATCHM_AUMID_SHORTCUT_PATH,
+    [string]$TargetPath = $env:CATCHM_AUMID_TARGET_PATH,
+    [string]$WorkingDirectory = $env:CATCHM_AUMID_WORKING_DIR,
+    [string]$IconPath = $env:CATCHM_AUMID_ICON_PATH,
+    [string]$AppUserModelID = $env:CATCHM_AUMID_APP_ID
 )
+
+foreach ($required in @('ShortcutPath', 'TargetPath', 'AppUserModelID')) {
+    if ([string]::IsNullOrEmpty((Get-Variable -Name $required).Value)) {
+        throw "New-AumidShortcut.ps1: -$required is required (or its CATCHM_AUMID_* environment variable)."
+    }
+}
 
 Add-Type -TypeDefinition @"
 using System;

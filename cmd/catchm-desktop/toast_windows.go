@@ -29,10 +29,11 @@ import (
 // [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier,
 // which (for an unpackaged Win32 app) only attributes correctly when
 // that string matches the AUMID set on a real Start-menu shortcut
-// (build/windows/installer/project.nsi's WinShell::SetLnkAUMI) and via
-// SetCurrentProcessExplicitAppUserModelID at startup (aumid_windows.go)
-// — otherwise it falls back to a generic/PowerShell identity. Verified
-// by reading the library's source, not its doc comment.
+// (build/windows/installer/New-AumidShortcut.ps1, run by project.nsi)
+// and via SetCurrentProcessExplicitAppUserModelID at startup
+// (aumid_windows.go) — otherwise it falls back to a generic/PowerShell
+// identity. Verified by reading the library's source, not its doc
+// comment.
 func notify(hkManager *hotkeyManager, title, message string) {
 	if !hkManager.Settings().NotificationsEnabled {
 		return

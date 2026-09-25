@@ -39,13 +39,26 @@ func (winHotkeys) register(combo hotkeys.Combo) (activeHotkey, error) {
 
 type winActiveHotkey struct{ hk *hotkey.Hotkey }
 
+// keydown forwards from the library's channel to our own struct{}-typed
+// one (needed only for the type adaptation — hotkey.Event and struct{}
+// are shape-identical but distinct types). Buffered and non-blocking: a
+// slow consumer (hotkeyManager.watch's trigger()) drops a redundant
+// repeat rather than blocking this goroutine, which would otherwise
+// stall draining `src` and grow the library's own internal event queue
+// (newEventChan's unbounded []Event buffer) without bound. A hotkey
+// repeat is a discrete, idempotent-ish signal (show/hide, start/stop,
+// toggle compact) — losing one under real backpressure is preferable to
+// unbounded memory growth or backpressure into the OS-level hotkey loop.
 func (w winActiveHotkey) keydown() <-chan struct{} {
 	src := w.hk.Keydown()
-	out := make(chan struct{})
+	out := make(chan struct{}, 1)
 	go func() {
 		defer close(out)
 		for range src {
-			out <- struct{}{}
+			select {
+			case out <- struct{}{}:
+			default:
+			}
 		}
 	}()
 	return out
