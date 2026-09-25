@@ -28,7 +28,14 @@ func newTestServer(t *testing.T) (*Server, *meeting.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(tools.New(store), &config.Config{}), store
+	s := New(tools.New(store), &config.Config{})
+	// Never open real audio devices in tests: CI runners have no sound
+	// card, so a real malgo device fails there while passing on a dev
+	// box. Tests that need specific source behavior override this.
+	s.newSource = func(string) (capture.Source, error) {
+		return &countingSource{ch: make(chan stt.PCM, 8)}, nil
+	}
+	return s, store
 }
 
 // fakeEngine stands in for a real STT engine in HTTP-layer tests: no
