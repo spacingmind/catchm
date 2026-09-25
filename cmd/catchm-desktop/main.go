@@ -24,6 +24,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailswindows "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/spacingmind/catchm/internal/config"
@@ -34,6 +35,18 @@ import (
 
 // How often the tray tooltip re-checks for an active (un-ended) meeting.
 const tooltipPollInterval = 3 * time.Second
+
+// Brand colours (web/src/index.css: --background #FBF7EA, --foreground/
+// --primary #6C3524, --secondary/--muted #D9C4B4), packed for
+// windows.ThemeSettings via windows.RGB. The app ships light-only (no
+// dark mode variant — see index.css), so the title bar is forced to
+// windows.Light regardless of the system theme: a dark title bar over
+// an all-light content area would look broken, not themed.
+var (
+	titleBarColour    = wailswindows.RGB(0xFB, 0xF7, 0xEA) // --background
+	titleTextColour   = wailswindows.RGB(0x6C, 0x35, 0x24) // --foreground
+	titleBorderColour = wailswindows.RGB(0xD9, 0xC4, 0xB4) // --secondary
+)
 
 // Systray's SetIcon on Windows wants raw .ico file bytes, so the mascot
 // art is shipped as a pre-sized 16/32px ICO next to appicon.png.
@@ -92,6 +105,28 @@ func run() error {
 		Height: 760,
 		AssetServer: &assetserver.Options{
 			Handler: handler,
+		},
+		// Native title bar kept (see docs/plans/active/m22-native-shell.md:
+		// frameless loses Snap Layouts/Alt+Space, and Wails v2 has no
+		// WM_NCHITTEST integration to get them back). Mica shows through
+		// instead — WindowIsTranslucent + BackdropType is the v2.16 pair
+		// that enables it (pkg/options/windows/windows.go); Wails' own
+		// win32.SupportsBackdropTypes() (internal/frontend/desktop/windows/
+		// win32/theme.go) gates this on Windows 11 22621+ and silently
+		// falls back to a plain window below that build — no fallback
+		// logic needed on this side.
+		Windows: &wailswindows.Options{
+			WindowIsTranslucent: true,
+			BackdropType:        wailswindows.Mica,
+			Theme:               wailswindows.Light,
+			CustomTheme: &wailswindows.ThemeSettings{
+				LightModeTitleBar:          titleBarColour,
+				LightModeTitleText:         titleTextColour,
+				LightModeBorder:            titleBorderColour,
+				LightModeTitleBarInactive:  titleBarColour,
+				LightModeTitleTextInactive: titleTextColour,
+				LightModeBorderInactive:    titleBorderColour,
+			},
 		},
 		OnStartup: func(ctx context.Context) {
 			mu.Lock()

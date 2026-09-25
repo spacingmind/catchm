@@ -74,3 +74,21 @@
     @apply font-sans;
     }
 }
+
+/*
+ * M22 §1: Mica backdrop, Wails desktop shell only. App.tsx adds
+ * html.desktop-mica after hasWindowControls() confirms we're inside the
+ * real window (never in `catchm serve`'s plain browser). These rules
+ * sit outside @layer base so they win over its unconditional
+ * `body { @apply bg-background }` regardless of selector specificity
+ * (unlayered CSS always beats layered CSS in the cascade) — only the
+ * shell (body, sidebar) goes transparent; `main` (App.tsx) keeps its
+ * own explicit bg-background so content stays opaque and readable over
+ * Mica, on both light and dark wallpapers.
+ */
+html.desktop-mica body {
+  background: transparent;
+}
+html.desktop-mica .app-sidebar {
+  background: transparent;
+}
