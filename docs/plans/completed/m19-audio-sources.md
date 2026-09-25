@@ -1,6 +1,7 @@
 # Plan: M19 — Audio sources: microphone, system audio, both (mixed)
 
-- Status: active
+- Status: complete
+- Completed: 2026-09-25
 - Created: 2026-09-24
 - Repo: `catchm`, **Go only** (`internal/capture`, `internal/pipeline`,
   `internal/server`, `internal/meeting` if needed). No `web/` changes:
@@ -170,7 +171,38 @@ non-default playback device for loopback, macOS system audio.
 - [x] Mixer (pacing, padding, saturation, jitter buffer, levels)
 - [x] Mid-session switching
 - [x] Server API + capture_error
-- [ ] Real Windows verification
+- [x] Real Windows verification
+
 ## Validation
 
-(to be filled)
+Hermetic: `go build/vet/gofmt` clean; `go test -race -count=3 ./...`
+green (independent review + delta re-review: verdict **merge**).
+
+**Real Windows 11** (2026-09-25; `catchm serve` built on the Windows
+machine from this branch, isolated test `CATCHM_HOME`, no Soniox key
+used, test data deleted afterward):
+
+- **Bug found only on real hardware:** miniaudio's WASAPI loopback takes
+  its client format from the *Capture* subconfig. With only Playback
+  set, audio arrived at the endpoint's native 48 kHz and the mixer
+  dropped ~2/3 of the samples. Fixed in `internal/capture/system.go`
+  (set Capture format/channels too).
+- `GET /api/audio/sources` → `system: {supported: true}`; mic device
+  "Microphone (Realtek(R) Audio)" listed as default.
+- **Silence pacing (system, nothing playing):** wall 38.12 s,
+  `audio.wav` 38.1 s. The stream stays continuous through silence.
+- **Mid-session switching:** mic → both → system → mic in one meeting.
+  All three switches were recorded as timestamped notes, `audio.wav`
+  58.9 s vs 58.99 s wall, no gap.
+- **Audible system capture:** a ~13 s Windows-TTS speech WAV played
+  through the speakers during a `source: "system"` meeting. Levels at
+  0.5 s polls: silence rms 0.001 → speech rms 0.02–0.08 (peak up to
+  0.37, with inter-phrase dips) → back to 0.002 after. **`dropped_chunks`,
+  `dropped_samples`, `dropped_ticks` stayed 0 throughout.** `audio.wav`
+  16.86 s vs 16.90 s wall; per-second RMS 0.004, 0.001, then
+  0.021–0.055 for ~13 s, so the speech is in the file.
+- **Device reopen / no leak:** a `source: "mic"` meeting started right
+  after opened the mic fine; mic levels tracked the room noise floor
+  (rms 0.003–0.006), 0 drops.
+- Not done: STT transcription of captured system audio (needs the
+  user's Soniox key; capture and levels above don't depend on it).
