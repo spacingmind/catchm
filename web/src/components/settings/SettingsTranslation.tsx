@@ -275,7 +275,9 @@ export function SettingsTranslation() {
                 {status.ollama_reachable ? "Reachable" : "Unreachable"}
               </Badge>
             ) : (
-              <Skeleton className="h-6 w-24 rounded-full" />
+              <Badge variant="outline" className="motion-safe:animate-pulse">
+                Checking Ollama…
+              </Badge>
             )
           }
         />
@@ -294,7 +296,9 @@ export function SettingsTranslation() {
                       {model.installed ? "Installed" : "Not installed"}
                     </Badge>
                   ) : (
-                    <Skeleton className="h-6 w-24 rounded-full" />
+                    <Badge variant="outline" className="motion-safe:animate-pulse">
+                      Checking…
+                    </Badge>
                   )}
                   {model && !model.installed && (
                     <div className="grid justify-items-end gap-2">

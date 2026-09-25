@@ -7,7 +7,7 @@ import { SettingsTranscription } from "@/components/settings/SettingsTranscripti
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
 
-type Section = "recording" | "transcription" | "translation" | "cloud"
+export type Section = "recording" | "transcription" | "translation" | "cloud"
 
 const SECTIONS: { id: Section; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "recording", label: "Recording", icon: Mic },
@@ -16,8 +16,8 @@ const SECTIONS: { id: Section; label: string; icon: ComponentType<{ className?: 
   { id: "cloud", label: "Cloud sync", icon: Cloud },
 ]
 
-export function Settings() {
-  const [section, setSection] = useState<Section>("recording")
+export function Settings({ initialSection = "recording" }: { initialSection?: Section }) {
+  const [section, setSection] = useState<Section>(initialSection)
 
   return (
     <div className="mx-auto flex max-w-4xl gap-8 px-6 py-8">
