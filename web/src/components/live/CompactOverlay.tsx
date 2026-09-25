@@ -79,12 +79,22 @@ export function CompactOverlay({ meetingId, audioSource, utterances, viewMode, o
                 ) : viewMode === "side-by-side" ? (
                   <div className="grid grid-cols-2 gap-2">
                     <p className="break-words">{u.text}</p>
-                    {u.translated && <p className="break-words text-muted-foreground">{u.translated}</p>}
+                    {u.translated && (
+                      <p className="break-words text-muted-foreground">
+                        {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
+                        {u.translated}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <>
                     <p className="break-words">{u.text}</p>
-                    {u.translated && <p className="break-words text-muted-foreground">{u.translated}</p>}
+                    {u.translated && (
+                      <p className="break-words text-muted-foreground">
+                        {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
+                        {u.translated}
+                      </p>
+                    )}
                   </>
                 )}
               </div>
