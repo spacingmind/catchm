@@ -10,8 +10,9 @@ import (
 	"github.com/spacingmind/catchm/internal/capture"
 )
 
-// A source-open failure surfaces as capture_error while the meeting is
-// still created (existing behavior), and audio_source is recorded.
+// A source-open failure surfaces as capture_error (with its
+// capture_error_kind) while the meeting is still created (existing
+// behavior), and audio_source is recorded.
 func TestStartMeetingCaptureErrorSurfaces(t *testing.T) {
 	s, store := newTestServer(t)
 	s.newSource = func(device string) (capture.Source, error) {
@@ -24,9 +25,10 @@ func TestStartMeetingCaptureErrorSurfaces(t *testing.T) {
 		t.Fatalf("code = %d, body = %s", res.Code, res.Body.String())
 	}
 	var body struct {
-		ID           string `json:"id"`
-		AudioSource  string `json:"audio_source"`
-		CaptureError string `json:"capture_error"`
+		ID               string `json:"id"`
+		AudioSource      string `json:"audio_source"`
+		CaptureError     string `json:"capture_error"`
+		CaptureErrorKind string `json:"capture_error_kind"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
@@ -39,6 +41,9 @@ func TestStartMeetingCaptureErrorSurfaces(t *testing.T) {
 	}
 	if !strings.Contains(body.CaptureError, "device busy") {
 		t.Fatalf("capture_error = %q, want microphone failure surfaced", body.CaptureError)
+	}
+	if body.CaptureErrorKind != "device_unavailable" {
+		t.Fatalf("capture_error_kind = %q, want device_unavailable", body.CaptureErrorKind)
 	}
 
 	// audio_source persisted in the meeting doc.
@@ -72,6 +77,9 @@ func TestStartMeetingNoCaptureErrorOnSuccess(t *testing.T) {
 	if strings.Contains(res.Body.String(), "capture_error") {
 		t.Fatalf("capture_error present on success: %s", res.Body.String())
 	}
+	if strings.Contains(res.Body.String(), "capture_error_kind") {
+		t.Fatalf("capture_error_kind present on success: %s", res.Body.String())
+	}
 	var body struct {
 		AudioSource string `json:"audio_source"`
 	}
@@ -80,5 +88,34 @@ func TestStartMeetingNoCaptureErrorOnSuccess(t *testing.T) {
 	}
 	if body.AudioSource != "mic" {
 		t.Fatalf("audio_source = %q", body.AudioSource)
+	}
+}
+
+// The typed-cause path: a missing Soniox API key classifies as
+// missing_api_key (not just engine), so the UI can route straight to
+// Transcription settings — and the human-readable message stays.
+func TestStartMeetingCaptureErrorKindMissingAPIKey(t *testing.T) {
+	s, _ := newTestServer(t)
+	res := do(t, s, http.MethodPost, "/api/meetings",
+		`{"title":"No key","engine":"soniox"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		ID               string `json:"id"`
+		CaptureError     string `json:"capture_error"`
+		CaptureErrorKind string `json:"capture_error_kind"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ID == "" {
+		t.Fatal("meeting not created")
+	}
+	if body.CaptureErrorKind != "missing_api_key" {
+		t.Fatalf("capture_error_kind = %q, want missing_api_key", body.CaptureErrorKind)
+	}
+	if !strings.Contains(body.CaptureError, "API key") {
+		t.Fatalf("capture_error = %q, want the human-readable message kept", body.CaptureError)
 	}
 }

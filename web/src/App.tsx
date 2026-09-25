@@ -7,22 +7,29 @@ import { MeetingDetail } from "@/components/MeetingDetail"
 import { MeetingList } from "@/components/MeetingList"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
 import { Settings, type Section as SettingsSection } from "@/components/settings/Settings"
-import { listMeetings, type Meeting, type StartMeetingResponse } from "@/lib/api"
+import { listMeetings, type CaptureErrorKind, type Meeting, type StartMeetingResponse } from "@/lib/api"
 import { hasWindowControls } from "@/lib/wailsRuntime"
 
 /** How often the live state is re-derived from the server. */
 const LIVE_POLL_MS = 3000
 
 /**
- * Which Settings section fixes a given capture_error: audio-source/device
- * errors point at Recording, everything else (engine construction —
- * missing API key, unreachable server, ...) points at Transcription,
- * where the engine and its key/URLs live.
+ * Which Settings section fixes a given capture_error_kind: device/input
+ * problems point at Recording, everything else (engine construction —
+ * missing API key, unreachable server, unknown engine, ...) points at
+ * Transcription, where the engine and its key/URLs live. Switches on the
+ * structured kind (internal/server's CaptureErrorKind), never the
+ * human-readable message text, whose wording the backend must stay free
+ * to reword.
  */
-function captureErrorSection(message: string): SettingsSection {
-  const m = message.toLowerCase()
-  if (m.includes("microphone") || m.includes("system audio")) return "recording"
-  return "transcription"
+function captureErrorSection(kind: CaptureErrorKind): SettingsSection {
+  switch (kind) {
+    case "device_unavailable":
+    case "unsupported":
+      return "recording"
+    default:
+      return "transcription"
+  }
 }
 
 function App() {
@@ -41,7 +48,10 @@ function App() {
   const startBtnRef = useRef<HTMLButtonElement | null>(null)
   // capture_error from the start response (M19): the meeting exists but
   // recording didn't start. Shown as a live-view banner until ended.
+  // capture_error_kind (its structured classification) rides along so
+  // "Open settings" routes by kind, not by matching the message text.
   const [captureError, setCaptureError] = useState<string | null>(null)
+  const [captureErrorKind, setCaptureErrorKind] = useState<CaptureErrorKind | null>(null)
   // M21 §4: LiveMeeting owns the compact-overlay hook (it needs the
   // transcript state that lives there), but the sidebar/shell has to
   // disappear too — a 480x260 window has no room for both. LiveMeeting
@@ -92,6 +102,7 @@ function App() {
 
   const handleStarted = (meeting: StartMeetingResponse) => {
     setCaptureError(meeting.capture_error ?? null)
+    setCaptureErrorKind(meeting.capture_error_kind ?? null)
     openMeeting(meeting)
   }
 
@@ -161,11 +172,16 @@ function App() {
           <LiveMeeting
             meeting={selected}
             captureError={captureError}
-            onOpenSettings={captureError ? () => openSettings(captureErrorSection(captureError)) : undefined}
+            onOpenSettings={
+              captureError
+                ? () => openSettings(captureErrorSection(captureErrorKind ?? "engine"))
+                : undefined
+            }
             onCompactChange={setLiveCompact}
             onEnded={(m) => {
               setLive(null)
               setCaptureError(null)
+              setCaptureErrorKind(null)
               setSelected(m)
               setView("detail")
             }}

@@ -191,9 +191,12 @@ func (s *Server) handleSetMeetingSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if captureErr := s.switchAudioSource(p, mode, req.Device); captureErr != "" {
+	if captureErr, captureKind := s.switchAudioSource(p, mode, req.Device); captureErr != "" {
 		// Old input still live; the switch just didn't happen.
-		httpError(w, http.StatusUnprocessableEntity, captureErr)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":              captureErr,
+			"capture_error_kind": string(captureKind),
+		})
 		return
 	}
 
@@ -301,10 +304,11 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var captureErr string
+	var captureKind CaptureErrorKind
 	if req.Engine != "" {
 		// Best-effort: a meeting always gets created even if live capture
 		// can't start (e.g. no audio backend, or the engine can't connect).
-		captureErr = s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
+		captureErr, captureKind = s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
 			Lang:        req.Lang,
 			TranslateTo: req.TranslateTo,
 			LanguageB:   req.TranslateTo,
@@ -324,6 +328,7 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 	body := meetingJSON(m)
 	if captureErr != "" {
 		body["capture_error"] = captureErr
+		body["capture_error_kind"] = captureKind
 	}
 	writeJSON(w, http.StatusOK, body)
 }
@@ -356,25 +361,55 @@ func (m SourceMode) valid() bool {
 	return m == SourceMic || m == SourceSystem || m == SourceBoth
 }
 
+// CaptureErrorKind classifies a capture start/switch failure for the
+// UI: the "Open settings" button routes to the settings section that
+// can actually fix the cause, switching on this enum instead of
+// pattern-matching the human-readable message (whose wording changes
+// with the OS/driver and must stay free to reword). The message field
+// (capture_error) stays the display text.
+//
+// Kinds are a stable wire contract (web/src/lib/api.ts mirrors them);
+// add values only — never rename or remove.
+type CaptureErrorKind string
+
+const (
+	// CaptureErrMissingAPIKey: the configured engine is missing its
+	// credential (Soniox API key today).
+	CaptureErrMissingAPIKey CaptureErrorKind = "missing_api_key"
+	// CaptureErrDeviceUnavailable: an audio input couldn't be opened —
+	// missing/disconnected/busy mic, or no usable system-audio device.
+	CaptureErrDeviceUnavailable CaptureErrorKind = "device_unavailable"
+	// CaptureErrUnsupported: this platform can't do what was asked at
+	// all (system audio on Linux/macOS).
+	CaptureErrUnsupported CaptureErrorKind = "unsupported"
+	// CaptureErrEngine: the engine exists but couldn't start/reach its
+	// service, or the engine name itself is unknown.
+	CaptureErrEngine CaptureErrorKind = "engine"
+	// CaptureErrInternal: pipeline construction/mixer failure with no
+	// more specific classification.
+	CaptureErrInternal CaptureErrorKind = "internal"
+)
+
 // startPipeline runs the meeting's capture through a Mixer for EVERY
 // mode (a one-input mixer is still a mixer: one code path, and
 // mid-session switching never needs to rebuild the pipeline). Returns
-// a human-readable capture error on failure — the meeting still exists
-// (existing behavior), but the failure is no longer silent.
-func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string) {
+// a human-readable capture error plus its kind on failure — the meeting
+// still exists (existing behavior), but the failure is no longer
+// silent.
+func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string, kind CaptureErrorKind) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
 		if errors.Is(err, errSonioxNoKey) {
-			return "Soniox API key is not set — add it in Settings → Transcription."
+			return "Soniox API key is not set — add it in Settings → Transcription.", CaptureErrMissingAPIKey
 		}
-		return err.Error()
+		return err.Error(), CaptureErrEngine
 	}
 
 	var micSrc, sysSrc capture.Source
 	if mode == SourceMic || mode == SourceBoth {
 		micSrc, err = s.newSource(device)
 		if err != nil {
-			return "Couldn't open microphone: " + err.Error()
+			return "Couldn't open microphone: " + err.Error(), CaptureErrDeviceUnavailable
 		}
 	}
 	if mode == SourceSystem || mode == SourceBoth {
@@ -382,14 +417,14 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, 
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
-			return reason
+			return reason, CaptureErrUnsupported
 		}
 		sysSrc, err = capture.NewSystemSource()
 		if err != nil {
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
-			return err.Error()
+			return err.Error(), CaptureErrDeviceUnavailable
 		}
 	}
 
@@ -401,7 +436,7 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, 
 		if sysSrc != nil {
 			_ = sysSrc.Close()
 		}
-		return err.Error()
+		return err.Error(), CaptureErrInternal
 	}
 
 	var translator translate.Translator
@@ -422,12 +457,12 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, 
 		if sysSrc != nil {
 			_ = sysSrc.Close()
 		}
-		return err.Error()
+		return err.Error(), CaptureErrEngine
 	}
 	s.mu.Lock()
 	s.pipelines[id] = p
 	s.mu.Unlock()
-	return ""
+	return "", ""
 }
 
 // switchAudioSource swaps a live pipeline's inputs through the mixer:
@@ -435,10 +470,10 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, 
 // old; on failure keep the old input and return the error. audio.wav
 // keeps recording the mixed stream throughout (the mixer's output
 // channel is never touched).
-func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device string) (captureErr string) {
+func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device string) (captureErr string, kind CaptureErrorKind) {
 	mixer := p.Mixer()
 	if mixer == nil {
-		return "pipeline has no mixer"
+		return "pipeline has no mixer", CaptureErrInternal
 	}
 
 	var micSrc, sysSrc capture.Source
@@ -446,7 +481,7 @@ func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device
 	if mode == SourceMic || mode == SourceBoth {
 		micSrc, err = s.newSource(device)
 		if err != nil {
-			return "Couldn't open microphone: " + err.Error()
+			return "Couldn't open microphone: " + err.Error(), CaptureErrDeviceUnavailable
 		}
 	}
 	if mode == SourceSystem || mode == SourceBoth {
@@ -454,14 +489,14 @@ func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
-			return reason
+			return reason, CaptureErrUnsupported
 		}
 		sysSrc, err = capture.NewSystemSource()
 		if err != nil {
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
-			return err.Error()
+			return err.Error(), CaptureErrDeviceUnavailable
 		}
 	}
 
@@ -478,12 +513,12 @@ func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device
 		if sysSrc != nil {
 			_ = sysSrc.Close()
 		}
-		return "meeting ended during switch"
+		return "meeting ended during switch", CaptureErrInternal
 	}
 	for _, old := range displaced {
 		_ = old.Close()
 	}
-	return ""
+	return "", ""
 }
 
 func (s *Server) stopPipeline(id string) {
