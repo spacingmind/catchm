@@ -61,12 +61,16 @@ func NewSystemSource() (*SystemSource, error) {
 		return nil, err
 	}
 
-	// Loopback captures a playback device; the config's Playback
-	// section describes its format. One channel: if the device mixes
-	// stereo down to mono we lose nothing a meeting recording needs.
+	// miniaudio's WASAPI loopback takes its client format from the
+	// Capture subconfig (data arrives through the capture callback), not
+	// Playback. Without Capture set, the device delivers the endpoint's
+	// native 48 kHz and the mixer's jitter buffer drops ~2/3 of the
+	// samples (found on real Windows, 2026-09-25). Set both sides.
 	cfg := malgo.DefaultDeviceConfig(malgo.Loopback)
 	cfg.Playback.Format = malgo.FormatS16
 	cfg.Playback.Channels = audio.Channels
+	cfg.Capture.Format = malgo.FormatS16
+	cfg.Capture.Channels = audio.Channels
 	cfg.SampleRate = audio.SampleRate
 
 	ch := make(chan stt.PCM, 8)
