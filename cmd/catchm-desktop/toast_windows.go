@@ -21,6 +21,14 @@ import (
 // tray.go's tooltip already follows (a toast pops up over whatever's
 // on screen, including a shared one).
 //
+// meetingID, when non-empty, makes the toast clickable: it goes into
+// ActivationArguments as catchm://meeting/<id> with
+// activationType="protocol" (go-toast's own default — read from its
+// template: the launch attribute is what Windows activates on click),
+// Windows resolves the scheme to this exe via the HKCU protocol
+// registration the NSIS installer writes, and the already-running
+// single instance navigates to that meeting (see activate.go).
+//
 // AppID is deliberately the real AUMID (appID, "com.catchm.desktop"),
 // not a "pretty name" — go-toast's own doc comment on Notification
 // recommends a pretty name, but reading its actual generated
@@ -34,7 +42,7 @@ import (
 // (aumid_windows.go) — otherwise it falls back to a generic/PowerShell
 // identity. Verified by reading the library's source, not its doc
 // comment.
-func notify(hkManager *hotkeyManager, title, message string) {
+func notify(hkManager *hotkeyManager, title, message, meetingID string) {
 	if !hkManager.Settings().NotificationsEnabled {
 		return
 	}
@@ -42,6 +50,10 @@ func notify(hkManager *hotkeyManager, title, message string) {
 		AppID:   appID,
 		Title:   title,
 		Message: message,
+	}
+	if meetingID != "" {
+		n.ActivationArguments = meetingURIScheme + "://meeting/" + meetingID
+		n.ActivationType = "protocol"
 	}
 	if err := n.Push(); err != nil {
 		log.Printf("toast: %v", err)

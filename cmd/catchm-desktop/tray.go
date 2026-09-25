@@ -150,14 +150,18 @@ func notifyTrayTransition(hkManager *hotkeyManager, prev, cur trayState) {
 		if msg == "" {
 			msg = "capture stopped"
 		}
-		notify(hkManager, "CatchM", "Not recording: "+msg)
+		// No meeting id here: the meeting is still live and the live
+		// view is already where this error surfaces.
+		notify(hkManager, "CatchM", "Not recording: "+msg, "")
 	}
 	// The previously-active meeting is no longer active: it ended (or a
 	// different meeting became active via the web UI/MCP tools — either
 	// way the old one isn't live anymore). No title (screen-share
-	// privacy, same rule as the tooltip).
+	// privacy, same rule as the tooltip). The toast carries the ended
+	// meeting's id so clicking it opens that meeting (activate.go's
+	// catchm://meeting/<id> protocol activation).
 	if prev.meetingID != "" && cur.meetingID != prev.meetingID {
-		notify(hkManager, "CatchM", "Meeting ended")
+		notify(hkManager, "CatchM", "Meeting ended", prev.meetingID)
 	}
 }
 

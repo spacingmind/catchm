@@ -8,7 +8,8 @@ import { MeetingList } from "@/components/MeetingList"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
 import { Settings, type Section as SettingsSection } from "@/components/settings/Settings"
 import { listMeetings, type CaptureErrorKind, type Meeting, type StartMeetingResponse } from "@/lib/api"
-import { hasWindowControls } from "@/lib/wailsRuntime"
+import { getMeeting } from "@/lib/api"
+import { hasWindowControls, notifyReadyForEvents, windowEventsOn } from "@/lib/wailsRuntime"
 
 /** How often the live state is re-derived from the server. */
 const LIVE_POLL_MS = 3000
@@ -58,6 +59,38 @@ function App() {
   // reports the flag up through this callback rather than the hook
   // itself moving, so the transcript polling doesn't have to move too.
   const [liveCompact, setLiveCompact] = useState(false)
+
+  // catchm://meeting/<id> protocol activation (a "Meeting ended" toast
+  // click): the Go side (cmd/catchm-desktop/activate.go) emits
+  // app:open-meeting with the id — cold start (the toast launched the
+  // app) and already-running (OnSecondInstanceLaunch) alike. The
+  // meeting is fetched fresh rather than trusted from stale state: a
+  // toast can sit in Action Center long past the meeting's lifetime,
+  // and ended_at decides live vs detail view.
+  const openMeetingByID = useCallback((id: string) => {
+    getMeeting(id)
+      .then((m) => {
+        setSelected(m)
+        setView(m.ended_at ? "detail" : "live")
+        if (!m.ended_at) setLive(m)
+      })
+      .catch(() => {
+        // Unknown/deleted meeting: still land somewhere sensible.
+        setView("list")
+      })
+  }, [])
+
+  useEffect(() => {
+    // Order matters: subscribe FIRST, then announce readiness — a
+    // cold-start URI is held by the Go side until ReadyForEvents, so
+    // this subscription is guaranteed to exist before the event fires.
+    const cancel = windowEventsOn("app:open-meeting", (data) => {
+      const id = Array.isArray(data) ? data[0] : data
+      if (typeof id === "string") openMeetingByID(id)
+    })
+    notifyReadyForEvents()
+    return cancel
+  }, [openMeetingByID])
 
   // M22 §1: let Mica show through the shell (body + sidebar, via
   // index.css's html.desktop-mica rules) only inside the real Wails
