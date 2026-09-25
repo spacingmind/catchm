@@ -253,14 +253,36 @@ func TestOwnershipEverySourceClosedExactlyOnce(t *testing.T) {
 		t.Fatalf("start failed: %d %s", res.Code, res.Body.String())
 	}
 
-	// Two in-place switches (mic → mic → mic).
+	// Two in-place switches (mic → mic → mic). After each, wait (by
+	// polling, not a fixed sleep) until the displaced source shows
+	// closed — the swap's cleanup is the sync point.
+	waitClosed := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			mu.Lock()
+			closed := 0
+			for _, src := range opened {
+				if src.closeCount.Load() > 0 {
+					closed++
+				}
+			}
+			mu.Unlock()
+			if closed >= want {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("only %d/%d sources closed after switch", closed, want)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
 	for i := 0; i < 2; i++ {
 		res := do(t, s, http.MethodPost, "/api/meetings/"+m.ID+"/source", `{"source":"mic"}`)
 		if res.Code != http.StatusOK {
 			t.Fatalf("switch %d: %d %s", i, res.Code, res.Body.String())
 		}
-		// Give the mixer a beat to finish the swap cleanup.
-		time.Sleep(20 * time.Millisecond)
+		waitClosed(i + 1)
 	}
 
 	// End the meeting (stops the pipeline).
@@ -268,7 +290,7 @@ func TestOwnershipEverySourceClosedExactlyOnce(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("end: %d %s", res.Code, res.Body.String())
 	}
-	time.Sleep(50 * time.Millisecond)
+	waitClosed(3)
 
 	mu.Lock()
 	defer mu.Unlock()

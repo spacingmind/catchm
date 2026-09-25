@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -358,7 +357,7 @@ func (m SourceMode) valid() bool {
 func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
-		if strings.Contains(err.Error(), "soniox") && strings.Contains(err.Error(), "api key") {
+		if errors.Is(err, errSonioxNoKey) {
 			return "Soniox API key is not set — add it in Settings → Transcription."
 		}
 		return err.Error()
@@ -492,6 +491,10 @@ func (s *Server) stopPipeline(id string) {
 
 // newEngine builds an stt.StreamEngine by name, falling back to cfg's
 // configured default when name is empty.
+// errSonioxNoKey is the typed cause for a missing Soniox API key, so
+// the capture_error wording doesn't sniff error strings.
+var errSonioxNoKey = errors.New("soniox: no api key configured")
+
 func newEngine(name string, cfg *config.Config) (stt.StreamEngine, error) {
 	if name == "" {
 		name = cfg.Engine
@@ -501,7 +504,7 @@ func newEngine(name string, cfg *config.Config) (stt.StreamEngine, error) {
 		return stt.NewWhisperEngine(cfg.WhisperURL), nil
 	case "soniox":
 		if cfg.Soniox.APIKey == "" {
-			return nil, errors.New("soniox: no api key configured")
+			return nil, errSonioxNoKey
 		}
 		return stt.NewSonioxEngine(cfg.Soniox.URL, cfg.Soniox.APIKey), nil
 	default:
