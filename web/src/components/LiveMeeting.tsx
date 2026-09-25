@@ -3,7 +3,9 @@ import { ArrowDown, Minus, Plus, Radio } from "lucide-react"
 import { cn } from "cn"
 
 import { SegmentedControl } from "@/components/settings/pieces"
+import { CompactOverlay } from "@/components/live/CompactOverlay"
 import { StatusRow } from "@/components/live/StatusRow"
+import { useCompactMode } from "@/components/live/useCompactMode"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
@@ -187,6 +189,20 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
   const translationOn = Boolean(meeting.translate_to) || Boolean(meeting.two_way)
   const groups = groupBySpeaker(utterances)
 
+  const { compact, available: compactAvailable, toggle: toggleCompact } = useCompactMode()
+
+  if (compact) {
+    return (
+      <CompactOverlay
+        meetingId={meeting.id}
+        audioSource={meeting.audio_source ?? "mic"}
+        utterances={utterances}
+        viewMode={viewMode}
+        onExit={toggleCompact}
+      />
+    )
+  }
+
   return (
     <div className="mx-auto flex h-svh max-w-4xl flex-col px-6 py-8">
       <div className="mb-4 flex items-center justify-between gap-4">
@@ -220,7 +236,13 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings }: 
         </div>
       )}
 
-      <StatusRow meetingId={meeting.id} startedAt={meeting.started_at} initialSource={meeting.audio_source ?? "mic"} />
+      <StatusRow
+        meetingId={meeting.id}
+        startedAt={meeting.started_at}
+        initialSource={meeting.audio_source ?? "mic"}
+        compactAvailable={compactAvailable}
+        onToggleCompact={toggleCompact}
+      />
 
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         {translationOn ? (

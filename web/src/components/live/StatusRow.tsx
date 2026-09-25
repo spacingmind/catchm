@@ -3,6 +3,7 @@ import { AlertTriangle } from "lucide-react"
 import { cn } from "cn"
 
 import { SegmentedControl } from "@/components/settings/pieces"
+import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   getAudioSources,
@@ -83,9 +84,14 @@ interface StatusRowProps {
   meetingId: string
   startedAt: string
   initialSource: AudioSource
+  /** M21 §4: desktop-only compact overlay toggle. Omit both (or leave
+   *  compactAvailable false) to render no button at all — a plain
+   *  browser (catchm serve) never gets one, not just a disabled one. */
+  compactAvailable?: boolean
+  onToggleCompact?: () => void
 }
 
-export function StatusRow({ meetingId, startedAt, initialSource }: StatusRowProps) {
+export function StatusRow({ meetingId, startedAt, initialSource, compactAvailable, onToggleCompact }: StatusRowProps) {
   const [elapsed, setElapsed] = useState(() => formatElapsed(startedAt))
   const [source, setSource] = useState<AudioSource>(initialSource)
   const [device, setDevice] = useState("")
@@ -259,6 +265,12 @@ export function StatusRow({ meetingId, startedAt, initialSource }: StatusRowProp
         <span className={cn("inline-flex h-5 items-center rounded-4xl border px-2 text-xs font-medium", engine.className)}>
           {engine.label}
         </span>
+
+        {compactAvailable && onToggleCompact && (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={onToggleCompact} title="Compact mode (Ctrl/⌘+Shift+L)">
+            Compact
+          </Button>
+        )}
       </div>
 
       {sourceError && (
