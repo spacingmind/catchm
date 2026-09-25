@@ -7,5 +7,12 @@
   "frontend:build": "",
   "frontend:dev:watcher": "",
   "frontend:dev:serverUrl": "",
-  "wailsjsdir": "bindings"
+  "wailsjsdir": "bindings",
+  "info": {
+    "companyName": "CatchM",
+    "productName": "CatchM",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2026 CatchM",
+    "comments": "Local-first meeting transcription and translation"
+  }
 }

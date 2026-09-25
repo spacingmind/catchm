@@ -2,13 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   hasWindowControls,
+  notifyCompactMode,
+  windowEventsOn,
   windowGetPosition,
   windowGetSize,
+  windowRestoreAbsolutePosition,
   windowSetAlwaysOnTop,
   windowSetMinSize,
-  windowSetPosition,
   windowSetSize,
 } from "@/lib/wailsRuntime"
+
+// Must match cmd/catchm-desktop/tray.go's trayToggleCompactEvent const
+// exactly — the tray's "Compact mode" menu item emits this.
+const TRAY_TOGGLE_COMPACT_EVENT = "tray:toggle-compact"
 
 const COMPACT_WIDTH = 480
 const COMPACT_HEIGHT = 260
@@ -38,25 +44,38 @@ export function useCompactMode() {
     windowSetMinSize(0, 0)
     windowSetSize(COMPACT_WIDTH, COMPACT_HEIGHT)
     windowSetAlwaysOnTop(true)
+    notifyCompactMode(true)
     setCompact(true)
   }, [available, compact])
 
-  const exit = useCallback(() => {
+  const exit = useCallback(async () => {
     if (!available || !compact) return
     windowSetAlwaysOnTop(false)
     const saved = savedRef.current
     if (saved) {
       windowSetSize(saved.w, saved.h)
-      windowSetPosition(saved.x, saved.y)
+      // windowRestoreAbsolutePosition, not a raw windowSetPosition(x, y)
+      // round-trip of what windowGetPosition returned in enter() above
+      // — that was M21's exact bug (a 24px drift on this exact call),
+      // root-caused and fixed in wailsRuntime.ts. MUST be awaited here:
+      // real Windows testing caught that firing it detached (the
+      // previous `void windowRestoreAbsolutePosition(...)`) let the
+      // calls below run before its internal SetPosition(0,0) ->
+      // GetPosition -> corrective-SetPosition chain finished, leaving
+      // the window stranded at the calibration midpoint (the monitor's
+      // work-area origin) instead of the target position — a new,
+      // 100%-reproducible drift, worse than the one this was fixing.
+      await windowRestoreAbsolutePosition(saved.x, saved.y)
     }
     // The app (cmd/catchm-desktop) never sets its own min-size, so (0,0)
     // is the correct restored value, not a placeholder.
     windowSetMinSize(0, 0)
+    notifyCompactMode(false)
     setCompact(false)
   }, [available, compact])
 
   const toggle = useCallback(() => {
-    if (compact) exit()
+    if (compact) void exit()
     else void enter()
   }, [compact, enter, exit])
 
@@ -91,6 +110,14 @@ export function useCompactMode() {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
+  }, [available, toggle])
+
+  // M22 §3: the tray's "Compact mode" menu item (no direct Go->JS call
+  // surface other than Wails events — DesktopBridge, M22 §2, only goes
+  // JS->Go).
+  useEffect(() => {
+    if (!available) return
+    return windowEventsOn(TRAY_TOGGLE_COMPACT_EVENT, toggle)
   }, [available, toggle])
 
   return { compact, available, toggle }

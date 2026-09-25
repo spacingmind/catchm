@@ -13,11 +13,26 @@ import (
 // fakeClock is an injectable Clock whose Sleep advances virtual time
 // (no real sleeping) and wakes tick loops instantly.
 type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
+	mu   sync.Mutex
+	now  time.Time
+	gate chan struct{} // non-nil: every Sleep blocks here until release()
 }
 
 func newFakeClock() *fakeClock { return &fakeClock{now: time.Unix(0, 0)} }
+
+// newGatedFakeClock returns a fakeClock whose tick loop can't take its
+// first tick until release() is called. Mixer.run's first Sleep call
+// happens before its first mixTick, so holding the gate open until a
+// test has confirmed (via waitForData) that every input it cares about
+// is already buffered guarantees the first tick mixes real data from
+// ALL of them — closing the race where the tick loop mixes and emits a
+// tick (padding whichever input hadn't landed yet) in between two
+// sequential waitForData calls, before the second one ever returns.
+func newGatedFakeClock() *fakeClock {
+	return &fakeClock{now: time.Unix(0, 0), gate: make(chan struct{})}
+}
+
+func (c *fakeClock) release() { close(c.gate) }
 
 func (c *fakeClock) Now() time.Time {
 	c.mu.Lock()
@@ -31,6 +46,9 @@ func (c *fakeClock) Now() time.Time {
 // production. Without the real yield the tick loop spins through every
 // virtual tick before any pump ever runs.
 func (c *fakeClock) Sleep(d time.Duration) {
+	if c.gate != nil {
+		<-c.gate
+	}
 	if d <= 0 {
 		return
 	}
@@ -129,13 +147,15 @@ func constSamples(n int, v int16) []int16 {
 func TestMixerSaturatesAtBounds(t *testing.T) {
 	mic := newFakeSource(constSamples(TickSamples, 20000), constSamples(TickSamples, math.MaxInt16))
 	sys := newFakeSource(constSamples(TickSamples, 20000), constSamples(TickSamples, math.MinInt16))
-	m, err := NewMixer(newFakeClock(), mic, sys)
+	clock := newGatedFakeClock()
+	m, err := NewMixer(clock, mic, sys)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer m.Close()
 	waitForData(t, m, m.mic, TickSamples)
 	waitForData(t, m, m.system, TickSamples)
+	clock.release()
 
 	ticks := drainTicks(t, m, 2)
 	for i, v := range ticks[0] {
@@ -209,13 +229,15 @@ func TestMixerOneInputPassthrough(t *testing.T) {
 func TestMixerSums(t *testing.T) {
 	mic := newFakeSource(constSamples(TickSamples, 100))
 	sys := newFakeSource(constSamples(TickSamples, 234))
-	m, err := NewMixer(newFakeClock(), mic, sys)
+	clock := newGatedFakeClock()
+	m, err := NewMixer(clock, mic, sys)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer m.Close()
 	waitForData(t, m, m.mic, TickSamples)
 	waitForData(t, m, m.system, TickSamples)
+	clock.release()
 
 	ticks := drainTicks(t, m, 1)
 	for i, v := range ticks[0] {
@@ -283,13 +305,15 @@ func TestMixerRealTimeCadence(t *testing.T) {
 func TestMixerLevels(t *testing.T) {
 	mic := newFakeSource(constSamples(TickSamples, 16384)) // half scale
 	sys := newFakeSource(constSamples(TickSamples, 0))     // explicit silence
-	m, err := NewMixer(newFakeClock(), mic, sys)
+	clock := newGatedFakeClock()
+	m, err := NewMixer(clock, mic, sys)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer m.Close()
 	waitForData(t, m, m.mic, TickSamples)
 	waitForData(t, m, m.system, TickSamples)
+	clock.release()
 
 	drainTicks(t, m, 1)
 	m.Close() // stop the loop so no padding tick overwrites the window

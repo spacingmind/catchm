@@ -7,6 +7,7 @@ import { SettingRow, SettingsSection } from "@/components/settings/pieces"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { notifyCloudSyncConflict } from "@/lib/wailsRuntime"
 import {
   cloudLogin,
   cloudLogout,
@@ -174,7 +175,12 @@ export function SettingsCloudSync() {
     setSyncing(true)
     setSyncError(null)
     try {
-      setSyncResult(await cloudSync())
+      const result = await cloudSync()
+      setSyncResult(result)
+      // M22 §5: no background sync loop exists to poll for this (see
+      // desktop_settings.go's NotifyCloudSyncConflict doc comment) — a
+      // toast fires right here, where the conflict is already detected.
+      notifyCloudSyncConflict(result.conflicted?.length ?? 0)
       refresh()
     } catch (err) {
       setSyncResult(null)

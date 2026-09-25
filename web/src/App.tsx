@@ -8,6 +8,7 @@ import { MeetingList } from "@/components/MeetingList"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
 import { Settings, type Section as SettingsSection } from "@/components/settings/Settings"
 import { listMeetings, type Meeting, type StartMeetingResponse } from "@/lib/api"
+import { hasWindowControls } from "@/lib/wailsRuntime"
 
 /** How often the live state is re-derived from the server. */
 const LIVE_POLL_MS = 3000
@@ -47,6 +48,17 @@ function App() {
   // reports the flag up through this callback rather than the hook
   // itself moving, so the transcript polling doesn't have to move too.
   const [liveCompact, setLiveCompact] = useState(false)
+
+  // M22 §1: let Mica show through the shell (body + sidebar, via
+  // index.css's html.desktop-mica rules) only inside the real Wails
+  // window. hasWindowControls() never changes after mount, so this runs
+  // once; a plain browser (catchm serve) never adds the class and keeps
+  // the normal opaque page.
+  useEffect(() => {
+    if (hasWindowControls()) {
+      document.documentElement.classList.add("desktop-mica")
+    }
+  }, [])
 
   // Server is the source of truth for "is anything recording": refresh on
   // mount and every few seconds so a reload/restart or a meeting started
@@ -125,7 +137,12 @@ function App() {
   const showCompactShell = liveCompact && view === "live" && selected && !selected.ended_at
 
   return (
-    <div className={showCompactShell ? "bg-background text-foreground" : "flex min-h-svh bg-background text-foreground"}>
+    // Compact mode always stays opaque (a small floating reading window,
+    // unaffected by M22 — Mica is out of its scope). The normal shell
+    // drops its own bg-background so html.desktop-mica's transparent
+    // body (index.css) can show Mica through here and the sidebar; a
+    // plain browser still gets an opaque page from body's own rule.
+    <div className={showCompactShell ? "bg-background text-foreground" : "flex min-h-svh text-foreground"}>
       {!showCompactShell && (
         <AppSidebar
           view={view}
@@ -136,7 +153,9 @@ function App() {
         />
       )}
 
-      <main className={showCompactShell ? "" : "min-w-0 flex-1"}>
+      {/* main: always opaque — content (meeting list, transcript, notes,
+          settings) stays readable over Mica regardless of the shell. */}
+      <main className={showCompactShell ? "" : "min-w-0 flex-1 bg-background"}>
         {!showCompactShell && view === "list" && <MeetingList onOpenMeeting={openMeeting} />}
         {view === "live" && selected && !selected.ended_at && (
           <LiveMeeting

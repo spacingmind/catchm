@@ -80,7 +80,12 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
   return (
     <aside
       className={cn(
-        "sticky top-0 flex h-svh shrink-0 flex-col border-r border-border bg-card motion-safe:transition-[width]",
+        // app-sidebar: M22 §1 hook — index.css turns this transparent so
+        // Mica shows through when running in the Wails desktop shell
+        // (html.desktop-mica, set by App.tsx). bg-card stays as the
+        // catchm-serve/browser fallback. select-none (M22 §4): pure nav
+        // chrome, nothing here needs to be text-selectable.
+        "app-sidebar sticky top-0 flex h-svh shrink-0 flex-col border-r border-border bg-card select-none motion-safe:transition-[width]",
         collapsed ? "w-16" : "w-56",
       )}
     >

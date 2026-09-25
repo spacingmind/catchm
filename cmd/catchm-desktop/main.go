@@ -9,21 +9,19 @@ package main
 
 import (
 	"context"
-	_ "embed"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailswindows "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/spacingmind/catchm/internal/config"
@@ -32,14 +30,23 @@ import (
 	"github.com/spacingmind/catchm/internal/tools"
 )
 
-// How often the tray tooltip re-checks for an active (un-ended) meeting.
-const tooltipPollInterval = 3 * time.Second
+// appID is a stable reverse-DNS identifier shared by SingleInstanceLock
+// (below) and the AUMID toast notifications need (M22 §5,
+// SetCurrentProcessExplicitAppUserModelID) — the spec asks for the same
+// string in both places.
+const appID = "com.catchm.desktop"
 
-// Systray's SetIcon on Windows wants raw .ico file bytes, so the mascot
-// art is shipped as a pre-sized 16/32px ICO next to appicon.png.
-//
-//go:embed build/trayicon.ico
-var trayIcon []byte
+// Brand colours (web/src/index.css: --background #FBF7EA, --foreground/
+// --primary #6C3524, --secondary/--muted #D9C4B4), packed for
+// windows.ThemeSettings via windows.RGB. The app ships light-only (no
+// dark mode variant — see index.css), so the title bar is forced to
+// windows.Light regardless of the system theme: a dark title bar over
+// an all-light content area would look broken, not themed.
+var (
+	titleBarColour    = wailswindows.RGB(0xFB, 0xF7, 0xEA) // --background
+	titleTextColour   = wailswindows.RGB(0x6C, 0x35, 0x24) // --foreground
+	titleBorderColour = wailswindows.RGB(0xD9, 0xC4, 0xB4) // --secondary
+)
 
 // Shared between the Wails callbacks and the systray goroutine: the
 // runtime context from OnStartup, and the flag the tray's Quit item
@@ -49,6 +56,14 @@ var (
 	wailsCtx   context.Context
 	reallyQuit bool
 )
+
+// windowVisible tracks show/hide state ourselves — Wails v2 has no
+// WindowIsVisible getter (checked pkg/runtime/window.go) — so the M22
+// §5 show/hide hotkey knows which direction to toggle, and toasts only
+// fire while the window is actually hidden. Starts true: the window
+// opens visible on a normal launch (false only for --autostart, which
+// sets StartHidden below).
+var windowVisible atomic.Bool
 
 func main() {
 	if err := run(); err != nil {
@@ -78,114 +93,132 @@ func run() error {
 
 	handler := server.New(tools.New(store), cfg)
 
+	// M22 §5 launch-at-login: autostart_windows.go writes this exact
+	// flag into the HKCU Run command line (internal/autostart.
+	// CommandLine); starting hidden here is what makes "launch at
+	// login" open to the tray instead of popping the window on every
+	// sign-in.
+	autostartLaunch := slices.Contains(os.Args[1:], "--autostart")
+	windowVisible.Store(!autostartLaunch)
+
+	setProcessAUMID(appID)
+
 	pollCtx, stopPoll := context.WithCancel(context.Background())
 	defer stopPoll()
 
+	hkManager := newHotkeyManager(filepath.Join(home, desktopSettingsFileName), newPlatformHotkeys(), handler, cfg)
+
 	go systray.Run(
-		func() { onTrayReady(pollCtx, handler) },
+		func() { onTrayReady(pollCtx, handler, cfg, hkManager) },
 		stopPoll,
 	)
 
+	stateTracker := newWindowStateTracker(filepath.Join(home, windowStateFileName))
+	go stateTracker.poll(pollCtx)
+
 	return wails.Run(&options.App{
-		Title:  "CatchM",
-		Width:  1180,
-		Height: 760,
+		Title:       "CatchM",
+		Width:       1180,
+		Height:      760,
+		StartHidden: autostartLaunch,
 		AssetServer: &assetserver.Options{
 			Handler: handler,
+		},
+		Bind: []interface{}{
+			&DesktopBridge{hk: hkManager},
+		},
+		// M22 §4 WebView hardening. EnableDefaultContextMenu and Debug are
+		// deliberately left unset: verified against frontend.go directly
+		// — PutAreDefaultContextMenusEnabled(f.debug ||
+		// EnableDefaultContextMenu) and PutAreDevToolsEnabled(devtoolsEnabled)
+		// (gated on the `devtools` build tag Taskfile's desktop:build never
+		// passes) already disable the context menu and devtools in a
+		// production build and re-enable both in `wails dev`, matching the
+		// spec exactly with no extra code. File/URL drops onto the webview:
+		// DragAndDrop.DisableWebViewDrop (its own doc comment: "prevent
+		// accidental file opening of dragged in files in the webview").
+		DragAndDrop: &options.DragAndDrop{
+			DisableWebViewDrop: true,
+		},
+		// SingleInstanceLock: verified against
+		// internal/frontend/desktop/windows/{single_instance,frontend}.go
+		// — a second launch's args are forwarded via WM_COPYDATA to a
+		// hidden message-only window in the first instance (which then
+		// os.Exit(0)s itself) and OnSecondInstanceLaunch fires on the
+		// FIRST instance; WindowShow already un-minimizes and focuses
+		// (win32.RestoreWindow when minimized, else ShowWindow, always
+		// finishing with SetForegroundWindow — read directly in
+		// frontend.go's ShowWindow), so no separate unminimize/focus
+		// calls are needed here.
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: appID,
+			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+				if ctx := appContext(); ctx != nil {
+					windowVisible.Store(true)
+					runtime.WindowShow(ctx)
+				}
+			},
+		},
+		// Native title bar kept (see docs/plans/active/m22-native-shell.md:
+		// frameless loses Snap Layouts/Alt+Space, and Wails v2 has no
+		// WM_NCHITTEST integration to get them back). Mica shows through
+		// instead — WindowIsTranslucent + BackdropType is the v2.16 pair
+		// that enables it (pkg/options/windows/windows.go); Wails' own
+		// win32.SupportsBackdropTypes() (internal/frontend/desktop/windows/
+		// win32/theme.go) gates this on Windows 11 22621+ and silently
+		// falls back to a plain window below that build — no fallback
+		// logic needed on this side.
+		Windows: &wailswindows.Options{
+			WindowIsTranslucent: true,
+			BackdropType:        wailswindows.Mica,
+			Theme:               wailswindows.Light,
+			// M22 §4: browser zoom off (Ctrl+±, Ctrl+wheel, pinch) — verified
+			// against frontend.go: IsZoomControlEnabled maps straight to
+			// WebView2's PutIsZoomControlEnabled (its own docs: gates
+			// Ctrl+/Ctrl-/Ctrl+MouseWheel), DisablePinchZoom to
+			// PutIsPinchZoomEnabled(!DisablePinchZoom).
+			IsZoomControlEnabled: false,
+			DisablePinchZoom:     true,
+			CustomTheme: &wailswindows.ThemeSettings{
+				LightModeTitleBar:          titleBarColour,
+				LightModeTitleText:         titleTextColour,
+				LightModeBorder:            titleBorderColour,
+				LightModeTitleBarInactive:  titleBarColour,
+				LightModeTitleTextInactive: titleTextColour,
+				LightModeBorderInactive:    titleBorderColour,
+			},
 		},
 		OnStartup: func(ctx context.Context) {
 			mu.Lock()
 			wailsCtx = ctx
 			mu.Unlock()
+			stateTracker.restore(ctx)
+			hkManager.applyAll()
 		},
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
+			stateTracker.saveIfChanged(ctx)
 			mu.Lock()
 			quit := reallyQuit
 			mu.Unlock()
 			if quit {
 				return false
 			}
+			windowVisible.Store(false)
 			runtime.WindowHide(ctx)
 			return true
 		},
+		// M22 §5: unregister every global hotkey on quit — a stale
+		// RegisterHotKey would otherwise keep intercepting its combo
+		// system-wide even after the process exits, if the OS is slow to
+		// reclaim it.
+		OnShutdown: func(context.Context) {
+			hkManager.unregisterAll()
+		},
 	})
-}
-
-// onTrayReady builds the tray menu and starts the tooltip poll. It runs
-// inside systray.Run's event loop startup.
-func onTrayReady(ctx context.Context, handler http.Handler) {
-	systray.SetIcon(trayIcon)
-	systray.SetTooltip("CatchM")
-
-	mOpen := systray.AddMenuItem("Open CatchM", "Show the CatchM window")
-	mOpen.Click(func() {
-		if appCtx := appContext(); appCtx != nil {
-			runtime.WindowShow(appCtx)
-		}
-	})
-
-	mQuit := systray.AddMenuItem("Quit", "Quit CatchM (ends any in-progress capture)")
-	mQuit.Click(func() {
-		mu.Lock()
-		reallyQuit = true
-		mu.Unlock()
-		systray.Quit()
-		if appCtx := appContext(); appCtx != nil {
-			runtime.Quit(appCtx)
-		}
-	})
-
-	go pollActiveMeeting(ctx, handler)
 }
 
 func appContext() context.Context {
 	mu.Lock()
 	defer mu.Unlock()
 	return wailsCtx
-}
-
-// pollActiveMeeting keeps the tray tooltip honest about capture state:
-// "CatchM — Recording" while any meeting is un-ended, plain "CatchM"
-// otherwise. It serves GET /api/meetings through the same in-process
-// handler the window uses, so no HTTP listener is involved.
-func pollActiveMeeting(ctx context.Context, handler http.Handler) {
-	ticker := time.NewTicker(tooltipPollInterval)
-	defer ticker.Stop()
-	for {
-		recording, err := anyMeetingActive(handler)
-		if err == nil {
-			if recording {
-				systray.SetTooltip("CatchM — Recording")
-			} else {
-				systray.SetTooltip("CatchM")
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func anyMeetingActive(handler http.Handler) (bool, error) {
-	req, err := http.NewRequest(http.MethodGet, "/api/meetings", nil)
-	if err != nil {
-		return false, err
-	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		return false, fmt.Errorf("list meetings: status %d", rec.Code)
-	}
-	var meetings []meeting.Meeting
-	if err := json.Unmarshal(rec.Body.Bytes(), &meetings); err != nil {
-		return false, err
-	}
-	for _, m := range meetings {
-		if m.EndedAt == nil {
-			return true, nil
-		}
-	}
-	return false, nil
 }
