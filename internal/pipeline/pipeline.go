@@ -22,6 +22,17 @@ type Pipeline struct {
 	resultsDone chan struct{}
 }
 
+// Mixer returns the pipeline's capture source when it is a *capture.Mixer
+// (it is, for every mode since M19: single-input mixers keep one code
+// path). Nil otherwise. The server uses it for mid-session source
+// switching and level metering.
+func (p *Pipeline) Mixer() *capture.Mixer {
+	if m, ok := p.src.(*capture.Mixer); ok {
+		return m
+	}
+	return nil
+}
+
 // Start begins streaming src through engine into store's transcript for
 // meeting id, while also writing raw audio to audioPath. translator may be
 // nil, in which case no translation step runs. When non-nil, it fills in
@@ -111,6 +122,8 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 // for both pipeline goroutines to exit, and finalizes audio.wav. It is
 // safe to call once; calling it leaves no goroutines running.
 func (p *Pipeline) Stop() error {
+	// The source is always a Mixer since M19; its Close closes the
+	// installed input devices (displaced ones were closed at swap time).
 	srcErr := p.src.Close()
 	<-p.feederDone
 	p.cancel()

@@ -77,6 +77,9 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	s.mux.HandleFunc("GET /api/devices", s.handleDevices)
+	s.mux.HandleFunc("GET /api/audio/sources", s.handleAudioSources)
+	s.mux.HandleFunc("POST /api/meetings/{id}/source", s.handleSetMeetingSource)
+	s.mux.HandleFunc("GET /api/meetings/{id}/levels", s.handleMeetingLevels)
 	s.mux.HandleFunc("GET /api/meetings", s.handleListMeetings)
 	s.mux.HandleFunc("POST /api/meetings", s.handleStartMeeting)
 	s.mux.HandleFunc("GET /api/meetings/{id}", s.handleGetMeeting)
@@ -138,11 +141,122 @@ func (s *Server) handleDevices(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, devices)
 }
 
+// handleAudioSources serves the M19 source-selection contract: the mic
+// device list (same shape as /api/devices, which stays) plus system
+// capability.
+func (s *Server) handleAudioSources(w http.ResponseWriter, _ *http.Request) {
+	mics, err := capture.Devices()
+	if err != nil {
+		// Degrade gracefully like handleDevices: no audio backend still
+		// gets a working answer.
+		mics = nil
+	}
+	supported, reason := capture.SystemAudioSupported()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mic_devices": mics,
+		"system":      map[string]any{"supported": supported, "reason": reason},
+	})
+}
+
+// handleSetMeetingSource switches a live meeting's audio source
+// in place: the pipeline's mixer swaps inputs (open new first; on
+// failure the old input keeps running). 404 when the meeting has no
+// live pipeline (already ended or capture never started), 400 on a bad
+// source value, 422 when the new source can't be opened (old input
+// stays live; the body says why).
+func (s *Server) handleSetMeetingSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.mu.Lock()
+	p := s.pipelines[id]
+	s.mu.Unlock()
+	if p == nil {
+		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		return
+	}
+
+	var req struct {
+		Source string `json:"source"`
+		Device string `json:"device"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	mode := SourceMic
+	if req.Source != "" {
+		mode = SourceMode(req.Source)
+	}
+	if !mode.valid() {
+		httpError(w, http.StatusBadRequest, `source must be "mic", "system" or "both"`)
+		return
+	}
+
+	if captureErr := s.switchAudioSource(p, mode, req.Device); captureErr != "" {
+		// Old input still live; the switch just didn't happen.
+		httpError(w, http.StatusUnprocessableEntity, captureErr)
+		return
+	}
+
+	// Record the switch in the meeting so the timeline is honest:
+	// audio_source frontmatter plus a timestamped note (notes are the
+	// existing free-form timeline surface).
+	if err := s.surface.Store().UpdateDoc(id, func(m *meeting.Meeting) error {
+		m.AudioSource = string(mode)
+		if m.Notes == nil {
+			m.Notes = []string{}
+		}
+		m.Notes = append(m.Notes, fmt.Sprintf("audio source switched to %s at %s", mode, time.Now().Format(time.RFC3339)))
+		return nil
+	}); err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"source": string(mode), "device": req.Device})
+}
+
+// handleMeetingLevels serves the live level meters (5–10 Hz polling):
+// per active input rms/peak (0–1) plus drop diagnostics — dropped_ticks
+// (output-side, slow consumer) and per-input dropped_samples (clock
+// drift trims). Memory only; no disk I/O.
+func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.mu.Lock()
+	p := s.pipelines[id]
+	s.mu.Unlock()
+	if p == nil {
+		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		return
+	}
+	mixer := p.Mixer()
+	if mixer == nil {
+		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		return
+	}
+
+	mic, sys, droppedTicks := mixer.Stats()
+	body := map[string]any{"dropped_ticks": droppedTicks}
+	if mixer.HasInput(true) {
+		body["mic"] = map[string]any{
+			"rms": mic.RMS, "peak": mic.Peak,
+			"dropped_chunks": mic.DroppedChunks, "dropped_samples": mic.DroppedSamples,
+		}
+	}
+	if mixer.HasInput(false) {
+		body["system"] = map[string]any{
+			"rms": sys.RMS, "peak": sys.Peak,
+			"dropped_chunks": sys.DroppedChunks, "dropped_samples": sys.DroppedSamples,
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
 func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title       string   `json:"title"`
 		Device      string   `json:"device"`
 		Engine      string   `json:"engine"`
+		Source      string   `json:"source"`
 		Lang        string   `json:"lang"`
 		TranslateTo string   `json:"translate_to"`
 		TwoWay      bool     `json:"two_way"`
@@ -171,28 +285,118 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
+	mode := SourceMic
+	if req.Source != "" {
+		mode = SourceMode(req.Source)
+		if !mode.valid() {
+			httpError(w, http.StatusBadRequest, `source must be "mic", "system" or "both"`)
+			return
+		}
+	}
+	var captureErr string
 	if req.Engine != "" {
 		// Best-effort: a meeting always gets created even if live capture
 		// can't start (e.g. no audio backend, or the engine can't connect).
-		s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
+		captureErr = s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
 			Lang:        req.Lang,
 			TranslateTo: req.TranslateTo,
 			LanguageB:   req.TranslateTo,
 			TwoWay:      req.TwoWay,
-		})
+		}, mode)
 	}
-	respond(w, m, nil)
+	if err := s.surface.Store().UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
+		mm.AudioSource = string(mode)
+		return nil
+	}); err == nil {
+		m.AudioSource = string(mode)
+	}
+
+	// Response shape: the Meeting object itself (as before), with
+	// audio_source set, plus capture_error ONLY when capture failed to
+	// start — the M20 contract keeps the meeting fields at top level.
+	body := meetingJSON(m)
+	if captureErr != "" {
+		body["capture_error"] = captureErr
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
-func (s *Server) startPipeline(id, device, engineName string, opts stt.Options) {
+// meetingJSON round-trips a Meeting through its JSON tags into a map so
+// extra response fields (capture_error) can sit alongside it.
+func meetingJSON(m *meeting.Meeting) map[string]any {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return map[string]any{}
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+// SourceMode selects a meeting's audio inputs (M19): mic, system, or
+// both mixed into one stream.
+type SourceMode string
+
+const (
+	SourceMic    SourceMode = "mic"
+	SourceSystem SourceMode = "system"
+	SourceBoth   SourceMode = "both"
+)
+
+func (m SourceMode) valid() bool {
+	return m == SourceMic || m == SourceSystem || m == SourceBoth
+}
+
+// startPipeline runs the meeting's capture through a Mixer for EVERY
+// mode (a one-input mixer is still a mixer: one code path, and
+// mid-session switching never needs to rebuild the pipeline). Returns
+// a human-readable capture error on failure — the meeting still exists
+// (existing behavior), but the failure is no longer silent.
+func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
-		return
+		if errors.Is(err, errSonioxNoKey) {
+			return "Soniox API key is not set — add it in Settings → Transcription."
+		}
+		return err.Error()
 	}
-	src, err := s.newSource(device)
+
+	var micSrc, sysSrc capture.Source
+	if mode == SourceMic || mode == SourceBoth {
+		micSrc, err = s.newSource(device)
+		if err != nil {
+			return "Couldn't open microphone: " + err.Error()
+		}
+	}
+	if mode == SourceSystem || mode == SourceBoth {
+		if ok, reason := capture.SystemAudioSupported(); !ok {
+			if micSrc != nil {
+				_ = micSrc.Close()
+			}
+			return reason
+		}
+		sysSrc, err = capture.NewSystemSource()
+		if err != nil {
+			if micSrc != nil {
+				_ = micSrc.Close()
+			}
+			return err.Error()
+		}
+	}
+
+	src, err := capture.NewMixer(capture.RealClock{}, micSrc, sysSrc)
 	if err != nil {
-		return
+		if micSrc != nil {
+			_ = micSrc.Close()
+		}
+		if sysSrc != nil {
+			_ = sysSrc.Close()
+		}
+		return err.Error()
 	}
+
 	var translator translate.Translator
 	if opts.TwoWay || opts.TranslateTo != "" {
 		// Best-effort: a translator that fails to construct just leaves
@@ -205,11 +409,74 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options) 
 	p, err := pipeline.Start(s.surface.Store(), id, src, engine, opts, audioPath, translator)
 	if err != nil {
 		_ = src.Close()
-		return
+		if micSrc != nil {
+			_ = micSrc.Close()
+		}
+		if sysSrc != nil {
+			_ = sysSrc.Close()
+		}
+		return err.Error()
 	}
 	s.mu.Lock()
 	s.pipelines[id] = p
 	s.mu.Unlock()
+	return ""
+}
+
+// switchAudioSource swaps a live pipeline's inputs through the mixer:
+// open the new sources FIRST; only on success SetInputs and close the
+// old; on failure keep the old input and return the error. audio.wav
+// keeps recording the mixed stream throughout (the mixer's output
+// channel is never touched).
+func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device string) (captureErr string) {
+	mixer := p.Mixer()
+	if mixer == nil {
+		return "pipeline has no mixer"
+	}
+
+	var micSrc, sysSrc capture.Source
+	var err error
+	if mode == SourceMic || mode == SourceBoth {
+		micSrc, err = s.newSource(device)
+		if err != nil {
+			return "Couldn't open microphone: " + err.Error()
+		}
+	}
+	if mode == SourceSystem || mode == SourceBoth {
+		if ok, reason := capture.SystemAudioSupported(); !ok {
+			if micSrc != nil {
+				_ = micSrc.Close()
+			}
+			return reason
+		}
+		sysSrc, err = capture.NewSystemSource()
+		if err != nil {
+			if micSrc != nil {
+				_ = micSrc.Close()
+			}
+			return err.Error()
+		}
+	}
+
+	// Commit: swap inputs; the mixer hands back the displaced sources,
+	// which we close (ownership transfer is explicit).
+	displaced, err := mixer.SetInputs(micSrc, sysSrc)
+	if err != nil {
+		// The mixer closed between the pipeline check and here (meeting
+		// ended mid-switch): nothing was installed, so close the newly
+		// opened sources and report.
+		if micSrc != nil {
+			_ = micSrc.Close()
+		}
+		if sysSrc != nil {
+			_ = sysSrc.Close()
+		}
+		return "meeting ended during switch"
+	}
+	for _, old := range displaced {
+		_ = old.Close()
+	}
+	return ""
 }
 
 func (s *Server) stopPipeline(id string) {
@@ -224,6 +491,10 @@ func (s *Server) stopPipeline(id string) {
 
 // newEngine builds an stt.StreamEngine by name, falling back to cfg's
 // configured default when name is empty.
+// errSonioxNoKey is the typed cause for a missing Soniox API key, so
+// the capture_error wording doesn't sniff error strings.
+var errSonioxNoKey = errors.New("soniox: no api key configured")
+
 func newEngine(name string, cfg *config.Config) (stt.StreamEngine, error) {
 	if name == "" {
 		name = cfg.Engine
@@ -233,7 +504,7 @@ func newEngine(name string, cfg *config.Config) (stt.StreamEngine, error) {
 		return stt.NewWhisperEngine(cfg.WhisperURL), nil
 	case "soniox":
 		if cfg.Soniox.APIKey == "" {
-			return nil, errors.New("soniox: no api key configured")
+			return nil, errSonioxNoKey
 		}
 		return stt.NewSonioxEngine(cfg.Soniox.URL, cfg.Soniox.APIKey), nil
 	default:
