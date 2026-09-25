@@ -19,6 +19,23 @@ front.
 
 ## Scope
 
+### 0. Go bug first: `/end` hangs (found during M20.1 verification)
+
+In the Linux sandbox, `POST /api/meetings/{id}/end` never returned
+for a real `whisper` engine + `mic` source meeting (the verifier had
+to kill the server). On real Windows (M19 verification) ending mic
+meetings worked, so this may depend on the backend/device or on the
+whisper engine's shutdown when its server is unreachable. Reproduce it
+(same setup: isolated `CATCHM_HOME`, real mic via malgo, whisper
+engine with no whisper server running), capture goroutine dumps
+(`SIGQUIT` or a pprof/`runtime.Stack` debug hook) while it hangs, find
+the root cause (candidates: `Mixer.Close` waiting on pumps blocked in a
+source read, pipeline `Stop` waiting on an engine flush with no
+timeout, a device `Uninit` deadlock, a lock held across a blocking
+call), fix it, and add a regression test that ends a meeting whose
+engine/source blocks, bounded by a deadline. A meeting must always be
+endable.
+
 ### 1. Status row (top of Live view)
 
 - **Elapsed time** (from `started_at`, ticking each second).
@@ -132,6 +149,7 @@ M22), multi-window, Wails v3 migration, dark mode.
 
 ## Progress
 
+- [ ] Go: `/end` hang root cause + fix + regression test
 - [ ] Go: engine state in levels (+ tests)
 - [ ] Status row: elapsed, live source switch (+422), device, levels, drops, engine state
 - [ ] Transcript: fill viewport, grouping, view modes, font size, notes label
