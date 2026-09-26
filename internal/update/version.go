@@ -1,11 +1,11 @@
-// Package update implements CatchM's self-update against GitHub
-// Releases: comparing the running version to the latest tag, and
-// downloading + SHA-256-verifying the NSIS installer before anything
-// executes it. Pure Go — no Wails, no Windows API — so all of it is
-// unit-testable on any OS (the security boundary lives here: with no
-// code signing, the published checksum is the ONLY integrity check
-// between "bytes arrived over the network" and "elevated process runs
-// them").
+// Package update implements CatchM's self-update against the
+// catchm-cloud update API (a GitHub-Releases-shaped manifest): comparing
+// the running version to the latest tag, and downloading +
+// SHA-256-verifying the NSIS installer before anything executes it.
+// Pure Go — no Wails, no Windows API — so all of it is unit-testable
+// on any OS (the security boundary lives here: with no code signing,
+// the published checksum is the ONLY integrity check between "bytes
+// arrived over the network" and "elevated process runs them").
 package update
 
 import (
@@ -43,7 +43,7 @@ func ParseVersion(s string) ([3]int, error) {
 // stamped by ldflags) and any unparsable current version are treated as
 // unknown age — never older — so a dev build is never nagged about
 // being behind. An unparsable *latest* tag is also false: a malformed
-// release on GitHub should not drive an update prompt.
+// release manifest should not drive an update prompt.
 func IsNewer(current, latest string) bool {
 	if current == "dev" {
 		return false

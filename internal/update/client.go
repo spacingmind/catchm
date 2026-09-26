@@ -9,25 +9,33 @@ import (
 	"time"
 )
 
-// GitHubClient fetches release metadata from a GitHub-Releases-shaped
-// API. BaseURL and HTTPClient are injectable so tests (and local
-// end-to-end update trials) point at an httptest.Server instead of the
-// real network.
-type GitHubClient struct {
-	// BaseURL is the API root, e.g. "https://api.github.com/repos/spacingmind/catchm".
-	// No trailing slash.
+// ReleaseClient fetches release metadata from the update API — since
+// M24 that's the catchm-cloud Worker's /update route, serving a
+// GitHub-Releases-shaped response so this package's decoding stays
+// unchanged from M23. BaseURL and HTTPClient are injectable so tests
+// (and local end-to-end update trials) point at an httptest.Server
+// instead of the real network.
+type ReleaseClient struct {
+	// BaseURL is the update API root, e.g. "https://cloud.example.com/update"
+	// (the ldflags-stamped cloud origin plus the "/update" route
+	// prefix). No trailing slash.
 	BaseURL string
 	Client  *http.Client
 }
 
-func NewGitHubClient(repo string) *GitHubClient {
-	return &GitHubClient{
-		BaseURL: "https://api.github.com/repos/" + repo,
+// NewReleaseClient returns a ReleaseClient for the update API at
+// baseURL (the ldflags-stamped cloud origin + "/update").
+func NewReleaseClient(baseURL string) *ReleaseClient {
+	return &ReleaseClient{
+		BaseURL: baseURL,
 		Client:  &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// Release is the subset of GitHub's release JSON this package needs.
+// Release is the subset of the release JSON this package needs — the
+// GitHub-Releases-shaped manifest the update Worker serves (stored
+// manifest plus draft/prerelease/html_url and absolute
+// browser_download_urls).
 type Release struct {
 	TagName     string    `json:"tag_name"`
 	Name        string    `json:"name"`
@@ -46,7 +54,7 @@ type Asset struct {
 }
 
 // Latest fetches the latest published release (GET {base}/releases/latest).
-func (c *GitHubClient) Latest(ctx context.Context) (*Release, error) {
+func (c *ReleaseClient) Latest(ctx context.Context) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(c.BaseURL, "/")+"/releases/latest", nil)
 	if err != nil {
 		return nil, err
@@ -71,8 +79,8 @@ func (c *GitHubClient) Latest(ctx context.Context) (*Release, error) {
 }
 
 // Download fetches url as a release asset (the browser_download_url
-// GitHub serves straight from storage; no API auth either way).
-func (c *GitHubClient) Download(ctx context.Context, url string) (*http.Response, error) {
+// the update Worker serves straight from R2; no auth either way).
+func (c *ReleaseClient) Download(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -88,7 +96,7 @@ func (c *GitHubClient) Download(ctx context.Context, url string) (*http.Response
 	return resp, nil
 }
 
-func (c *GitHubClient) client() *http.Client {
+func (c *ReleaseClient) client() *http.Client {
 	if c.Client != nil {
 		return c.Client
 	}
