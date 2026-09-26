@@ -1,0 +1,44 @@
+name: r2-smoke
+
+# Manual-only credential check for the catchm-releases R2 bucket (see
+# release.yml's "Upload to catchm-api/releases" step for why this uses
+# the S3-compatible API rather than wrangler). Round-trips a throwaway
+# object through put/get/delete so a bad or expired R2_ACCESS_KEY_ID /
+# R2_SECRET_ACCESS_KEY is caught here instead of during a real tag push.
+#
+# The key lives under ci-smoke/, which the catchm-api Worker never
+# serves: it only answers GET /update/download/:tag/:name for the two
+# known installer/checksum asset names plus /update/releases/latest, so
+# this object is never publicly reachable even while it briefly exists.
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Round-trip a throwaway object through R2
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          endpoint="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          key="ci-smoke/${GITHUB_RUN_ID}.txt"
+          content="r2-smoke ${GITHUB_RUN_ID}"
+
+          echo -n "$content" > smoke.txt
+          aws s3 cp smoke.txt "s3://catchm-releases/${key}" --endpoint-url "$endpoint"
+
+          aws s3 cp "s3://catchm-releases/${key}" smoke-readback.txt --endpoint-url "$endpoint"
+          readback=$(cat smoke-readback.txt)
+          if [ "$readback" != "$content" ]; then
+            echo "readback mismatch: got '${readback}', want '${content}'" >&2
+            exit 1
+          fi
+          echo "readback OK: ${readback}"
+
+          aws s3 rm "s3://catchm-releases/${key}" --endpoint-url "$endpoint"
