@@ -350,7 +350,7 @@ func validateCloudServerURL(raw string) (string, error) {
 	return trimmed, nil
 }
 
-// handleCloudServer sets which catchm-cloud instance this install
+// handleCloudServer sets which catchm-api instance this install
 // talks to. Only while logged out: the session, master key, stored
 // account params, and sync manifest all belong to one server.
 func (s *Server) handleCloudServer(w http.ResponseWriter, r *http.Request) {
