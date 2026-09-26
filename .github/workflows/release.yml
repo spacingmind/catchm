@@ -111,7 +111,7 @@ jobs:
       - name: Compute checksum
         shell: bash
         run: |
-          cd cmd/catchm-desktop/bin
+          cd cmd/catchm-desktop/build/bin
           sha256sum catchm-desktop-amd64-installer.exe > catchm-desktop-amd64-installer.exe.sha256
           cat catchm-desktop-amd64-installer.exe.sha256
 
@@ -126,8 +126,8 @@ jobs:
         with:
           name: catchm-desktop-installer-${{ steps.ver.outputs.version }}
           path: |
-            cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe
-            cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe.sha256
+            cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe
+            cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe.sha256
           if-no-files-found: error
 
       # Every step below is a real publish (public GitHub release,
@@ -150,8 +150,8 @@ jobs:
             --title "CatchM ${GITHUB_REF_NAME}" \
             --notes "See release notes below." \
             --generate-notes \
-            cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe \
-            cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe.sha256
+            cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe \
+            cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe.sha256
 
       # Build the manifest catchm-api's /update/releases/latest will
       # serve (docs/plans/active/m24-cloud-update-endpoint.md Part A).
@@ -166,7 +166,7 @@ jobs:
         run: |
           gh api "repos/${{ github.repository }}/releases/tags/${GITHUB_REF_NAME}" > /tmp/release-meta.json
 
-          cd cmd/catchm-desktop/bin
+          cd cmd/catchm-desktop/build/bin
           installer_size=$(( $(wc -c < catchm-desktop-amd64-installer.exe) ))
           sha_size=$(( $(wc -c < catchm-desktop-amd64-installer.exe.sha256) ))
 
@@ -208,7 +208,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          cd cmd/catchm-desktop/bin
+          cd cmd/catchm-desktop/build/bin
           endpoint="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
           aws s3 cp catchm-desktop-amd64-installer.exe \
             "s3://catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-amd64-installer.exe" \
