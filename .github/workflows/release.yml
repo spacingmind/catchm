@@ -1,7 +1,7 @@
 name: release
 
 # M23: build + publish the NSIS installer and its SHA-256 checksum on
-# v* tag push. M24: also publish to catchm-cloud's RELEASES R2 bucket
+# v* tag push. M24: also publish to catchm-api's RELEASES R2 bucket
 # — that's what internal/update actually reads at runtime; the GitHub
 # release (below) is kept only as an internal record. Tagging itself
 # is a separate manual step (the spec's open question about
@@ -70,7 +70,7 @@ jobs:
             cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe \
             cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe.sha256
 
-      # Build the manifest catchm-cloud's /update/releases/latest will
+      # Build the manifest catchm-api's /update/releases/latest will
       # serve (docs/plans/active/m24-cloud-update-endpoint.md Part A).
       # Sizes are read straight off the built files rather than trusted
       # from the build step, so a truncated/corrupt asset can't publish
@@ -107,7 +107,7 @@ jobs:
       # Order matters: latest.json LAST, so a half-uploaded release is
       # never advertised (Part A of the spec). --remote hits the real
       # R2 bucket (not wrangler's local emulation).
-      - name: Upload to catchm-cloud R2
+      - name: Upload to catchm-api R2
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
