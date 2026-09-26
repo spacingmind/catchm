@@ -74,7 +74,7 @@ func serveRelease(t *testing.T, f releaseFixture) *httptest.Server {
 
 func releaseFor(t *testing.T, srv *httptest.Server) *Release {
 	t.Helper()
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	rel, err := c.Latest(context.Background())
 	if err != nil {
 		t.Fatalf("Latest: %v", err)
@@ -87,7 +87,7 @@ func TestDownloadAndVerifySuccess(t *testing.T) {
 	srv := serveRelease(t, releaseFixture{installer: installer})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	got, err := DownloadAndVerify(context.Background(), c, releaseFor(t, srv))
 	if err != nil {
 		t.Fatalf("DownloadAndVerify: %v", err)
@@ -116,7 +116,7 @@ func TestDownloadAndVerifyCorruptedChecksumRejected(t *testing.T) {
 	srv := serveRelease(t, releaseFixture{installer: installer, corrupt: true})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	got, err := DownloadAndVerify(context.Background(), c, releaseFor(t, srv))
 	var mism *ChecksumMismatchError
 	if !errors.As(err, &mism) {
@@ -137,7 +137,7 @@ func TestDownloadAndVerifyMissingChecksumAsset(t *testing.T) {
 	srv := serveRelease(t, releaseFixture{installer: []byte("x"), dropSum: true})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	_, err := DownloadAndVerify(context.Background(), c, releaseFor(t, srv))
 	var mism *ChecksumMismatchError
 	if !errors.As(err, &mism) || !mism.Missing {
@@ -149,7 +149,7 @@ func TestDownloadAndVerifyMissingInstallerAsset(t *testing.T) {
 	srv := serveRelease(t, releaseFixture{dropBin: true})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	if _, err := DownloadAndVerify(context.Background(), c, releaseFor(t, srv)); err == nil {
 		t.Fatal("expected error for missing installer asset")
 	}
@@ -161,7 +161,7 @@ func TestDownloadAndVerifyNetworkFailureRetryable(t *testing.T) {
 	srv := serveRelease(t, releaseFixture{installer: []byte("x")})
 	srv.Close() // kill the server: asset download now fails at connect time
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	rel := &Release{TagName: "v9.9.9", Assets: []Asset{
 		{Name: "catchm-desktop-amd64-installer.exe", BrowserDownloadURL: srv.URL + "/dl/installer.exe"},
 		{Name: ChecksumFileName, BrowserDownloadURL: srv.URL + "/dl/installer.exe.sha256"},
@@ -179,7 +179,7 @@ func TestDownloadAndVerifyNetworkFailureRetryable(t *testing.T) {
 func TestCheckForUpdateEndToEnd(t *testing.T) {
 	srv := serveRelease(t, releaseFixture{installer: []byte("x")})
 	defer srv.Close()
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 
 	info, err := CheckForUpdate(context.Background(), c, "1.0.0")
 	if err != nil {

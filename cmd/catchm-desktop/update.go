@@ -21,9 +21,12 @@ import (
 	"github.com/spacingmind/catchm/internal/update"
 )
 
-// updateRepo is the GitHub repo releases are published to
-// (.github/workflows/release.yml).
-const updateRepo = "spacingmind/catchm"
+// updateBaseURL is the update API root (ldflags-stamped by
+// Taskfile.yml's desktop:release: -X main.updateBaseURL=<cloud
+// origin>/update). Empty in dev builds — see newUpdateManager, which
+// leaves the manager's client nil in that case so dev builds never
+// hit the network.
+var updateBaseURL = ""
 
 // Wails events the frontend subscribes to (window.runtime.EventsOn):
 const (
@@ -41,9 +44,19 @@ const (
 	updateInterval     = 24 * time.Hour
 )
 
+// errUpdatesNotConfigured is returned by a manual check and by
+// DownloadUpdate when this build has no update base URL (dev builds,
+// or a build not stamped via desktop:release) — updates.client is nil
+// in that case, and background checks never start.
+var errUpdatesNotConfigured = errors.New("updates are not configured for this build")
+
 // updateManager owns update state for the app's lifetime.
 type updateManager struct {
-	client *update.GitHubClient
+	// client is nil when this build has no updateBaseURL (see
+	// newUpdateManager): background checks never start, a manual
+	// check reports errUpdatesNotConfigured, and DownloadUpdate
+	// returns the same error.
+	client *update.ReleaseClient
 
 	mu          sync.Mutex
 	lastChecked time.Time
@@ -58,19 +71,30 @@ type updateManager struct {
 }
 
 func newUpdateManager() *updateManager {
-	c := update.NewGitHubClient(updateRepo)
+	base := updateBaseURL
 	// Test hook: point the update client at a local server instead of
-	// the real GitHub API (live end-to-end update trials per M23's spec
-	// — never publishes or fetches real releases). Empty in production.
-	if base := os.Getenv("CATCHM_UPDATE_BASE_URL"); base != "" {
-		c.BaseURL = base
+	// the real cloud origin (live end-to-end update trials per M23/M24's
+	// spec — never publishes or fetches real releases). Also lets a dev
+	// build opt into hitting a local Worker without an ldflags rebuild.
+	if override := os.Getenv("CATCHM_UPDATE_BASE_URL"); override != "" {
+		base = override
 	}
-	return &updateManager{client: c}
+	if base == "" {
+		// Don't read the base from the user's config: sync can point at
+		// a self-hosted server, but updates must come from the official
+		// origin — a build with no stamped base simply has updates off.
+		return &updateManager{}
+	}
+	return &updateManager{client: update.NewReleaseClient(base)}
 }
 
 // startBackgroundChecks runs the startup-delayed + 24h-periodic check
-// loop until ctx is done.
+// loop until ctx is done. A no-op when this build has no update client
+// (see newUpdateManager).
 func (m *updateManager) startBackgroundChecks(ctx context.Context) {
+	if m.client == nil {
+		return
+	}
 	go func() {
 		time.Sleep(updateStartupDelay)
 		m.checkAndEmit(ctx, false)
@@ -108,8 +132,13 @@ func (m *updateManager) checkAndEmit(ctx context.Context, manual bool) {
 
 // check performs one check against the latest release, recording
 // lastChecked. ErrNoRelease (fresh repo, nothing published yet) is not
-// an error worth surfacing.
+// an error worth surfacing. When this build has no update client, it
+// reports errUpdatesNotConfigured without recording lastChecked — a
+// manual check from Settings shouldn't look like a check that ran.
 func (m *updateManager) check(ctx context.Context) UpdateStatus {
+	if m.client == nil {
+		return UpdateStatus{CurrentVersion: version, Error: errUpdatesNotConfigured.Error()}
+	}
 	info, err := update.CheckForUpdate(ctx, m.client, version)
 	status := UpdateStatus{
 		CurrentVersion: version,
@@ -175,6 +204,9 @@ type DownloadResult struct {
 // updates deferred for the session — never executable, never retried.
 func (d DesktopBridge) DownloadUpdate() (DownloadResult, error) {
 	m := d.updates
+	if m.client == nil {
+		return DownloadResult{}, errUpdatesNotConfigured
+	}
 	ctx := context.Background()
 
 	rel, err := m.client.Latest(ctx)

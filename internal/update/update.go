@@ -17,7 +17,7 @@ type UpdateInfo struct {
 // CheckForUpdate fetches the latest release and returns an UpdateInfo
 // if it is newer than current. nil UpdateInfo means up to date (or
 // current is a dev build — never nag a dev build, see IsNewer).
-func CheckForUpdate(ctx context.Context, c *GitHubClient, current string) (*UpdateInfo, error) {
+func CheckForUpdate(ctx context.Context, c *ReleaseClient, current string) (*UpdateInfo, error) {
 	rel, err := c.Latest(ctx)
 	if err != nil {
 		return nil, err

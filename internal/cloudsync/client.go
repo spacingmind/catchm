@@ -40,6 +40,10 @@ var (
 	// ErrQuotaExceeded is a 507: the account's storage quota is full
 	// (server carries used/quota in the body).
 	ErrQuotaExceeded = errors.New("cloudsync: storage quota exceeded")
+
+	// ErrBlobTooLarge is a 413: the blob exceeds the server's
+	// per-blob size cap (MAX_BLOB_BYTES).
+	ErrBlobTooLarge = errors.New("cloudsync: blob too large")
 )
 
 // BlobMeta is one entry of GET /blobs, and the body of PUT /blobs/:id's
@@ -266,13 +270,51 @@ func (c *Client) GetBlob(sessionToken, id string) ([]byte, int, error) {
 	}
 }
 
-// ListBlobs returns the authenticated account's blob metadata.
+// ListBlobs returns the authenticated account's blob metadata,
+// following the server's next_cursor pagination
+// (docs/plans/active/m24-cloud-update-endpoint.md Part B.4) until it
+// reports done. The response envelope is strict: a missing "blobs"
+// key is an error (there is no bare-array fallback — the unpaginated
+// shape was never deployed), and a cursor that fails to advance
+// between pages is also an error rather than an infinite loop.
 func (c *Client) ListBlobs(sessionToken string) ([]BlobMeta, error) {
-	var out []BlobMeta
-	if err := c.doJSON(http.MethodGet, "/blobs", sessionToken, nil, &out); err != nil {
-		return nil, err
+	var all []BlobMeta
+	cursor := ""
+	for {
+		path := "/blobs"
+		if cursor != "" {
+			path += "?cursor=" + url.QueryEscape(cursor)
+		}
+		raw, err := c.doRaw(http.MethodGet, path, sessionToken, nil)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Blobs      *[]BlobMeta      `json:"blobs"`
+			NextCursor *json.RawMessage `json:"next_cursor"`
+		}
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return nil, fmt.Errorf("cloudsync: malformed list response: %w", err)
+		}
+		if page.Blobs == nil {
+			return nil, fmt.Errorf("cloudsync: list response missing %q", "blobs")
+		}
+		all = append(all, *page.Blobs...)
+
+		var next string
+		if page.NextCursor != nil {
+			if err := json.Unmarshal(*page.NextCursor, &next); err != nil {
+				return nil, fmt.Errorf("cloudsync: malformed %q: %w", "next_cursor", err)
+			}
+		}
+		if next == "" {
+			return all, nil
+		}
+		if next == cursor {
+			return nil, fmt.Errorf("cloudsync: list cursor did not advance (%q)", next)
+		}
+		cursor = next
 	}
-	return out, nil
 }
 
 // DeleteBlob removes a blob and its stored bytes.
@@ -281,19 +323,33 @@ func (c *Client) DeleteBlob(sessionToken, id string) error {
 }
 
 // doJSON performs a JSON request/response round trip. A nil out means
-// no response body is expected.
+// no response body is expected (including a 204's empty body).
 func (c *Client) doJSON(method, path, sessionToken string, body, out any) error {
+	raw, err := c.doRaw(method, path, sessionToken, body)
+	if err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}
+
+// doRaw performs a request/response round trip and returns the raw
+// response body on 200/204, mapping other statuses to sentinel
+// errors. A nil body means no request body.
+func (c *Client) doRaw(method, path, sessionToken string, body any) ([]byte, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		reader = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequest(method, c.baseURL+path, reader)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -303,30 +359,25 @@ func (c *Client) doJSON(method, path, sessionToken string, body, out any) error 
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	switch resp.StatusCode {
-	case http.StatusOK:
-		if out == nil {
-			return nil
-		}
-		return json.Unmarshal(raw, out)
-	case http.StatusNoContent:
-		return nil
+	case http.StatusOK, http.StatusNoContent:
+		return raw, nil
 	case http.StatusUnauthorized:
-		return fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
 	case http.StatusNotFound:
-		return fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
 	case http.StatusConflict:
-		return fmt.Errorf("%w: %s", ErrConflict, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("%w: %s", ErrConflict, strings.TrimSpace(string(raw)))
 	default:
-		return mapStatusError(resp, raw)
+		return nil, mapStatusError(resp, raw)
 	}
 }
 
@@ -346,6 +397,8 @@ func mapStatusError(resp *http.Response, body []byte) error {
 		return fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body)))
 	case http.StatusInsufficientStorage:
 		return fmt.Errorf("%w: %s", ErrQuotaExceeded, strings.TrimSpace(string(body)))
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("%w: %s", ErrBlobTooLarge, strings.TrimSpace(string(body)))
 	default:
 		return statusError(resp.StatusCode, body)
 	}

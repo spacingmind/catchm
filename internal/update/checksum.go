@@ -37,9 +37,9 @@ func (e *ChecksumMismatchError) Error() string {
 	}
 }
 
-// ErrNoRelease means the repo has no releases yet (GitHub 404s
-// /releases/latest in that case) — an expected condition on a fresh
-// repo, not a failure worth surfacing loudly.
+// ErrNoRelease means nothing has been published yet (the update
+// Worker 404s /releases/latest in that case) — an expected condition
+// on a fresh install, not a failure worth surfacing loudly.
 var ErrNoRelease = errors.New("update: no releases published")
 
 // ChecksumFileName is the asset name the release workflow publishes
@@ -85,7 +85,7 @@ func findAsset(rel *Release, name string) *Asset {
 // Error taxonomy the caller needs to tell apart:
 //   - *ChecksumMismatchError: never execute anything; do not blind-retry.
 //   - any other error: ordinary network/IO failure — safe to retry.
-func DownloadAndVerify(ctx context.Context, c *GitHubClient, rel *Release) (VerifiedInstaller, error) {
+func DownloadAndVerify(ctx context.Context, c *ReleaseClient, rel *Release) (VerifiedInstaller, error) {
 	out := VerifiedInstaller{}
 
 	asset := findAsset(rel, "catchm-desktop-amd64-installer.exe")

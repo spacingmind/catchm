@@ -364,7 +364,9 @@ func (f *cloudFakeWorker) handler() http.Handler {
 				})
 			}
 		}
-		writeCloudJSON(w, http.StatusOK, out)
+		// Real Worker envelope (Part B.4): {"blobs":[...],"next_cursor":...}
+		// — no bare-array fallback. A single page is enough here.
+		writeCloudJSON(w, http.StatusOK, map[string]any{"blobs": out, "next_cursor": nil})
 	})
 	mux.HandleFunc("/blobs/", func(w http.ResponseWriter, r *http.Request) {
 		email, ok := f.sessionEmail(r)

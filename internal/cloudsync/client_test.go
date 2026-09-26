@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,10 @@ type fakeWorker struct {
 	sessions map[string]string    // token -> email
 	blobs    map[string]*fakeBlob // blob id -> blob
 	nextSeq  int
+	// listPageSize forces small pages out of handleList so tests can
+	// exercise next_cursor pagination; 0 means "return everything in
+	// one page", matching the real server's default LIMIT of 500.
+	listPageSize int
 }
 
 type fakeUser struct {
@@ -260,20 +265,56 @@ func (f *fakeWorker) handleResetPassword(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleList mirrors the real Worker's paginated shape (Part B.4):
+// {"blobs": [...], "next_cursor": "<id>"|null}, ordered by id with
+// `?cursor=<last id>` (WHERE id > ?) pagination.
 func (f *fakeWorker) handleList(w http.ResponseWriter, r *http.Request) {
 	if _, ok := f.sessionUser(w, r); !ok {
 		return
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := []map[string]any{}
-	for id, b := range f.blobs {
+
+	ids := make([]string, 0, len(f.blobs))
+	for id := range f.blobs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	cursor := r.URL.Query().Get("cursor")
+	start := 0
+	if cursor != "" {
+		start = len(ids)
+		for i, id := range ids {
+			if id > cursor {
+				start = i
+				break
+			}
+		}
+	}
+	limit := f.listPageSize
+	if limit <= 0 {
+		limit = 500
+	}
+	end := start + limit
+	if end > len(ids) {
+		end = len(ids)
+	}
+	page := ids[start:end]
+
+	out := make([]map[string]any, 0, len(page))
+	for _, id := range page {
+		b := f.blobs[id]
 		out = append(out, map[string]any{
 			"id": id, "version": b.version, "checksum": b.checksum,
 			"size_bytes": len(b.data), "updated_at": b.updatedAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	var nextCursor any
+	if end < len(ids) {
+		nextCursor = ids[end-1]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"blobs": out, "next_cursor": nextCursor})
 }
 
 func (f *fakeWorker) handleBlobItem(w http.ResponseWriter, r *http.Request) {
@@ -746,5 +787,98 @@ func TestGetBlobRateLimited(t *testing.T) {
 	_, _, err := c.GetBlob("tok", "meet-1")
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+}
+
+func TestPutBlobTooLarge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		io.WriteString(w, `{"error":"blob too large"}`)
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	_, conflict, err := c.PutBlob("tok", "meet-1", []byte("x"), 0)
+	if !errors.Is(err, ErrBlobTooLarge) {
+		t.Fatalf("err = %v (conflict=%v), want ErrBlobTooLarge", err, conflict)
+	}
+}
+
+func TestPutBlobSendsAccurateContentLength(t *testing.T) {
+	data := make([]byte, 12345)
+	rand.Read(data)
+
+	var gotLen int64 = -1
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLen = r.ContentLength
+		body, _ := io.ReadAll(r.Body)
+		sum := sha256.Sum256(body)
+		writeJSON(w, http.StatusOK, map[string]any{"version": 1, "checksum": hex.EncodeToString(sum[:])})
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	if _, _, err := c.PutBlob("tok", "meet-1", data, 0); err != nil {
+		t.Fatal(err)
+	}
+	if gotLen != int64(len(data)) {
+		t.Fatalf("Content-Length = %d, want %d", gotLen, len(data))
+	}
+}
+
+func TestListBlobsFollowsCursorAcrossPages(t *testing.T) {
+	worker := newFakeWorker()
+	worker.listPageSize = 1 // force pagination across every one of the blobs below
+	server := httptestNewServer(t, worker)
+	c := NewClient(server.URL)
+	token := testSignup(t, c, "page@example.com")
+
+	for _, id := range []string{"a", "b", "c"} {
+		if _, _, err := c.PutBlob(token, id, []byte(id), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	metas, err := c.ListBlobs(token)
+	if err != nil {
+		t.Fatalf("ListBlobs: %v", err)
+	}
+	if len(metas) != 3 {
+		t.Fatalf("got %d blobs, want 3: %+v", len(metas), metas)
+	}
+	gotIDs := map[string]bool{}
+	for _, m := range metas {
+		gotIDs[m.ID] = true
+	}
+	for _, id := range []string{"a", "b", "c"} {
+		if !gotIDs[id] {
+			t.Fatalf("missing blob %q across pages: %+v", id, metas)
+		}
+	}
+}
+
+func TestListBlobsMissingBlobsKeyIsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"unrelated": true})
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	if _, err := c.ListBlobs("tok"); err == nil {
+		t.Fatal("expected an error for a response with no \"blobs\" key (no bare-array fallback)")
+	}
+}
+
+func TestListBlobsCursorMustAdvance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always claims more pages at the same cursor: a buggy server
+		// that would otherwise loop the client forever.
+		writeJSON(w, http.StatusOK, map[string]any{"blobs": []map[string]any{}, "next_cursor": "stuck"})
+	}))
+	t.Cleanup(server.Close)
+	c := NewClient(server.URL)
+
+	if _, err := c.ListBlobs("tok"); err == nil {
+		t.Fatal("expected an error when next_cursor does not advance")
 	}
 }

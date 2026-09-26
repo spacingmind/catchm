@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// latestJSON is a real GitHub /releases/latest response shape (subset
+// latestJSON is a release manifest response shape (subset
 // this package decodes), served by the fixtures below.
 const latestJSON = `{
   "tag_name": "v1.1.0",
@@ -38,7 +38,7 @@ func TestLatestSuccess(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	rel, err := c.Latest(context.Background())
 	if err != nil {
 		t.Fatalf("Latest: %v", err)
@@ -57,7 +57,7 @@ func TestLatestNoReleasesYet(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	_, err := c.Latest(context.Background())
 	if err != ErrNoRelease {
 		t.Fatalf("Latest error = %v, want ErrNoRelease", err)
@@ -70,7 +70,7 @@ func TestLatestMalformedJSON(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	if _, err := c.Latest(context.Background()); err == nil || err == ErrNoRelease {
 		t.Fatalf("Latest error = %v, want a decode error", err)
 	}
@@ -82,7 +82,7 @@ func TestLatestServerError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := &GitHubClient{BaseURL: srv.URL, Client: srv.Client()}
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
 	if _, err := c.Latest(context.Background()); err == nil || err == ErrNoRelease {
 		t.Fatalf("Latest error = %v, want a status error", err)
 	}
