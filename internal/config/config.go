@@ -52,9 +52,12 @@ const (
 	defaultLiveModel  = "translategemma:4b"
 	defaultBatchModel = "translategemma:12b"
 
-	// DefaultCloudURL is catchm-cloud's wrangler dev address; the real
-	// deployed URL replaces it once one exists.
-	defaultCloudURL = "http://127.0.0.1:8787"
+	// defaultCloudURL is the deployed catchm-api Worker. Local dev
+	// against `wrangler dev` still works: log out and POST a
+	// cloud-server-setting change (internal/server/cloud.go's
+	// handleCloudServer) to http://127.0.0.1:8787 or another loopback
+	// address — validateCloudServerURL allows plain http for loopback.
+	defaultCloudURL = "https://catchm-api.spacingmind.com"
 )
 
 func defaults() *Config {

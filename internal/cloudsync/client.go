@@ -1,4 +1,4 @@
-// Package cloudsync is the Go client for the catchm-cloud Worker:
+// Package cloudsync is the Go client for the catchm-api Worker:
 // the HTTP endpoints (this file), meeting-bundle encryption, and sync
 // orchestration. See docs/plans/active/m13c-cloud-sync-client.md.
 package cloudsync
@@ -86,7 +86,7 @@ type SignupRequest struct {
 	RecoveryKDFParams string `json:"recovery_kdf_params"`
 }
 
-// Client talks to a catchm-cloud Worker. It holds no session state:
+// Client talks to a catchm-api Worker. It holds no session state:
 // every method takes the session token explicitly, so one Client can
 // be shared across sessions.
 type Client struct {

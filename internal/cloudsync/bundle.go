@@ -25,7 +25,9 @@ const lengthPrefix = 4
 // from the master key and the meeting ID, so no two meetings share
 // ciphertext key material and the raw master key never encrypts data
 // directly. The checksum is the sha256 hex of the ciphertext — what
-// PUT /blobs/:id's X-Checksum header expects.
+// PUT /blobs/:id's X-Checksum header expects. The "catchm-cloud/..."
+// HKDF info string is a frozen protocol identifier (predates the
+// catchm-cloud -> catchm-api repo rename) and must stay byte-for-byte.
 func EncryptMeetingBundle(masterKey []byte, meetingID string, files map[string][]byte) (ciphertext []byte, checksum string, err error) {
 	plaintext := marshalBundle(files)
 	meetingKey := e2ee.DeriveSubKey(masterKey, "catchm-cloud/meeting/"+meetingID)

@@ -106,6 +106,8 @@ func TestEncryptIsNonDeterministicAcrossNonce(t *testing.T) {
 	}
 }
 
+// The "catchm-cloud/meeting/..." literals below mirror bundle.go's
+// frozen HKDF info string and must stay byte-for-byte in sync with it.
 func TestUnmarshalRejectsTruncatedBundle(t *testing.T) {
 	masterKey := e2ee.GenerateMasterKey()
 	ciphertext, _, err := EncryptMeetingBundle(masterKey, "meet-1", testFiles(false))
