@@ -1,17 +1,17 @@
 //go:build e2e
 
 // Package e2e runs the real internal/update and internal/cloudsync
-// clients against a live catchm-cloud Worker (wrangler dev, --local
+// clients against a live catchm-api Worker (wrangler dev, --local
 // R2/D1) — the actual cross-repo contract, not an in-process fixture.
 // It never runs under a plain `go test ./...` (see the build tag
-// above) because it depends on another checkout (catchm-cloud-m24)
+// above) because it depends on another checkout (catchm-api)
 // already running `wrangler dev` locally, and it shells out to that
 // checkout's `wrangler` to mutate/restore its local R2 state along the
 // way.
 //
 // Setup (separate terminal):
 //
-//	cd ../catchm-cloud-m24 && npx wrangler dev --port 8787
+//	cd ../catchm-api && npx wrangler dev --port 8787
 //
 // local R2 must already have a seeded v9.9.9 release (latest.json +
 // installer + matching .sha256) under the RELEASES bucket.
@@ -50,7 +50,7 @@ func workerHost() string {
 func updateBaseURL() string { return "http://" + workerHost() + "/update" }
 func cloudBaseURL() string  { return "http://" + workerHost() }
 
-// cloudRepoDir locates the catchm-cloud-m24 checkout this test shells
+// cloudRepoDir locates the catchm-api checkout this test shells
 // out to for local R2 mutation (wrangler r2 object get/put/delete
 // --local) — a sibling of this repo's own checkout by default.
 func cloudRepoDir(t *testing.T) string {
@@ -58,9 +58,9 @@ func cloudRepoDir(t *testing.T) string {
 	if v := os.Getenv("CATCHM_CLOUD_DIR"); v != "" {
 		return v
 	}
-	dir := filepath.Join("..", "..", "catchm-cloud-m24")
+	dir := filepath.Join("..", "..", "catchm-api")
 	if _, err := os.Stat(filepath.Join(dir, "wrangler.toml")); err != nil {
-		t.Fatalf("catchm-cloud-m24 checkout not found at %s (set CATCHM_CLOUD_DIR): %v", dir, err)
+		t.Fatalf("catchm-api checkout not found at %s (set CATCHM_CLOUD_DIR): %v", dir, err)
 	}
 	return dir
 }
@@ -69,12 +69,12 @@ func requireWorkerUp(t *testing.T) {
 	t.Helper()
 	conn, err := net.DialTimeout("tcp", workerHost(), 500*time.Millisecond)
 	if err != nil {
-		t.Skipf("wrangler dev not reachable on %s (%v) — start it: cd ../catchm-cloud-m24 && npx wrangler dev --port 8787", workerHost(), err)
+		t.Skipf("wrangler dev not reachable on %s (%v) — start it: cd ../catchm-api && npx wrangler dev --port 8787", workerHost(), err)
 	}
 	conn.Close()
 }
 
-// r2Local runs `wrangler r2 object <verb> ...` against the catchm-cloud
+// r2Local runs `wrangler r2 object <verb> ...` against the catchm-api
 // checkout's LOCAL persisted state (never --remote): this is the same
 // on-disk state the running `wrangler dev` reads from, so a put here
 // is visible to the next HTTP request with no restart needed.
@@ -278,7 +278,7 @@ func TestCloudSyncPutBlobOverCapIsRejected(t *testing.T) {
 // TestCloudSyncListBlobsPaginatesAcrossRealServerPages exercises the
 // actual next_cursor pagination end to end. internal/cloudsync.Client
 // has no knob to shrink the server's page size (DEFAULT_LIST_LIMIT is
-// 500, hardcoded server-side — see catchm-cloud-m24's listBlobs), so
+// 500, hardcoded server-side — see catchm-api's listBlobs), so
 // the only way to force the real Worker across more than one page
 // through the real client is to actually exceed that limit: this pushes
 // 501 blobs into a fresh account and asserts ListBlobs's cursor-following
