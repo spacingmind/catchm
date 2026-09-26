@@ -62,9 +62,9 @@ change is only its base URL.
      `Content-Length`, `Content-Type: application/octet-stream`, `ETag`,
      `Cache-Control: public, max-age=31536000, immutable`.
    - Missing object → 404.
-3. No publish endpoint on the Worker. Publishing is CI-only via
-   `wrangler r2 object put` (Part C), so the Worker gets no write/auth
-   surface for releases.
+3. No publish endpoint on the Worker. Publishing is CI-only via the R2
+   S3-compatible API (Part C), so the Worker gets no write/auth surface
+   for releases.
 4. No rate limiter on these routes: they're cheap and cacheable, and the IP
    limiter budget belongs to auth routes.
 
@@ -110,11 +110,16 @@ size-dependent CPU cost.
 2. `Taskfile.yml desktop:release`: accept `UPDATE_BASE_URL` and pass it in
    ldflags.
 3. `.github/workflows/release.yml`: after building + computing the checksum,
-   upload to R2 with `wrangler r2 object put catchm-releases/<key> --remote`
-   (installer, then `.sha256`, then `latest.json` **last**). Secrets:
-   `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Variable: `UPDATE_BASE_URL`.
-   Keep the GitHub release step as an internal record, since it's harmless on a
-   private repo.
+   upload to R2 via the S3-compatible API (`aws s3 cp`, not
+   `wrangler r2 object put`: the bucket-scoped token below 403s on wrangler's
+   REST-API `--remote` path — cloudflare/workers-sdk#9235) to
+   `s3://catchm-releases/<key>` (installer, then `.sha256`, then
+   `latest.json` **last**), endpoint
+   `https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`, region `auto`.
+   Secrets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (S3 credentials for an
+   R2 API token scoped to the `catchm-releases` bucket, Object Read & Write),
+   `CLOUDFLARE_ACCOUNT_ID`. Variable: `UPDATE_BASE_URL`. Keep the GitHub
+   release step as an internal record, since it's harmless on a private repo.
 4. If `internal/cloudsync` lists blobs, follow `next_cursor` (Part B.4).
 5. Move `docs/plans/active/m23-auto-update.md` to `docs/plans/completed/`.
 
