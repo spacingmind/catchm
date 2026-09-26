@@ -1,8 +1,11 @@
 name: release
 
 # M23: build + publish the NSIS installer and its SHA-256 checksum on
-# v* tag push. Tagging itself is a separate manual step (the spec's
-# open question about develop-merge tagging stays with the user).
+# v* tag push. M24: also publish to catchm-cloud's RELEASES R2 bucket
+# — that's what internal/update actually reads at runtime; the GitHub
+# release (below) is kept only as an internal record. Tagging itself
+# is a separate manual step (the spec's open question about
+# develop-merge tagging stays with the user).
 on:
   push:
     tags: ["v*"]
@@ -31,12 +34,17 @@ jobs:
       # Reuses Taskfile's desktop:release rather than duplicating the
       # wails build + ldflags + wails.json productVersion stamping in
       # YAML — one place decides how a versioned installer is built.
+      # UPDATE_BASE_URL is a repo/org variable (not a secret: it's the
+      # public update API root baked into the binary), so a release
+      # never silently ships with updates disabled.
       - name: Build installer
         shell: bash
+        env:
+          UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL }}
         run: |
           curl -sSL https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip -o task.zip
           unzip -o task.zip task.exe
-          ./task.exe desktop:release VERSION=${{ steps.ver.outputs.version }}
+          ./task.exe desktop:release VERSION=${{ steps.ver.outputs.version }} UPDATE_BASE_URL="${UPDATE_BASE_URL}"
 
       - name: Compute checksum
         shell: bash
@@ -46,8 +54,11 @@ jobs:
           cat catchm-desktop-amd64-installer.exe.sha256
 
       # GITHUB_TOKEN suffices for same-repo release creation — no new
-      # secret (verified against the workflow permissions model).
-      - name: Publish release
+      # secret (verified against the workflow permissions model). Kept
+      # as an internal record; harmless on a private repo, and its body
+      # (--generate-notes) is what latest.json's manifest reuses below
+      # so release notes are written in exactly one place.
+      - name: Publish GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,3 +69,54 @@ jobs:
             --generate-notes \
             cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe \
             cmd/catchm-desktop/bin/catchm-desktop-amd64-installer.exe.sha256
+
+      # Build the manifest catchm-cloud's /update/releases/latest will
+      # serve (docs/plans/active/m24-cloud-update-endpoint.md Part A).
+      # Sizes are read straight off the built files rather than trusted
+      # from the build step, so a truncated/corrupt asset can't publish
+      # a manifest that lies about its own size.
+      - name: Build latest.json manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/tags/${GITHUB_REF_NAME}" > /tmp/release-meta.json
+
+          cd cmd/catchm-desktop/bin
+          installer_size=$(( $(wc -c < catchm-desktop-amd64-installer.exe) ))
+          sha_size=$(( $(wc -c < catchm-desktop-amd64-installer.exe.sha256) ))
+
+          jq -n \
+            --arg tag_name "${GITHUB_REF_NAME}" \
+            --arg name "CatchM ${GITHUB_REF_NAME}" \
+            --argjson meta "$(cat /tmp/release-meta.json)" \
+            --argjson installer_size "${installer_size}" \
+            --argjson sha_size "${sha_size}" \
+            '{
+              tag_name: $tag_name,
+              name: $name,
+              body: $meta.body,
+              published_at: $meta.published_at,
+              assets: [
+                {name: "catchm-desktop-amd64-installer.exe", size: $installer_size},
+                {name: "catchm-desktop-amd64-installer.exe.sha256", size: $sha_size}
+              ]
+            }' > latest.json
+          cat latest.json
+
+      # Order matters: latest.json LAST, so a half-uploaded release is
+      # never advertised (Part A of the spec). --remote hits the real
+      # R2 bucket (not wrangler's local emulation).
+      - name: Upload to catchm-cloud R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          cd cmd/catchm-desktop/bin
+          npx wrangler@4 r2 object put "catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-amd64-installer.exe" \
+            --file catchm-desktop-amd64-installer.exe --remote
+          npx wrangler@4 r2 object put "catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-amd64-installer.exe.sha256" \
+            --file catchm-desktop-amd64-installer.exe.sha256 --remote
+          npx wrangler@4 r2 object put "catchm-releases/latest.json" \
+            --file latest.json --content-type application/json --remote
