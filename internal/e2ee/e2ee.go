@@ -73,6 +73,10 @@ func deriveHKDF(secret []byte, info string) []byte {
 	return out
 }
 
+// The "catchm-cloud/..." HKDF info strings below are frozen protocol
+// identifiers, not branding: they predate the catchm-cloud -> catchm-api
+// repo rename and must stay byte-for-byte or every derived key changes.
+
 // DeriveAuthHash derives the value sent to the Worker as auth_hash. It
 // is a separate HKDF output from the key_wrap_key so that a leak of the
 // server-stored auth_hash does not hand an attacker the key-wrapping
@@ -178,13 +182,15 @@ func DeriveRecoveryKey(recoveryCode string, salt []byte, params KDFParams) []byt
 // POST /recover, mirroring DeriveAuthHash's relationship to authKey.
 // It is never used to decrypt anything, so a server-side leak of it
 // does not help unwrap the recovery blob.
+// (frozen HKDF info string — see the note above DeriveAuthHash.)
 func DeriveRecoveryAuthHash(recoveryKey []byte) []byte {
 	return deriveHKDF(recoveryKey, "catchm-cloud/recovery-auth-hash")
 }
 
 // DeriveRecoveryWrapKey derives the sub-key that actually wraps the
 // recovery blob. It never leaves the client, mirroring
-// DeriveKeyWrapKey.
+// DeriveKeyWrapKey. (frozen HKDF info string — see the note above
+// DeriveAuthHash.)
 func DeriveRecoveryWrapKey(recoveryKey []byte) []byte {
 	return deriveHKDF(recoveryKey, "catchm-cloud/recovery-wrap")
 }

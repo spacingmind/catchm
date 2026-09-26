@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-// fakeWorker is a stateful in-memory stand-in for the catchm-cloud
+// fakeWorker is a stateful in-memory stand-in for the catchm-api
 // Worker, mirroring the real handlers' status codes and response
 // bodies (see docs/plans/completed/m12-cloud-backend-auth.md and
 // m13a-cloud-blob-storage.md Validation sections) closely enough to

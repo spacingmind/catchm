@@ -283,6 +283,8 @@ func TestRecoverMasterKeyHonorsNonDefaultParams(t *testing.T) {
 	}
 }
 
+// The "catchm-cloud/..." literals below mirror e2ee.go's frozen HKDF
+// info strings and must stay byte-for-byte in sync with them.
 func TestDeriveSubKey(t *testing.T) {
 	secret := GenerateMasterKey()
 	a := DeriveSubKey(secret, "catchm-cloud/meeting/meet-1")
