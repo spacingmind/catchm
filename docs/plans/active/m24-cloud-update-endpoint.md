@@ -1,4 +1,4 @@
-# M24: Serve updates from catchm-cloud + Free-plan CPU hardening
+# M24: Serve updates from catchm-api + Free-plan CPU hardening
 
 ## Why
 
@@ -7,11 +7,11 @@ unauthenticated. The repo is **private**, so GitHub answers 404, the client maps
 that to `ErrNoRelease`, and users silently never see an update. The mock-server
 E2E in M23 could not catch this.
 
-Decision (user, 2026-09-26): serve releases from `catchm-cloud` (Cloudflare
-Worker + R2), and keep every Worker request under the **Free plan's 10 ms CPU**
-limit.
+Decision (user, 2026-09-26): serve releases from `catchm-api` (Cloudflare
+Worker + R2; renamed from `catchm-cloud`), and keep every Worker request under
+the **Free plan's 10 ms CPU** limit.
 
-## Part A: catchm-cloud: update endpoints
+## Part A: catchm-api: update endpoints
 
 ### Storage
 
@@ -68,7 +68,7 @@ change is only its base URL.
 4. No rate limiter on these routes: they're cheap and cacheable, and the IP
    limiter budget belongs to auth routes.
 
-## Part B: catchm-cloud: keep every request under 10 ms CPU
+## Part B: catchm-api: keep every request under 10 ms CPU
 
 Measured (Node WebCrypto on the dev box): SHA-256 costs ~1.8 ms/MB, so 10 MB
 is ~17 ms and already over the Free limit. The PUT path is the only
@@ -120,7 +120,7 @@ size-dependent CPU cost.
 
 ## Validation
 
-- catchm-cloud `npm run typecheck` + `npm test` green, with new tests for:
+- catchm-api `npm run typecheck` + `npm test` green, with new tests for:
   latest (200 shape and absolute URLs, 404 when no manifest, 500 on bad
   manifest), download (valid stream, bad tag/name 404, missing 404), PUT
   (missing Content-Length, over cap 413, checksum mismatch 400 plus quota
