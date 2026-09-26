@@ -83,10 +83,10 @@ tasks:
     deps: [web:build]
     dir: cmd/catchm-desktop
     preconditions:
-      - sh: 'case "${VERSION}" in v[0-9]*.[0-9]*.[0-9]*|[0-9]*.[0-9]*.[0-9]*) exit 0;; *) exit 1;; esac'
+      - sh: 'case "{{.VERSION}}" in v[0-9]*.[0-9]*.[0-9]*|[0-9]*.[0-9]*.[0-9]*) exit 0;; *) exit 1;; esac'
         msg: "VERSION must be x.y.z or vx.y.z (plain numbers only — NSIS's VIProductVersion rejects pre-release suffixes)"
-      - sh: '[ -n "${UPDATE_BASE_URL}" ]'
+      - sh: '[ -n "{{.UPDATE_BASE_URL}}" ]'
         msg: "UPDATE_BASE_URL must be set (the update API root, e.g. https://catchm-api.spacingmind.com/update) — a release build must not ship with updates silently disabled"
     cmds:
-      - sed -i -E 's/"productVersion": "[^"]*"/"productVersion": "${VERSION}"/' wails.json
-      - wails build -s -skipbindings -nsis -ldflags "-X main.version=${VERSION} -X main.updateBaseURL=${UPDATE_BASE_URL}"
+      - 'sed -i -E ''s/"productVersion": "[^"]*"/"productVersion": "{{.VERSION}}"/'' wails.json'
+      - wails build -s -skipbindings -nsis -ldflags "-X main.version={{.VERSION}} -X main.updateBaseURL={{.UPDATE_BASE_URL}}"

@@ -34,6 +34,22 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
+      # Cheap guard against a broken Taskfile.yml (e.g. an unquoted cmd
+      # string that YAML parses as a mapping, or a release task that
+      # doesn't actually template its args) reaching a tag push, where
+      # release.yml would fail on windows-latest with nothing published.
+      - name: Install go-task
+        run: |
+          mkdir -p "$RUNNER_TEMP/task-bin"
+          curl -sSL https://github.com/go-task/task/releases/latest/download/task_linux_amd64.tar.gz -o "$RUNNER_TEMP/task.tar.gz"
+          tar -xzf "$RUNNER_TEMP/task.tar.gz" -C "$RUNNER_TEMP/task-bin" task
+          echo "$RUNNER_TEMP/task-bin" >> "$GITHUB_PATH"
+
+      - name: Validate Taskfile
+        run: |
+          task --list-all
+          task --dry desktop:release VERSION=0.0.0 UPDATE_BASE_URL=https://example.invalid/update
+
       # Mirrors Taskfile.yml's `lint` task.
       - name: Lint
         run: |
