@@ -1,0 +1,156 @@
+# Cuts a release: creates the vX.Y.Z tag on develop HEAD (as
+# github-actions[bot], never a human token) and pushes it, which
+# triggers release.yml -- the existing, unchanged artifact half of the
+# pipeline (NSIS installer + checksum + GitHub release + R2 update
+# manifest).
+#
+# This replaces fully-manual tagging, which resolved M23's open
+# question ("should develop merges get tagged, or is tagging a manual
+# step?"): tagging is deliberate AND validated. The dispatch is the
+# human decision; everything after it is checked:
+#   - version is a plain x.y.z (NSIS's VIProductVersion rejects
+#     anything else, and release.yml's build would fail after the tag
+#     is already public)
+#   - version is strictly greater than the latest existing tag
+#   - the tag doesn't already exist
+#   - the tag points at origin/develop HEAD (never a local checkout
+#     or a stale branch)
+#
+# Model note (see docs/plans/active/release-process.md): this is the
+# single-branch model goreleaser itself uses (bot-pushed tags,
+# releases authored by github-actions[bot]) -- deliberately NOT
+# release-please + a release-only master branch, which needs three
+# sync-back guard mechanisms to avoid the failure mode that already
+# bit this org's smind repo once. A single integration branch can't
+# develop that failure in the first place.
+#
+# dry_run (default true) validates and creates the tag locally but
+# pushes nothing -- exercise it freely; nothing public happens.
+name: tag-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (plain x.y.z, no v prefix, no pre-release suffix)"
+        required: true
+        type: string
+      dry_run:
+        description: "Validate + create the tag locally, but don't push anything"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  # One tagging attempt at a time; a second dispatch while one runs
+  # cancels the older (never mid-push -- the push is the last step).
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: develop
+          fetch-depth: 0 # full history: the latest tag must be visible
+          # Default GITHUB_TOKEN is enough to push the tag (contents:
+          # write above); the tag's author is github-actions[bot], so
+          # no human token ever appears in release history.
+
+      - name: Validate version and tag state
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Plain x.y.z, nothing else: release.yml stamps this into
+          # wails.json + ldflags, and NSIS's VIProductVersion rejects
+          # pre-release suffixes outright (Taskfile desktop:release's
+          # precondition mirrors this).
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be plain x.y.z (got '$VERSION') -- NSIS rejects pre-release suffixes and the tag would be public before the build fails"
+            exit 1
+          fi
+
+          # Strictly greater than the latest existing tag: sort -V
+          # orders dotted numbers; equality means re-releasing, which
+          # would overwrite R2's vX.Y.Z/ objects (latest.json is
+          # last, but the versioned asset paths are not).
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          if [ -n "$latest" ]; then
+            greatest="$(printf '%s\n%s\n' "v$VERSION" "$latest" | sort -V | tail -n1)"
+            if [ "$greatest" != "v$VERSION" ] || [ "v$VERSION" = "$latest" ]; then
+              echo "::error::v$VERSION is not greater than the latest tag $latest -- re-releasing would overwrite the R2 objects real clients may be mid-download"
+              exit 1
+            fi
+          fi
+
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::tag v$VERSION already exists at $(git rev-parse --short "v$VERSION")"
+            exit 1
+          fi
+
+          echo "validated: v$VERSION on $(git rev-parse --short HEAD) (latest tag: ${latest:-none})"
+
+      - name: Create annotated tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "CatchM v$VERSION"
+
+      - name: Push tag
+        if: inputs.dry_run == false
+        run: git push origin "refs/tags/v${{ inputs.version }}"
+
+      - name: Dry-run notice
+        if: inputs.dry_run == true
+        run: |
+          echo "dry run: tag v${{ inputs.version }} created locally on $(git rev-parse --short HEAD), nothing pushed"
+          echo "re-run this dispatch with dry_run=false to publish"
+
+      # After release.yml (triggered by the tag push) finishes
+      # successfully, fast-forward master to the tag: master = "code
+      # that has been released", a read-only pointer. Done here rather
+      # than in release.yml so the artifact workflow stays unchanged;
+      # master is never a merge target, so there is nothing to sync
+      # back (the failure mode release-please models patch around).
+      - name: Fast-forward master to the released tag
+        if: inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Wait for the release workflow this tag push triggers.
+          # Query by head_sha (the tag's commit) -- there is exactly
+          # one workflow triggered by this push, release.yml.
+          sha="$(git rev-parse HEAD)"
+          for i in $(seq 1 90); do # up to ~15 min
+            status="$(gh run list --workflow release.yml --repo "$GITHUB_REPOSITORY" \
+              --commit "$sha" --limit 1 --json status,conclusion --jq '.[0] // {} | (.status // "none") + ":" + (.conclusion // "")')"
+            case "$status" in
+              completed:success) break ;;
+              completed:*) echo "::error::release.yml finished with $status -- not moving master"; exit 1 ;;
+              *) sleep 10 ;;
+            esac
+          done
+          if [ "$status" != "completed:success" ]; then
+            echo "::error::timed out waiting for release.yml on $sha -- master not moved (the tag/release are still published; retry this dispatch with dry_run=false once release.yml is green)"
+            exit 1
+          fi
+          # Fast-forward only: never a force push, never a merge. If
+          # master has somehow diverged, fail loudly instead.
+          git fetch origin master
+          if ! git merge-base --is-ancestor origin/master "v$VERSION"; then
+            echo "::error::origin/master has diverged from the tag's history -- refusing to move it; resolve by hand"
+            exit 1
+          fi
+          git push origin "v$VERSION:refs/heads/master"
+          echo "master fast-forwarded to v$VERSION"
