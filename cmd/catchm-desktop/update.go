@@ -114,20 +114,30 @@ func (m *updateManager) startBackgroundChecks(ctx context.Context) {
 // checkAndEmit runs one check and emits updateAvailableEvent when a
 // newer release is found — unless updates were deferred this session
 // and this isn't a manual check.
-func (m *updateManager) checkAndEmit(ctx context.Context, manual bool) {
+func (m *updateManager) checkAndEmit(ctx context.Context, manual bool) UpdateStatus {
+	return m.checkAndEmitWith(ctx, manual, func(status UpdateStatus) {
+		if appCtx := appContext(); appCtx != nil {
+			runtime.EventsEmit(appCtx, updateAvailableEvent, status)
+		}
+	})
+}
+
+// checkAndEmitWith is checkAndEmit with the emit seam injected so
+// tests can exercise the manual/deferred matrix without a live Wails
+// context (appContext is nil outside wails.Run).
+func (m *updateManager) checkAndEmitWith(ctx context.Context, manual bool, emit func(UpdateStatus)) UpdateStatus {
 	status := m.check(ctx)
 	if !status.UpdateAvailable {
-		return
+		return status
 	}
 	m.mu.Lock()
 	deferred := m.deferred
 	m.mu.Unlock()
 	if deferred && !manual {
-		return
+		return status
 	}
-	if appCtx := appContext(); appCtx != nil {
-		runtime.EventsEmit(appCtx, updateAvailableEvent, status)
-	}
+	emit(status)
+	return status
 }
 
 // check performs one check against the latest release, recording
@@ -175,9 +185,15 @@ type UpdateStatus struct {
 }
 
 // CheckForUpdate (bound): manual check from Settings — same code path
-// as the background check, no duplication.
+// as the background check (checkAndEmit), no duplication. manual=true
+// matters twice over: it bypasses this session's deferred flag (a
+// manual check always reports), and it emits updateAvailableEvent so
+// the banner appears alongside the returned status — the real
+// v0.1.0→v0.1.2 trial showed that calling m.check directly here left
+// Settings saying "Version v0.1.2 is available" with no actionable
+// surface, because the banner only ever mounts on that event.
 func (d DesktopBridge) CheckForUpdate() UpdateStatus {
-	return d.updates.check(context.Background())
+	return d.updates.checkAndEmit(context.Background(), true)
 }
 
 // GetLastChecked (bound): RFC3339 timestamp of the last check of any

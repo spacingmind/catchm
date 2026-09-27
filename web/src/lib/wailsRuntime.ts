@@ -60,7 +60,7 @@ declare global {
           SetNotificationsEnabled?(enabled: boolean): Promise<void>
           NotifyCloudSyncConflict?(count: number): void
           ReadyForEvents?(): void
-          GetAppVersion?(): string
+          GetAppVersion?(): Promise<string>
           CheckForUpdate?(): Promise<UpdateStatus>
           GetLastChecked?(): Promise<string>
           DownloadUpdate?(): Promise<DownloadResult>
@@ -244,9 +244,16 @@ export interface DownloadResult {
   sha256: string
 }
 
-/** M23: the running app version ("dev" for local builds). */
-export function getAppVersion(): string {
-  return window.go?.main?.DesktopBridge?.GetAppVersion?.() ?? "dev"
+/**
+ * M23: the running app version ("dev" for local builds). Every Wails
+ * bound-method call crosses the JS→Go bridge and therefore resolves a
+ * Promise, regardless of the Go signature — an earlier version of this
+ * wrapper returned that Promise while claiming `string`, which
+ * string-interpolated as "[object Promise]" wherever it was rendered.
+ * Await it (or `.then(setVersion)`), never render it directly.
+ */
+export function getAppVersion(): Promise<string> {
+  return window.go?.main?.DesktopBridge?.GetAppVersion?.() ?? Promise.resolve("dev")
 }
 
 /** M23: manual update check — same path the background check uses. */

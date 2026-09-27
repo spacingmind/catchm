@@ -2,9 +2,8 @@ import { useEffect, useState } from "react"
 import { ExternalLink } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { applyUpdate, deferUpdate, downloadUpdate, windowEventsOn, type UpdateStatus } from "@/lib/wailsRuntime"
-
-type Phase = "idle" | "downloading" | "confirm" | "applying"
+import { useUpdateInstall } from "@/components/useUpdateInstall"
+import { deferUpdate, windowEventsOn, type UpdateStatus } from "@/lib/wailsRuntime"
 
 /**
  * M23: unobtrusive banner shown when a check (background or manual)
@@ -12,57 +11,32 @@ type Phase = "idle" | "downloading" | "confirm" | "applying"
  * same UpdateStatus shape CheckForUpdate returns. Visual treatment
  * mirrors LiveMeeting's capture-error banner (flex-wrap rounded-lg
  * border row with a trailing button cluster) rather than a new
- * component family. "Update now" always confirms first: the app will
- * quit and Windows will ask for permission (UAC) — no surprise quit.
- * Dismissing calls DeferUpdate: no further prompting this session.
+ * component family. The download → confirm → apply flow lives in
+ * useUpdateInstall, shared with the Settings Updates row's "Update
+ * now" button. Dismissing calls DeferUpdate: no further prompting this
+ * session (a manual check from Settings still reports and re-triggers
+ * this banner — manual=true bypasses the deferred flag Go-side).
  */
 export function UpdateBanner() {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
-  const [phase, setPhase] = useState<Phase>("idle")
-  const [error, setError] = useState<string | null>(null)
+  const { phase, error, download, apply, reset } = useUpdateInstall()
 
   useEffect(() => {
     const cancel = windowEventsOn("update:available", (data) => {
       const s = Array.isArray(data) ? data[0] : data
       if (s && typeof s === "object") {
         setStatus(s as UpdateStatus)
-        setPhase("idle")
-        setError(null)
+        reset()
       }
     })
     return cancel
-  }, [])
+  }, [reset])
 
   if (!status) return null
 
   const dismiss = () => {
     setStatus(null)
     deferUpdate()
-  }
-
-  const startDownload = async () => {
-    setPhase("downloading")
-    setError(null)
-    try {
-      await downloadUpdate()
-      setPhase("confirm")
-    } catch (err) {
-      // Checksum mismatch / network failure: surface it and stop
-      // (deferred server-side on mismatch; no retry loop here).
-      setError(err instanceof Error ? err.message : String(err))
-      setPhase("idle")
-    }
-  }
-
-  const confirmAndApply = async () => {
-    setPhase("applying")
-    try {
-      await applyUpdate()
-      // On success the app quits; nothing after this line runs long.
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setPhase("confirm")
-    }
   }
 
   return (
@@ -100,7 +74,7 @@ export function UpdateBanner() {
               <Button size="sm" variant="outline" onClick={dismiss}>
                 Not now
               </Button>
-              <Button size="sm" onClick={() => void confirmAndApply()}>
+              <Button size="sm" onClick={() => void apply()}>
                 Update now
               </Button>
             </>
@@ -109,7 +83,7 @@ export function UpdateBanner() {
               <Button size="sm" variant="ghost" onClick={dismiss}>
                 Dismiss
               </Button>
-              <Button size="sm" onClick={() => void startDownload()}>
+              <Button size="sm" onClick={() => void download()}>
                 Update now
               </Button>
             </>
