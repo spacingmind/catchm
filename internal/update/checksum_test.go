@@ -215,3 +215,34 @@ func TestParseChecksumFile(t *testing.T) {
 		t.Fatal("short digest should error")
 	}
 }
+
+// The exact form MSYS/Git Bash sha256sum on the windows runner
+// publishes: one space then the "*" binary-mode marker before the
+// name (this is what broke the v0.1.0 → v0.1.1 update for real).
+func TestParseChecksumFileBinaryMarker(t *testing.T) {
+	binary := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef *catchm-desktop-amd64-installer.exe\n"
+	got, err := parseChecksumFile(binary, "catchm-desktop-amd64-installer.exe")
+	if err != nil || got != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("parseChecksumFile(*name) = %q, %v", got, err)
+	}
+	// The marker is stripped before the exact match, so an entry for a
+	// file literally named "*catchm-..." must not match either.
+	if _, err := parseChecksumFile(binary, "*catchm-desktop-amd64-installer.exe"); err == nil {
+		t.Fatal("query with literal leading * should not match")
+	}
+}
+
+func TestParseChecksumFileMalformedLine(t *testing.T) {
+	content := "justonefield\n\n" + strings.Repeat("a", 64) + "  other.exe\n"
+	if _, err := parseChecksumFile(content, "catchm-desktop-amd64-installer.exe"); err == nil {
+		t.Fatal("want error for a file with no matching entry")
+	}
+}
+
+func TestParseChecksumFileCRLF(t *testing.T) {
+	crlf := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef *catchm-desktop-amd64-installer.exe\r\n"
+	got, err := parseChecksumFile(crlf, "catchm-desktop-amd64-installer.exe")
+	if err != nil || got != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("parseChecksumFile(CRLF) = %q, %v", got, err)
+	}
+}

@@ -49,11 +49,14 @@ const ChecksumFileName = "catchm-desktop-amd64-installer.exe.sha256"
 // parseChecksumFile extracts the hex digest for name from a
 // sha256sum-format file ("<sha256>  <name>" per line). The double
 // space is what sha256sum writes for text-mode checksums; we accept
-// any whitespace between the digest and the name.
+// any whitespace between the digest and the name, plus the optional
+// leading "*" binary-mode marker coreutils puts on the filename (the
+// MSYS/Git Bash sha256sum on the Windows release runner defaults to
+// binary mode).
 func parseChecksumFile(content, name string) (string, error) {
 	for _, line := range strings.Split(content, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[1] == name {
+		if len(fields) >= 2 && strings.TrimPrefix(fields[1], "*") == name {
 			digest := fields[0]
 			if len(digest) != sha256.Size*2 {
 				return "", fmt.Errorf("digest for %q is %d hex chars, want %d", name, len(digest), sha256.Size*2)
