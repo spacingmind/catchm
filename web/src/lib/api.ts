@@ -492,6 +492,11 @@ export interface CloudStatus {
   last_sync_at?: string
   /** The catchm-cloud instance this install talks to (M18). */
   api_base_url?: string
+  /**
+   * True when account params (email, salt, KDF) that a server change
+   * would clear are on disk. Missing on older backends — treat as true.
+   */
+  account_stored?: boolean
 }
 
 /** POST /api/cloud/signup — recovery_code appears exactly once, in this response. */

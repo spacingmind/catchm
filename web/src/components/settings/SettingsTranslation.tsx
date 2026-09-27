@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
-import { SaveStatus, SettingRow, SettingsSection } from "@/components/settings/pieces"
+import { StatusMessage } from "@/components/StatusMessage"
+import { descId, SaveStatus, SettingRow, SettingsSection } from "@/components/settings/pieces"
 import { useConfigSave } from "@/components/settings/useConfigSave"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,16 +18,9 @@ import {
   type TranslateStatus,
   type TranslateTarget,
 } from "@/lib/api"
+import { noAutofill } from "@/lib/inputProps"
 import { LANGUAGES } from "@/lib/languages"
-
-function isAbsoluteHttpUrl(v: string): boolean {
-  try {
-    const u = new URL(v)
-    return u.protocol === "http:" || u.protocol === "https:"
-  } catch {
-    return false
-  }
-}
+import { isAbsoluteUrl } from "@/lib/url"
 
 interface PullState {
   running: boolean
@@ -39,6 +33,10 @@ const idlePullState: PullState = { running: false, percent: null, statusText: nu
 
 const PERCENT_RE = /(\d+)%/
 
+const TARGET_LABEL: Record<TranslateTarget, string> = { live: "Live model", batch: "Batch model" }
+
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
 export function SettingsTranslation() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -49,6 +47,7 @@ export function SettingsTranslation() {
 
   const [status, setStatus] = useState<TranslateStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
+  const [checking, setChecking] = useState(true)
   const [pulls, setPulls] = useState<Record<TranslateTarget, PullState>>({
     live: idlePullState,
     batch: idlePullState,
@@ -60,10 +59,16 @@ export function SettingsTranslation() {
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testError, setTestError] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
+  const [testFieldErrors, setTestFieldErrors] = useState<{ text?: string; lang?: string }>({})
+  const testTextRef = useRef<HTMLInputElement | null>(null)
+  const testLangRef = useRef<HTMLButtonElement | null>(null)
 
-  const abortRef = useRef<AbortController | null>(null)
+  // One controller per target so pulling both models at once works and
+  // each can be cancelled on its own; all are aborted on unmount.
+  const abortRefs = useRef<Partial<Record<TranslateTarget, AbortController>>>({})
+  const statusSeq = useRef(0)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     getConfig()
       .then((c) => {
         setConfig(c)
@@ -71,36 +76,63 @@ export function SettingsTranslation() {
         setLiveModel(c.translate.live_model)
         setBatchModel(c.translate.batch_model)
       })
-      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) => setLoadError(errorMessage(err)))
   }, [])
 
-  const refreshStatus = () => {
+  useEffect(load, [load])
+
+  const retryLoad = () => {
+    setLoadError(null)
+    load()
+  }
+
+  // Sequence-guarded: a save and a finished pull can both trigger a
+  // check, and only the newest response should land.
+  const fetchStatus = useCallback(() => {
+    const id = ++statusSeq.current
     getTranslateStatus()
       .then((s) => {
+        if (id !== statusSeq.current) return
         setStatus(s)
         setStatusError(null)
       })
-      .catch((err: unknown) => setStatusError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) => {
+        if (id === statusSeq.current) setStatusError(errorMessage(err))
+      })
+      .finally(() => {
+        if (id === statusSeq.current) setChecking(false)
+      })
+  }, [])
+
+  const refreshStatus = () => {
+    setChecking(true)
+    fetchStatus()
   }
 
   useEffect(() => {
-    refreshStatus()
-    return () => abortRef.current?.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    fetchStatus()
+    const controllers = abortRefs.current
+    return () => {
+      for (const c of Object.values(controllers)) c?.abort()
+    }
+  }, [fetchStatus])
 
-  const { save, put } = useConfigSave(config, setConfig)
+  // One save state per field, so each status shows next to its own input.
+  const hostSave = useConfigSave(config, setConfig)
+  const liveSave = useConfigSave(config, setConfig)
+  const batchSave = useConfigSave(config, setConfig)
 
   const commitHost = () => {
     const v = host.trim()
-    if (!isAbsoluteHttpUrl(v)) {
-      setHostError("Enter an absolute http:// or https:// URL.")
+    if (!isAbsoluteUrl(v, ["http", "https"])) {
+      setHostError("Enter an absolute http:// or https:// URL, like http://127.0.0.1:11434.")
       return
     }
     setHostError(null)
     if (v !== config?.translate.host) {
-      void put({ translate: { host: v, live_model: liveModel.trim(), batch_model: batchModel.trim() } })
-      refreshStatus()
+      void hostSave
+        .put({ translate: { host: v, live_model: liveModel.trim(), batch_model: batchModel.trim() } })
+        .then((ok) => ok && refreshStatus())
     }
   }
 
@@ -110,20 +142,25 @@ export function SettingsTranslation() {
     const changed =
       which === "live_model" ? live !== config?.translate.live_model : batch !== config?.translate.batch_model
     if (changed) {
-      void put({ translate: { host: host.trim(), live_model: live, batch_model: batch } })
-      refreshStatus()
+      const { put } = which === "live_model" ? liveSave : batchSave
+      void put({ translate: { host: host.trim(), live_model: live, batch_model: batch } }).then(
+        (ok) => ok && refreshStatus(),
+      )
     }
   }
 
   const handlePull = async (target: TranslateTarget) => {
     setPulls((prev) => ({ ...prev, [target]: { running: true, percent: null, statusText: "Starting…", error: null } }))
+    abortRefs.current[target]?.abort()
     const controller = new AbortController()
-    abortRef.current = controller
+    abortRefs.current[target] = controller
+    let failed = false
     try {
       await pullTranslateModel(
         target,
         (event) => {
           if (event.error) {
+            failed = true
             setPulls((prev) => ({ ...prev, [target]: { ...prev[target], running: false, error: event.error ?? null } }))
             return
           }
@@ -141,29 +178,37 @@ export function SettingsTranslation() {
         },
         controller.signal,
       )
-      setPulls((prev) => ({ ...prev, [target]: { ...prev[target], running: false, statusText: "Done." } }))
+      if (!failed) {
+        setPulls((prev) => ({ ...prev, [target]: { ...prev[target], running: false, statusText: "Done." } }))
+      }
       refreshStatus()
     } catch (err) {
-      setPulls((prev) => ({
-        ...prev,
-        [target]: { ...prev[target], running: false, error: err instanceof Error ? err.message : String(err) },
-      }))
+      if (controller.signal.aborted) {
+        setPulls((prev) => ({
+          ...prev,
+          [target]: { running: false, percent: null, statusText: "Pull cancelled.", error: null },
+        }))
+      } else {
+        setPulls((prev) => ({ ...prev, [target]: { ...prev[target], running: false, error: errorMessage(err) } }))
+      }
+    } finally {
+      if (abortRefs.current[target] === controller) delete abortRefs.current[target]
     }
   }
 
-  const [testFieldError, setTestFieldError] = useState<string | null>(null)
+  const cancelPull = (target: TranslateTarget) => {
+    abortRefs.current[target]?.abort()
+  }
 
   const handleTest = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!testText.trim()) {
-      setTestFieldError("Enter some text to translate.")
-      return
-    }
-    if (!testLang) {
-      setTestFieldError("Choose a target language.")
-      return
-    }
-    setTestFieldError(null)
+    const errs: { text?: string; lang?: string } = {}
+    if (!testText.trim()) errs.text = "Enter some text to translate."
+    if (!testLang) errs.lang = "Choose a target language."
+    setTestFieldErrors(errs)
+    if (errs.text) testTextRef.current?.focus()
+    else if (errs.lang) testLangRef.current?.focus()
+    if (errs.text || errs.lang) return
     setTesting(true)
     setTestError(null)
     setTestResult(null)
@@ -171,7 +216,7 @@ export function SettingsTranslation() {
       const res = await testTranslate({ text: testText, target_lang: testLang, target: testTarget })
       setTestResult(res.translated)
     } catch (err) {
-      setTestError(err instanceof Error ? err.message : String(err))
+      setTestError(errorMessage(err))
     } finally {
       setTesting(false)
     }
@@ -180,7 +225,14 @@ export function SettingsTranslation() {
   if (loadError) {
     return (
       <SettingsSection title="Translation" description="Ollama settings for live and batch translation.">
-        <p className="text-sm text-destructive">{loadError}</p>
+        <div className="grid justify-items-start gap-3">
+          <StatusMessage tone="error">
+            Couldn’t load translation settings: {loadError}. Check that CatchM is still running, then try again.
+          </StatusMessage>
+          <Button size="sm" variant="outline" onClick={retryLoad}>
+            Try again
+          </Button>
+        </div>
       </SettingsSection>
     )
   }
@@ -188,6 +240,7 @@ export function SettingsTranslation() {
   if (!config) {
     return (
       <div aria-busy="true" className="grid gap-4">
+        <span className="sr-only">Loading translation settings…</span>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-16 w-full rounded-xl" />
         <Skeleton className="h-16 w-full rounded-xl" />
@@ -210,15 +263,23 @@ export function SettingsTranslation() {
             <div className="grid w-96 justify-items-end gap-1">
               <Input
                 id="translate-host"
+                name="ollama_host"
                 type="url"
+                {...noAutofill}
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
                 onBlur={commitHost}
-                placeholder="http://127.0.0.1:11434"
+                placeholder="http://127.0.0.1:11434…"
                 aria-invalid={hostError ? true : undefined}
+                aria-describedby={
+                  hostError ? `${descId("translate-host")} translate-host-error` : descId("translate-host")
+                }
                 className="w-full"
               />
-              {hostError && <p className="text-sm text-destructive">{hostError}</p>}
+              <StatusMessage id="translate-host-error" tone="error" className="break-words">
+                {hostError}
+              </StatusMessage>
+              <SaveStatus state={hostSave.save.state} error={hostSave.save.error} />
             </div>
           }
         />
@@ -230,12 +291,17 @@ export function SettingsTranslation() {
             <div className="grid w-72 justify-items-end gap-1">
               <Input
                 id="translate-live-model"
+                name="live_model"
+                translate="no"
+                {...noAutofill}
                 value={liveModel}
                 onChange={(e) => setLiveModel(e.target.value)}
                 onBlur={() => commitModel("live_model")}
-                placeholder="translategemma:4b"
+                placeholder="translategemma:4b…"
+                aria-describedby={descId("translate-live-model")}
                 className="w-full"
               />
+              <SaveStatus state={liveSave.save.state} error={liveSave.save.error} />
             </div>
           }
         />
@@ -247,20 +313,34 @@ export function SettingsTranslation() {
             <div className="grid w-72 justify-items-end gap-1">
               <Input
                 id="translate-batch-model"
+                name="batch_model"
+                translate="no"
+                {...noAutofill}
                 value={batchModel}
                 onChange={(e) => setBatchModel(e.target.value)}
                 onBlur={() => commitModel("batch_model")}
-                placeholder="translategemma:12b"
+                placeholder="translategemma:12b…"
+                aria-describedby={descId("translate-batch-model")}
                 className="w-full"
               />
-              <SaveStatus state={save.state} error={save.error} />
+              <SaveStatus state={batchSave.save.state} error={batchSave.save.error} />
             </div>
           }
         />
       </SettingsSection>
 
       <SettingsSection title="Status" description="Checked against the configured host.">
-        {statusError && <p className="mb-4 text-sm text-destructive">{statusError}</p>}
+        <div className={statusError ? "mb-4 flex flex-wrap items-center justify-between gap-2" : undefined}>
+          <StatusMessage tone="error" className="min-w-0 break-words">
+            {statusError &&
+              `Couldn’t check Ollama: ${statusError}. Check that CatchM is still running, then check again.`}
+          </StatusMessage>
+          {statusError && (
+            <Button size="sm" variant="outline" onClick={refreshStatus} disabled={checking}>
+              {checking ? "Checking…" : "Check again"}
+            </Button>
+          )}
+        </div>
         <SettingRow
           label="Ollama"
           description="Server reachability."
@@ -284,11 +364,22 @@ export function SettingsTranslation() {
         {(["live", "batch"] as const).map((target) => {
           const model = target === "live" ? status?.live_model : status?.batch_model
           const pull = pulls[target]
+          const label = TARGET_LABEL[target]
+          const rowId = `translate-status-${target}`
           return (
             <SettingRow
               key={target}
-              label={target === "live" ? "Live model" : "Batch model"}
-              description={model?.name ?? "—"}
+              label={label}
+              id={rowId}
+              description={
+                model?.name ? (
+                  <span translate="no" className="break-all">
+                    {model.name}
+                  </span>
+                ) : (
+                  "—"
+                )
+              }
               control={
                 <div className="grid w-72 justify-items-end gap-2">
                   {model ? (
@@ -301,13 +392,33 @@ export function SettingsTranslation() {
                     </Badge>
                   )}
                   {model && !model.installed && (
-                    <div className="grid justify-items-end gap-2">
-                      <Button size="sm" onClick={() => void handlePull(target)} disabled={pull.running}>
-                        {pull.running ? "Pulling…" : "Pull"}
-                      </Button>
-                      {pull.running && pull.percent !== null && <Progress value={pull.percent} />}
-                      {pull.statusText && <p className="text-xs text-muted-foreground">{pull.statusText}</p>}
-                      {pull.error && <p className="text-xs text-destructive">{pull.error}</p>}
+                    <div className="grid w-full justify-items-end gap-2">
+                      {pull.running ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => cancelPull(target)}
+                          aria-describedby={descId(rowId)}
+                        >
+                          Cancel pull
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => void handlePull(target)}
+                          aria-describedby={descId(rowId)}
+                        >
+                          Pull {label.toLowerCase()}
+                        </Button>
+                      )}
+                      {pull.running && pull.percent !== null && (
+                        <Progress value={pull.percent} aria-label={`${label} download progress`} />
+                      )}
+                      <StatusMessage className="text-xs break-words">{pull.statusText}</StatusMessage>
+                      <StatusMessage tone="error" className="text-xs break-words">
+                        {pull.error &&
+                          `${pull.error}. Check that Ollama is running and the model name is correct, then pull again.`}
+                      </StatusMessage>
                     </div>
                   )}
                 </div>
@@ -318,36 +429,63 @@ export function SettingsTranslation() {
       </SettingsSection>
 
       <SettingsSection title="Try it out" description="Translate a snippet to check the setup end to end.">
-        <form onSubmit={handleTest} className="grid gap-3">
+        <form noValidate onSubmit={(e) => void handleTest(e)} className="grid gap-3">
           <SettingRow
             label="Text"
             htmlFor="test-text"
             control={
-              <Input
-                id="test-text"
-                value={testText}
-                onChange={(e) => setTestText(e.target.value)}
-                required
-                className="w-96"
-              />
+              <div className="grid w-96 justify-items-end gap-1">
+                <Input
+                  ref={testTextRef}
+                  id="test-text"
+                  name="test_text"
+                  autoComplete="off"
+                  value={testText}
+                  onChange={(e) => setTestText(e.target.value)}
+                  placeholder="Good morning, everyone…"
+                  aria-invalid={testFieldErrors.text ? true : undefined}
+                  aria-describedby={testFieldErrors.text ? "test-text-error" : undefined}
+                  className="w-full"
+                />
+                <StatusMessage id="test-text-error" tone="error">
+                  {testFieldErrors.text}
+                </StatusMessage>
+              </div>
             }
           />
           <SettingRow
             label="Target language"
             htmlFor="test-lang"
             control={
-              <Select value={testLang || undefined} onValueChange={setTestLang}>
-                <SelectTrigger id="test-lang" className="w-44">
-                  <SelectValue placeholder="Choose…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {LANGUAGES.map((l) => (
-                    <SelectItem key={l.code} value={l.code}>
-                      {l.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="grid justify-items-end gap-1">
+                <Select
+                  value={testLang || undefined}
+                  onValueChange={(v) => {
+                    setTestLang(v)
+                    setTestFieldErrors((e) => ({ ...e, lang: undefined }))
+                  }}
+                >
+                  <SelectTrigger
+                    ref={testLangRef}
+                    id="test-lang"
+                    className="w-44"
+                    aria-invalid={testFieldErrors.lang ? true : undefined}
+                    aria-describedby={testFieldErrors.lang ? "test-lang-error" : undefined}
+                  >
+                    <SelectValue placeholder="Choose…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGES.map((l) => (
+                      <SelectItem key={l.code} value={l.code}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <StatusMessage id="test-lang-error" tone="error">
+                  {testFieldErrors.lang}
+                </StatusMessage>
+              </div>
             }
           />
           <SettingRow
@@ -359,28 +497,31 @@ export function SettingsTranslation() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="live">live</SelectItem>
-                  <SelectItem value="batch">batch</SelectItem>
+                  <SelectItem value="live">{TARGET_LABEL.live}</SelectItem>
+                  <SelectItem value="batch">{TARGET_LABEL.batch}</SelectItem>
                 </SelectContent>
               </Select>
             }
           />
           <div className="flex items-center justify-end">
-            <div className="grid justify-items-end gap-1">
-              <Button type="submit" disabled={testing}>
-                {testing ? "Testing…" : "Test translate"}
-              </Button>
-              {testFieldError && <p className="text-sm text-destructive">{testFieldError}</p>}
-            </div>
+            <Button type="submit" disabled={testing} aria-busy={testing || undefined}>
+              {testing ? "Translating…" : "Test translation"}
+            </Button>
           </div>
         </form>
-        {testResult && (
-          <p className="mt-3 text-sm">
-            <span className="text-muted-foreground">→ </span>
-            {testResult}
-          </p>
-        )}
-        {testError && <p className="mt-3 text-sm text-destructive">{testError}</p>}
+        <StatusMessage className="mt-3 break-words text-foreground">
+          {testResult && (
+            <>
+              <span aria-hidden="true" className="text-muted-foreground">
+                →{" "}
+              </span>
+              {testResult}
+            </>
+          )}
+        </StatusMessage>
+        <StatusMessage tone="error" className="mt-3 break-words">
+          {testError && `Couldn’t translate: ${testError}. Check the status above, then try again.`}
+        </StatusMessage>
       </SettingsSection>
     </div>
   )

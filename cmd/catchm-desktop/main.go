@@ -36,16 +36,22 @@ import (
 // string in both places.
 const appID = "com.catchm.desktop"
 
-// Brand colours (web/src/index.css: --background #FBF7EA, --foreground/
-// --primary #6C3524, --secondary/--muted #D9C4B4), packed for
-// windows.ThemeSettings via windows.RGB. The app ships light-only (no
-// dark mode variant — see index.css), so the title bar is forced to
-// windows.Light regardless of the system theme: a dark title bar over
-// an all-light content area would look broken, not themed.
+// Brand colours per theme (web/src/index.css :root and .dark:
+// --background, --foreground, --secondary), packed for
+// windows.ThemeSettings via windows.RGB. The window starts on
+// windows.SystemDefault, matching the web UI's default "system" theme;
+// web/src/lib/theme.ts then pins it with the Wails JS runtime's
+// WindowSetLightTheme / WindowSetDarkTheme (or hands it back with
+// WindowSetSystemDefaultTheme) and sets the webview background, so no
+// bridge method is needed.
 var (
 	titleBarColour    = wailswindows.RGB(0xFB, 0xF7, 0xEA) // --background
 	titleTextColour   = wailswindows.RGB(0x6C, 0x35, 0x24) // --foreground
 	titleBorderColour = wailswindows.RGB(0xD9, 0xC4, 0xB4) // --secondary
+
+	darkTitleBarColour    = wailswindows.RGB(0x1E, 0x14, 0x11) // .dark --background
+	darkTitleTextColour   = wailswindows.RGB(0xFB, 0xF7, 0xEA) // .dark --foreground
+	darkTitleBorderColour = wailswindows.RGB(0x3B, 0x2A, 0x22) // .dark --secondary
 )
 
 // Shared between the Wails callbacks and the systray goroutine: the
@@ -133,6 +139,10 @@ func run() error {
 		Width:       1180,
 		Height:      760,
 		StartHidden: autostartLaunch,
+		// Webview background before the page paints (Wails defaults to
+		// white). Light brand cream; a dark-theme user sees it only until
+		// lib/theme.ts's WindowSetBackgroundColour runs at page load.
+		BackgroundColour: options.NewRGB(0xFB, 0xF7, 0xEA),
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
@@ -192,7 +202,7 @@ func run() error {
 		Windows: &wailswindows.Options{
 			WindowIsTranslucent: true,
 			BackdropType:        wailswindows.Mica,
-			Theme:               wailswindows.Light,
+			Theme:               wailswindows.SystemDefault,
 			// M22 §4: browser zoom off (Ctrl+±, Ctrl+wheel, pinch) — verified
 			// against frontend.go: IsZoomControlEnabled maps straight to
 			// WebView2's PutIsZoomControlEnabled (its own docs: gates
@@ -207,6 +217,12 @@ func run() error {
 				LightModeTitleBarInactive:  titleBarColour,
 				LightModeTitleTextInactive: titleTextColour,
 				LightModeBorderInactive:    titleBorderColour,
+				DarkModeTitleBar:           darkTitleBarColour,
+				DarkModeTitleText:          darkTitleTextColour,
+				DarkModeBorder:             darkTitleBorderColour,
+				DarkModeTitleBarInactive:   darkTitleBarColour,
+				DarkModeTitleTextInactive:  darkTitleTextColour,
+				DarkModeBorderInactive:     darkTitleBorderColour,
 			},
 		},
 		OnStartup: func(ctx context.Context) {

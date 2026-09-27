@@ -3,6 +3,12 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+/* Tailwind v4's default dark: variant follows prefers-color-scheme
+   directly, which would ignore the user's Light / Dark / System choice.
+   Tie it to the .dark class lib/theme.ts (and index.html's pre-paint
+   script) puts on <html> instead. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
@@ -10,6 +16,8 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -35,8 +43,11 @@
 
 /*
  * CatchM brand palette (docs/brand.md): two-tone chocolate/cream, mapped
- * onto shadcn's CSS variables per docs/plans/active/m4-web-ui.md. No dark
- * mode variant — this app only ships a light theme.
+ * onto shadcn's CSS variables per docs/plans/active/m4-web-ui.md. :root
+ * is the light theme; .dark (below) is its inverse. Keep each theme's
+ * --background in sync with THEME_BACKGROUND in lib/theme.ts and the
+ * pre-paint script in index.html (they set <meta name="theme-color">
+ * and the Wails webview background).
  */
 :root {
     --background: #FBF7EA;
@@ -56,22 +67,85 @@
     --accent: #D9C4B4;
     --accent-foreground: #6C3524;
     --radius: 0.625rem;
-    /* Kept as shadcn's default neutrals per spec: destructive/border/ring. */
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --destructive: #B42318; /* 6.1:1 on cream; shadcn default was 4.45:1 */
+    /* Warm ochre for non-fatal problems (dropped audio, degraded engine).
+       5.8:1 on the cream background (5.0:1 on a warning/10 tint), so it
+       works as text; cream-on-warning is the same 5.8:1. */
+    --warning: #8F5208;
+    --warning-foreground: #FBF7EA;
+    /* Borders/rings are warm tints of the brown palette, not shadcn's
+       neutral grays (which vanished on cream). Contrast vs #FBF7EA:
+       border 1.96:1 (dividers, cards), input 3.21:1 (the brand's
+       #A9826D — form control edges meet the 3:1 non-text minimum),
+       ring 5.37:1 solid; ui/ primitives draw the halo at /80 (3.6:1) so
+       it clears 3:1 on its own. */
+    --border: #C9AE9B;
+    --input: #A9826D;
+    --ring: #8B5A45;
+}
+
+/*
+ * Dark theme: the logo inverted — deep chocolate surfaces, brand cream
+ * text. Surfaces step up in lightness (background < card < popover <
+ * muted) since shadows barely read on dark. WCAG contrast, computed:
+ *   foreground / primary #FBF7EA: 16.8:1 on background, 15.7 card,
+ *     15.0 popover, 12.7 muted.
+ *   muted-foreground #C2A895: 8.0:1 background, 7.5 card, 7.1 popover,
+ *     6.1 muted, 5.5 as placeholder on an input's input/30 fill.
+ *   primary-foreground on primary: 9.0:1 (5.9 on the primary/80 hover).
+ *   destructive #FF9B8C: 8.9:1 background, 6.7 muted; 5.9 on the
+ *     destructive/20 tint ui/ primitives use in dark, 4.6 on /30 hover.
+ *   warning #E8A94A: 8.8:1 background, 6.6 muted, 7.4 on a warning/10
+ *     tint; warning-foreground (background) on warning is 8.8:1.
+ *   input #94735E: 4.2:1 background, 3.9 card, 3.7 popover (≥3:1
+ *     non-text for form control edges).
+ *   ring #D2AE95: 8.8:1 solid, 6.0 at the /80 halo, 3.1 at the base
+ *     layer's outline-ring/50.
+ *   border #56402F: 1.9:1 background (dividers only, like light's 1.96).
+ */
+.dark {
+    --background: #1E1411;
+    --foreground: #FBF7EA;
+    --card: #271A15;
+    --card-foreground: #FBF7EA;
+    --popover: #2C1E18;
+    --popover-foreground: #FBF7EA;
+    /* Cream buttons with chocolate text: the logo's own pairing. */
+    --primary: #FBF7EA;
+    --primary-foreground: #6C3524;
+    --secondary: #3B2A22;
+    --secondary-foreground: #FBF7EA;
+    --muted: #3B2A22;
+    --muted-foreground: #C2A895;
+    --accent: #3B2A22;
+    --accent-foreground: #FBF7EA;
+    --destructive: #FF9B8C;
+    --warning: #E8A94A;
+    --warning-foreground: #1E1411;
+    --border: #56402F;
+    --input: #94735E;
+    --ring: #D2AE95;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* ring-offset-N gaps default to #fff in Tailwind v4, a bright halo
+       in dark; use the page surface unless a ring-offset-* color says
+       otherwise (utilities outrank this base layer). */
+    --tw-ring-offset-color: var(--background);
     }
   body {
     @apply bg-background text-foreground;
     }
   html {
     @apply font-sans;
+    /* Native controls/scrollbars follow the app theme, not the OS:
+       System already resolves to one of the two via .dark. */
+    color-scheme: light;
+    }
+  html.dark {
+    color-scheme: dark;
     }
 }
 
@@ -85,6 +159,12 @@
  * shell (body, sidebar) goes transparent; `main` (App.tsx) keeps its
  * own explicit bg-background so content stays opaque and readable over
  * Mica, on both light and dark wallpapers.
+ *
+ * Both themes: with Wails' WebviewIsTransparent off, what shows through
+ * the transparent body is WebView2's default background, not the
+ * desktop. lib/theme.ts sets that (WindowSetBackgroundColour) to the
+ * active theme's --background on every theme change, so the shell
+ * matches in dark instead of showing the stock white.
  */
 html.desktop-mica body {
   background: transparent;

@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#FBF7EA" />
+    <script>
+      // Apply the dark theme before first paint so it never flashes
+      // light. Mirrors src/lib/theme.ts (key, values, dark background).
+      (function () {
+        var pref = null
+        try {
+          pref = localStorage.getItem("catchm.theme")
+        } catch (e) {}
+        var dark =
+          pref === "dark" ||
+          (pref !== "light" && !!window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches)
+        if (!dark) return
+        document.documentElement.classList.add("dark")
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute("content", "#1E1411")
+      })()
+    </script>
     <title>CatchM</title>
   </head>
   <body>

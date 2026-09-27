@@ -36,6 +36,11 @@ interface WailsWindowRuntime {
   WindowSetPosition(x: number, y: number): void
   WindowSetAlwaysOnTop(b: boolean): void
   WindowShow(): void
+  BrowserOpenURL(url: string): void
+  WindowSetSystemDefaultTheme(): void
+  WindowSetLightTheme(): void
+  WindowSetDarkTheme(): void
+  WindowSetBackgroundColour(r: number, g: number, b: number, a: number): void
   EventsOn(eventName: string, callback: (...data: unknown[]) => void): () => void
 }
 
@@ -64,6 +69,7 @@ declare global {
           CheckForUpdate?(): Promise<UpdateStatus>
           GetLastChecked?(): Promise<string>
           DownloadUpdate?(): Promise<DownloadResult>
+          CancelDownload?(): Promise<void>
           ApplyUpdate?(): Promise<void>
           DeferUpdate?(): void
         }
@@ -149,6 +155,19 @@ export function windowSetAlwaysOnTop(b: boolean): void {
 
 export function windowShow(): void {
   window.runtime!.WindowShow!()
+}
+
+/**
+ * Opens url in the system browser and returns true inside the Wails
+ * window; returns false elsewhere so the caller lets the <a> navigate
+ * normally. Wails v2.16 never handles WebView2's NewWindowRequested, so
+ * target=_blank / window.open there opens a bare in-app popup instead.
+ */
+export function browserOpenURL(url: string): boolean {
+  const open = window.runtime?.BrowserOpenURL
+  if (typeof open !== "function") return false
+  open(url)
+  return true
 }
 
 /**
@@ -242,6 +261,8 @@ export interface UpdateStatus {
 /** Matches cmd/catchm-desktop/update.go's DownloadResult. */
 export interface DownloadResult {
   sha256: string
+  /** CancelDownload stopped it: nothing was kept, and it isn't an error. */
+  cancelled?: boolean
 }
 
 /**
@@ -269,6 +290,13 @@ export function getLastChecked(): Promise<string> {
 /** M23: download + SHA-256-verify the installer for the latest release. */
 export function downloadUpdate(): Promise<DownloadResult> {
   return window.go!.main!.DesktopBridge!.DownloadUpdate!()
+}
+
+/** Stop an in-flight downloadUpdate, which then resolves with
+ *  `cancelled`. Resolves once the partial file is gone, so a retry can
+ *  follow at once; a no-op when nothing is downloading. */
+export function cancelDownload(): Promise<void> {
+  return window.go?.main?.DesktopBridge?.CancelDownload?.() ?? Promise.resolve()
 }
 
 /** M23: run the verified installer elevated and quit. */

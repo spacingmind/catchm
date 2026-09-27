@@ -3,6 +3,8 @@ import { AlertTriangle } from "lucide-react"
 import { cn } from "cn"
 
 import { SegmentedControl } from "@/components/settings/pieces"
+import { StatusMessage } from "@/components/StatusMessage"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -14,6 +16,7 @@ import {
   type EngineLevelsStatus,
   type MeetingLevels,
 } from "@/lib/api"
+import { DEFAULT_DEVICE_VALUE, deviceSelectValue } from "@/lib/recordPrefs"
 
 /** GET /api/meetings/{id}/levels polling rate (M21 §1: "~5 Hz"). */
 const LEVELS_POLL_MS = 200
@@ -33,6 +36,21 @@ const SOURCE_OPTIONS: { value: AudioSource; label: string }[] = [
   { value: "both", label: "Both" },
 ]
 
+/** Shown when the backend says system audio is unsupported but gives no
+ *  reason. */
+const SYSTEM_UNAVAILABLE_FALLBACK = "System audio isn’t available on this computer."
+
+/** The compact-mode shortcut as the user would type it: ⌘ only on macOS
+ *  (useCompactMode accepts either modifier). */
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+const COMPACT_SHORTCUT = IS_MAC ? "⌘⇧L" : "Ctrl+Shift+L"
+
+/** A server message as a sentence, so a next step can follow it. */
+function sentence(msg: string): string {
+  const t = msg.trim()
+  return /[.!?]$/.test(t) ? t : `${t}.`
+}
+
 function formatElapsed(startedAt: string): string {
   const ms = Date.now() - new Date(startedAt).getTime()
   const total = Math.max(0, Math.floor(ms / 1000))
@@ -43,6 +61,8 @@ function formatElapsed(startedAt: string): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
 
+/** Short pill label + tone for the engine state. The raw error text is
+ *  shown in full on its own line, not squeezed into the pill. */
 function engineLabel(engine: EngineLevelsStatus | undefined): { label: string; className: string } {
   if (!engine) {
     return { label: "Transcription: unknown", className: "border-border text-muted-foreground" }
@@ -54,28 +74,29 @@ function engineLabel(engine: EngineLevelsStatus | undefined): { label: string; c
     case "reconnecting":
       return {
         label: engine.state === "connecting" ? "Transcription connecting…" : "Transcription reconnecting…",
-        className: "border-amber-500/30 bg-amber-500/15 text-amber-700",
+        className: "border-warning/30 bg-warning/10 text-warning",
       }
     case "error":
-      return {
-        label: engine.error ? `Transcription error: ${engine.error}` : "Transcription error",
-        className: "border-transparent bg-destructive/10 text-destructive",
-      }
+      return { label: "Transcription error", className: "border-transparent bg-destructive/10 text-destructive" }
     default:
       return { label: `Transcription: ${engine.state}`, className: "border-border text-muted-foreground" }
   }
 }
 
-/** Compact horizontal bar meter, filled by peak (0-1). */
+/** Compact horizontal bar meter, filled by peak (0-1). Decorative — the
+ *  "No signal" text carries the meaning for assistive tech. */
 function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms: number; peak: number } | undefined; noSignal: boolean }) {
-  const pct = Math.min(100, Math.round((levels?.peak ?? 0) * 100))
+  const fill = Math.min(1, Math.max(0, levels?.peak ?? 0))
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
       <span className="w-14 shrink-0">{label}</span>
-      <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
+      <div aria-hidden="true" className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full origin-left rounded-full bg-primary motion-safe:transition-transform"
+          style={{ transform: `scaleX(${fill})` }}
+        />
       </div>
-      {noSignal && <span className="shrink-0 text-muted-foreground/70">No signal</span>}
+      {noSignal && <span className="shrink-0 text-muted-foreground">No signal</span>}
     </div>
   )
 }
@@ -83,7 +104,13 @@ function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms:
 interface StatusRowProps {
   meetingId: string
   startedAt: string
-  initialSource: AudioSource
+  /** Current input, owned by LiveMeeting so it survives this row
+   *  unmounting (compact mode) and the compact strip can show it. */
+  source: AudioSource
+  /** Current mic device ID; "" = default device. */
+  device: string
+  /** Called after the server accepted a source or mic switch. */
+  onSourceChange: (source: AudioSource, device: string) => void
   /** M21 §4: desktop-only compact overlay toggle. Omit both (or leave
    *  compactAvailable false) to render no button at all — a plain
    *  browser (catchm serve) never gets one, not just a disabled one. */
@@ -91,15 +118,23 @@ interface StatusRowProps {
   onToggleCompact?: () => void
 }
 
-export function StatusRow({ meetingId, startedAt, initialSource, compactAvailable, onToggleCompact }: StatusRowProps) {
+export function StatusRow({
+  meetingId,
+  startedAt,
+  source,
+  device,
+  onSourceChange,
+  compactAvailable,
+  onToggleCompact,
+}: StatusRowProps) {
   const [elapsed, setElapsed] = useState(() => formatElapsed(startedAt))
-  const [source, setSource] = useState<AudioSource>(initialSource)
-  const [device, setDevice] = useState("")
   const [devices, setDevices] = useState<Device[]>([])
   const [systemAvailable, setSystemAvailable] = useState(false)
   const [systemReason, setSystemReason] = useState("")
-  const [switching, setSwitching] = useState(false)
-  const [sourceError, setSourceError] = useState<string | null>(null)
+  // The switch in flight (non-null = switching): the controls show the
+  // requested value until the server answers, then snap to the real one.
+  const [pending, setPending] = useState<{ source: AudioSource; device: string } | null>(null)
+  const [switchError, setSwitchError] = useState<string | null>(null)
 
   const [levels, setLevels] = useState<MeetingLevels | null>(null)
   const [dropsWarning, setDropsWarning] = useState(false)
@@ -190,21 +225,27 @@ export function StatusRow({ meetingId, startedAt, initialSource, compactAvailabl
     }
   }, [meetingId])
 
-  const handleSourceChange = async (next: AudioSource) => {
-    if (next === source || switching) return
-    setSwitching(true)
-    setSourceError(null)
+  /** POST the switch. The server accepts the same source with a new
+   *  device (it reopens the mic), so this also serves the mic select. */
+  const switchInput = async (nextSource: AudioSource, nextDevice: string, what: "source" | "microphone") => {
+    if (pending || (nextSource === source && nextDevice === device)) return
+    setPending({ source: nextSource, device: nextDevice })
+    setSwitchError(null)
     try {
-      await setMeetingSource(meetingId, next, next === "system" ? undefined : device || undefined)
-      setSource(next)
+      await setMeetingSource(meetingId, nextSource, nextSource === "system" ? undefined : nextDevice || undefined)
+      onSourceChange(nextSource, nextDevice)
     } catch (err) {
       // 422: the old input stays live server-side — keep the old
       // selection here too and surface the reason inline.
-      setSourceError(err instanceof Error ? err.message : String(err))
+      setSwitchError(`Couldn’t switch ${what}: ${sentence(err instanceof Error ? err.message : String(err))} Try another input.`)
     } finally {
-      setSwitching(false)
+      setPending(null)
     }
   }
+
+  const handleSourceChange = (next: AudioSource) => switchInput(next, device, "source")
+  const handleDeviceChange = (value: string) =>
+    switchInput(source, value === DEFAULT_DEVICE_VALUE ? "" : value, "microphone")
 
   // Ctrl/⌘+1/2/3 while the Live view is mounted (my-translator does
   // this); ignore when a modifier we don't handle is also held.
@@ -221,9 +262,13 @@ export function StatusRow({ meetingId, startedAt, initialSource, compactAvailabl
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemAvailable, source, device, switching])
+  }, [systemAvailable, source, device, pending])
 
+  const shownSource = pending?.source ?? source
+  const shownDevice = pending?.device ?? device
   const engine = engineLabel(levels?.engine)
+  const engineError = levels?.engine?.state === "error" ? levels.engine.error : undefined
+  const unavailableReason = systemReason || SYSTEM_UNAVAILABLE_FALLBACK
   const now = Date.now()
   const micNoSignal = source !== "system" && now - lastSignalRef.current.mic > NO_SIGNAL_AFTER_MS
   const sysNoSignal = source !== "mic" && now - lastSignalRef.current.system > NO_SIGNAL_AFTER_MS
@@ -231,27 +276,34 @@ export function StatusRow({ meetingId, startedAt, initialSource, compactAvailabl
   return (
     <div className="mb-4 grid gap-2 rounded-xl border border-border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="font-mono text-sm tabular-nums text-muted-foreground" aria-label="Elapsed time">
+        {/* role=timer is not announced every tick (implicit aria-live
+            off); the sr-only prefix names the value when read. */}
+        <span role="timer" className="font-mono text-sm tabular-nums text-muted-foreground">
+          <span className="sr-only">Elapsed time </span>
           {elapsed}
         </span>
 
         <SegmentedControl
+          id="live-source"
           label="Audio source"
-          value={source}
+          value={shownSource}
           onChange={(v) => void handleSourceChange(v)}
-          options={SOURCE_OPTIONS.map((o) => ({
-            ...o,
-            disabled: (o.value === "system" || o.value === "both") && !systemAvailable,
-            title: (o.value === "system" || o.value === "both") && !systemAvailable ? systemReason : undefined,
-          }))}
+          options={SOURCE_OPTIONS.map((o) => {
+            const disabled = (o.value === "system" || o.value === "both") && !systemAvailable
+            return { ...o, disabled, reason: disabled ? unavailableReason : undefined }
+          })}
         />
 
-        {source !== "system" && devices.length > 0 && (
-          <Select value={device || undefined} onValueChange={setDevice}>
+        {shownSource !== "system" && devices.length > 0 && (
+          <Select
+            value={deviceSelectValue(shownDevice, devices)}
+            onValueChange={(v) => void handleDeviceChange(v)}
+          >
             <SelectTrigger className="h-8 w-48" aria-label="Microphone">
-              <SelectValue placeholder="Default device" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={DEFAULT_DEVICE_VALUE}>Default device</SelectItem>
               {devices.map((d) => (
                 <SelectItem key={d.ID} value={d.ID}>
                   {d.Name}
@@ -262,34 +314,53 @@ export function StatusRow({ meetingId, startedAt, initialSource, compactAvailabl
           </Select>
         )}
 
-        <span className={cn("inline-flex h-5 items-center rounded-4xl border px-2 text-xs font-medium", engine.className)}>
-          {engine.label}
-        </span>
+        <Badge
+          role="status"
+          variant="outline"
+          className={cn("max-w-64", engine.className)}
+          aria-describedby={engineError ? "live-engine-error" : undefined}
+        >
+          <span className="truncate">{engine.label}</span>
+        </Badge>
 
         {compactAvailable && onToggleCompact && (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={onToggleCompact} title="Compact mode (Ctrl/⌘+Shift+L)">
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={onToggleCompact}
+            title={`Compact mode (${COMPACT_SHORTCUT})`}
+            aria-keyshortcuts={IS_MAC ? "Meta+Shift+L" : "Control+Shift+L"}
+          >
             Compact
           </Button>
         )}
       </div>
 
-      {sourceError && (
-        <p role="alert" className="text-sm text-destructive">
-          Couldn't switch source: {sourceError}
+      {engineError && (
+        <p id="live-engine-error" className="break-words text-sm text-destructive">
+          Transcription error: {sentence(engineError)} Check your network and the transcription settings.
         </p>
       )}
+
+      <StatusMessage tone={switchError ? "error" : "muted"} className="break-words">
+        {switchError ?? (pending ? "Switching input…" : null)}
+      </StatusMessage>
 
       <div className="flex flex-wrap items-center gap-4">
         {source !== "system" && <LevelMeter label="Mic" levels={levels?.mic} noSignal={micNoSignal} />}
         {source !== "mic" && <LevelMeter label="System" levels={levels?.system} noSignal={sysNoSignal} />}
       </div>
 
-      {dropsWarning && (
-        <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
-          <AlertTriangle className="size-3.5" />
-          Audio is being dropped — connection or machine too slow.
-        </p>
-      )}
+      <StatusMessage tone="warning" className="flex items-center gap-1.5 text-xs font-medium">
+        {dropsWarning && (
+          <>
+            <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+            Audio is being dropped because the connection or this computer can’t keep up. Close other busy apps or
+            check your network.
+          </>
+        )}
+      </StatusMessage>
     </div>
   )
 }

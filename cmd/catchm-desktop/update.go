@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"sync"
@@ -50,6 +51,11 @@ const (
 // in that case, and background checks never start.
 var errUpdatesNotConfigured = errors.New("updates are not configured for this build")
 
+// errDownloadInProgress: DownloadUpdate while another is still running.
+// The frontend's shared store already prevents this; the check keeps
+// two downloads from racing over m.verified if it ever doesn't.
+var errDownloadInProgress = errors.New("an update download is already in progress")
+
 // updateManager owns update state for the app's lifetime.
 type updateManager struct {
 	// client is nil when this build has no updateBaseURL (see
@@ -68,7 +74,25 @@ type updateManager struct {
 	// verified is the last successfully downloaded + checksum-verified
 	// installer, ready for ApplyUpdate.
 	verified update.VerifiedInstaller
+	// dl is the in-flight DownloadUpdate, nil when idle — what
+	// CancelDownload stops. One at a time: a second DownloadUpdate while
+	// one runs gets errDownloadInProgress.
+	dl *downloadRun
 }
+
+// downloadRun is one DownloadUpdate call's cancel handle. done closes
+// once that call has cleaned up (partial file removed, dl cleared), so
+// CancelDownload can return a state the user can retry from at once.
+type downloadRun struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// cancelWait bounds how long CancelDownload waits for the cancelled
+// download to unwind. A cancelled request returns almost immediately;
+// this only guards the bridge call against a transport that ignores
+// its context.
+const cancelWait = 10 * time.Second
 
 func newUpdateManager() *updateManager {
 	base := updateBaseURL
@@ -92,6 +116,9 @@ func newUpdateManager() *updateManager {
 // loop until ctx is done. A no-op when this build has no update client
 // (see newUpdateManager).
 func (m *updateManager) startBackgroundChecks(ctx context.Context) {
+	// Before the nil-client return: a build with updates off can still
+	// have installers left over from one that had them.
+	m.removeStaleInstallers()
 	if m.client == nil {
 		return
 	}
@@ -109,6 +136,21 @@ func (m *updateManager) startBackgroundChecks(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// removeStaleInstallers deletes installers earlier runs downloaded but
+// never applied (see update.RemoveStaleInstallers), keeping the one
+// this run verified, if any. Holds m.mu throughout: a download
+// registers itself under m.mu before creating its temp file, so with
+// no download in flight no partial file can appear mid-sweep — and
+// with one in flight the sweep waits for the next launch.
+func (m *updateManager) removeStaleInstallers() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.dl != nil {
+		return
+	}
+	logUpdateErr("update: remove stale installers", update.RemoveStaleInstallers(m.verified.Path))
 }
 
 // checkAndEmit runs one check and emits updateAvailableEvent when a
@@ -207,9 +249,13 @@ func (d DesktopBridge) GetLastChecked() string {
 	return d.updates.lastChecked.Format(time.RFC3339)
 }
 
-// DownloadResult is what DownloadUpdate returns.
+// DownloadResult is what DownloadUpdate returns. Cancelled means
+// CancelDownload stopped it: not an error (the UI says "Download
+// cancelled." instead of showing a failure), SHA256 is empty and
+// nothing was kept.
 type DownloadResult struct {
-	SHA256 string `json:"sha256"`
+	SHA256    string `json:"sha256"`
+	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
 // DownloadUpdate (bound): downloads + SHA-256-verifies the installer
@@ -219,18 +265,56 @@ type DownloadResult struct {
 // installer's digest for the confirm dialog. A checksum mismatch marks
 // updates deferred for the session — never executable, never retried.
 func (d DesktopBridge) DownloadUpdate() (DownloadResult, error) {
-	m := d.updates
+	return d.updates.download(context.Background())
+}
+
+func (m *updateManager) download(parent context.Context) (DownloadResult, error) {
 	if m.client == nil {
 		return DownloadResult{}, errUpdatesNotConfigured
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(parent)
+	run := &downloadRun{cancel: cancel, done: make(chan struct{})}
+	m.mu.Lock()
+	if m.dl != nil {
+		m.mu.Unlock()
+		cancel()
+		return DownloadResult{}, errDownloadInProgress
+	}
+	m.dl = run
+	// Whatever was verified before is stale now (declined with "Not
+	// now", or superseded — this re-fetches the latest release):
+	// delete it rather than leave tens of MB in temp.
+	stale := m.verified.Path
+	m.verified = update.VerifiedInstaller{}
+	m.mu.Unlock()
+	if stale != "" {
+		if err := os.Remove(stale); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logUpdateErr("update: remove previous installer", err)
+		}
+	}
+	defer func() {
+		m.mu.Lock()
+		m.dl = nil
+		m.mu.Unlock()
+		cancel()
+		close(run.done)
+	}()
 
+	// Checked via ctx.Err(), not the error: a cancelled request fails
+	// with whatever the transport was doing at the time.
 	rel, err := m.client.Latest(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return DownloadResult{Cancelled: true}, nil
+		}
 		return DownloadResult{}, err
 	}
 	verified, err := update.DownloadAndVerify(ctx, m.client, rel)
 	if err != nil {
+		// DownloadAndVerify already removed its temp file.
+		if errors.Is(err, context.Canceled) {
+			return DownloadResult{Cancelled: true}, nil
+		}
 		var mism *update.ChecksumMismatchError
 		if errors.As(err, &mism) {
 			m.mu.Lock()
@@ -241,9 +325,39 @@ func (d DesktopBridge) DownloadUpdate() (DownloadResult, error) {
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	// CancelDownload cancels under m.mu, so this check and the store
+	// below are atomic with it: a cancel that lands after the bytes
+	// verified still wins, and the file goes rather than sitting in
+	// temp unreferenced.
+	if ctx.Err() != nil {
+		logUpdateErr("update: remove cancelled installer", os.Remove(verified.Path))
+		return DownloadResult{Cancelled: true}, nil
+	}
 	m.verified = verified
-	m.mu.Unlock()
 	return DownloadResult{SHA256: verified.SHA256}, nil
+}
+
+// CancelDownload (bound): stops the in-flight DownloadUpdate, which
+// then removes its partial file and resolves with Cancelled. Waits for
+// that cleanup, so a retry straight after never hits
+// errDownloadInProgress. A no-op when nothing is downloading.
+func (d DesktopBridge) CancelDownload() {
+	m := d.updates
+	m.mu.Lock()
+	run := m.dl
+	if run != nil {
+		run.cancel()
+	}
+	m.mu.Unlock()
+	if run == nil {
+		return
+	}
+	select {
+	case <-run.done:
+	case <-time.After(cancelWait):
+		log.Printf("update: cancelled download still unwinding after %s", cancelWait)
+	}
 }
 
 // ApplyUpdate (bound): launches the elevated update babysitter (one
@@ -311,5 +425,3 @@ func logUpdateErr(prefix string, err error) {
 		log.Printf("%s: %v", prefix, err)
 	}
 }
-
-var _ = logUpdateErr // used by update_windows.go paths; keep linters honest on stub builds
