@@ -154,7 +154,7 @@ jobs:
             cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe.sha256
 
       # Build the manifest catchm-api's /update/releases/latest will
-      # serve (docs/plans/active/m24-cloud-update-endpoint.md Part A).
+      # serve (docs/plans/completed/m24-cloud-update-endpoint.md Part A).
       # Sizes are read straight off the built files rather than trusted
       # from the build step, so a truncated/corrupt asset can't publish
       # a manifest that lies about its own size.

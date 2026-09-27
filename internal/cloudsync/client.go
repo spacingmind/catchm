@@ -272,7 +272,7 @@ func (c *Client) GetBlob(sessionToken, id string) ([]byte, int, error) {
 
 // ListBlobs returns the authenticated account's blob metadata,
 // following the server's next_cursor pagination
-// (docs/plans/active/m24-cloud-update-endpoint.md Part B.4) until it
+// (docs/plans/completed/m24-cloud-update-endpoint.md Part B.4) until it
 // reports done. The response envelope is strict: a missing "blobs"
 // key is an error (there is no bare-array fallback — the unpaginated
 // shape was never deployed), and a cursor that fails to advance

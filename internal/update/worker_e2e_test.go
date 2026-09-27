@@ -14,7 +14,7 @@ import (
 )
 
 // workerFixture mimics the catchm-cloud update Worker exactly (Part
-// A of docs/plans/active/m24-cloud-update-endpoint.md): the same two
+// A of docs/plans/completed/m24-cloud-update-endpoint.md): the same two
 // routes under /update, absolute browser_download_url values built
 // from the request's own origin, and a 404 with no manifest.
 type workerFixture struct {
