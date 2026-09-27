@@ -1,0 +1,24 @@
+# Enforces Conventional Commits-style PR titles. PRs are merge-committed
+# into develop, but release-please computes version bumps and changelog
+# entries from Conventional Commits -- which it can only see if the PR
+# titles follow the format (the merge commits themselves say
+# "Merge #N: ...", which release-please ignores; the PR titles are what
+# the changelog links to, and on master's linear history the promotion
+# rebase carries the PR-title-shaped commits through). See
+# CONTRIBUTING.md's branching model.
+name: pr-title-lint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
