@@ -1,21 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Search } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Mic, Search } from "lucide-react"
 
 import logo from "@/assets/logo.png"
+import { FilterChip } from "@/components/FilterChip"
+import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
-import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, type Meeting } from "@/lib/api"
+import { formatDateRange, formatDateTime } from "@/lib/format"
+import { noAutofill } from "@/lib/inputProps"
 import { pluralize } from "@/lib/utils"
 
 interface MeetingListProps {
   onOpenMeeting: (meeting: Meeting) => void
+  /** Opens the start-meeting popover (the empty state's call to action). */
+  onStartMeeting?: () => void
 }
 
-export function MeetingList({ onOpenMeeting }: MeetingListProps) {
+/** Stable empty list, so memo deps don't change on every render. */
+const NO_MEETINGS: Meeting[] = []
+
+/** Result of one debounced search, tagged with the query and attempt it
+ *  answers so a stale or superseded result is never shown. */
+type SearchResult = { q: string; attempt: number; meetings: Meeting[] | null; error: string | null }
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps) {
   const [meetings, setMeetings] = useState<Meeting[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [activeTag, setActiveTag] = useState<string | null>(null)
 
@@ -23,9 +39,9 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
     listMeetings()
       .then((ms) => {
         setMeetings(ms)
-        setError(null)
+        setListError(null)
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) => setListError(errorText(err)))
   }, [])
 
   useEffect(() => {
@@ -34,31 +50,33 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
 
   // Debounced server-side search: the free-text `q` param hits the API,
   // while tag filtering below stays client-side over the fetched list.
-  const searchTimer = useRef<number | null>(null)
-  const [searchResults, setSearchResults] = useState<Meeting[] | null>(null)
-  const [searching, setSearching] = useState(false)
+  // "Searching" is derived (no result yet for this query + attempt), so
+  // the effect only sets state from its async callbacks.
+  const trimmedQuery = query.trim()
+  const [searchAttempt, setSearchAttempt] = useState(0)
+  const [search, setSearch] = useState<SearchResult | null>(null)
   useEffect(() => {
-    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current)
-    const q = query.trim()
-    if (!q) {
-      setSearchResults(null)
-      setSearching(false)
-      return
-    }
-    setSearching(true)
-    searchTimer.current = window.setTimeout(() => {
-      listMeetings(q)
+    if (!trimmedQuery) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      listMeetings(trimmedQuery)
         .then((ms) => {
-          setSearchResults(ms)
-          setError(null)
+          if (!cancelled) setSearch({ q: trimmedQuery, attempt: searchAttempt, meetings: ms, error: null })
         })
-        .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-        .finally(() => setSearching(false))
+        .catch((err: unknown) => {
+          if (!cancelled) setSearch({ q: trimmedQuery, attempt: searchAttempt, meetings: null, error: errorText(err) })
+        })
     }, 300)
     return () => {
-      if (searchTimer.current !== null) window.clearTimeout(searchTimer.current)
+      cancelled = true
+      window.clearTimeout(timer)
     }
-  }, [query])
+  }, [trimmedQuery, searchAttempt])
+
+  const current =
+    trimmedQuery && search && search.q === trimmedQuery && search.attempt === searchAttempt ? search : null
+  const searching = trimmedQuery !== "" && current === null
+  const searchError = current?.error ?? null
 
   const tagUniverse = useMemo(() => {
     const tags = new Set<string>()
@@ -66,26 +84,47 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
     return [...tags].sort()
   }, [meetings])
 
-  const trimmedQuery = query.trim()
-  const base = trimmedQuery ? (searchResults ?? []) : (meetings ?? [])
+  const base = trimmedQuery ? (current?.meetings ?? NO_MEETINGS) : (meetings ?? NO_MEETINGS)
   const visibleMeetings = useMemo(
     () => (activeTag ? base.filter((m) => (m.tags ?? []).includes(activeTag)) : base),
     [base, activeTag],
   )
 
   const listEmpty = meetings !== null && meetings.length === 0 && !trimmedQuery
+  const filtered = trimmedQuery !== "" || activeTag !== null
   const noMatches =
-    meetings !== null && meetings.length > 0 && trimmedQuery !== "" && !searching && visibleMeetings.length === 0
+    meetings !== null && !listEmpty && filtered && !searching && !searchError && visibleMeetings.length === 0
+
+  const error = searchError
+    ? `Search failed: ${searchError}. Check that CatchM is running, then retry.`
+    : listError
+      ? `Couldn’t load meetings: ${listError}. Check that CatchM is running, then retry.`
+      : null
+  const retry = () => {
+    if (searchError) {
+      setSearchAttempt((n) => n + 1)
+    } else {
+      setListError(null)
+      refresh()
+    }
+  }
+  const clearFilters = () => {
+    setQuery("")
+    setActiveTag(null)
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Meetings</h1>
+        <h1 className="text-2xl font-semibold text-balance">Meetings</h1>
       </div>
 
       <div className="relative mb-4">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          type="search"
+          name="q"
+          {...noAutofill}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search meetings…"
@@ -95,91 +134,143 @@ export function MeetingList({ onOpenMeeting }: MeetingListProps) {
       </div>
 
       {tagUniverse.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Filter by tag" className="mb-4 flex flex-wrap items-center gap-2">
           {tagUniverse.map((tag) => (
-            <button
+            <FilterChip
               key={tag}
-              type="button"
-              onClick={() => setActiveTag(activeTag === tag ? null : tag)}
-              className="rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-pressed={activeTag === tag}
+              pressed={activeTag === tag}
+              onPressedChange={(on) => setActiveTag(on ? tag : null)}
             >
-              <Badge variant={activeTag === tag ? "default" : "outline"}>{tag}</Badge>
-            </button>
+              {tag}
+            </FilterChip>
           ))}
         </div>
       )}
 
-      {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
+      <div className={error ? "mb-4 flex flex-wrap items-center gap-3" : undefined}>
+        <StatusMessage tone="error" className="min-w-0 flex-1 break-words">
+          {error}
+        </StatusMessage>
+        {error && (
+          <Button size="sm" variant="outline" onClick={retry}>
+            Retry
+          </Button>
+        )}
+      </div>
 
       {meetings === null ? (
-        <div className="grid gap-3" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="rounded-xl border border-border bg-card">
-              <div className="flex items-start justify-between gap-2 p-6 pb-2">
-                <Skeleton className="h-5 w-2/5" />
-                <Skeleton className="h-5 w-12 rounded-full" />
-              </div>
-              <div className="p-6 pt-0">
-                <Skeleton className="h-4 w-1/3" />
-              </div>
-            </div>
-          ))}
-        </div>
+        listError ? null : (
+          <div className="grid gap-3" aria-busy="true">
+            <p className="sr-only" role="status">
+              Loading meetings…
+            </p>
+            {[0, 1, 2].map((i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <Skeleton className="h-5 w-2/5" />
+                    <Skeleton className="h-5 w-12 rounded-full" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-4 w-1/3" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )
       ) : listEmpty ? (
-        <div className="rounded-xl border border-dashed border-border py-16 text-center">
-          <img src={logo} alt="" className="mx-auto mb-4 size-16 rounded-xl" />
+        <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
+          <img src={logo} alt="" width={64} height={64} className="mx-auto mb-4 size-16 rounded-xl" />
           <p className="text-lg font-medium">Your burrow is quiet.</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-pretty text-muted-foreground">
             Start a meeting to capture the conversation, decisions, and follow-ups in one place.
           </p>
+          {onStartMeeting && (
+            <Button className="mt-6" onClick={onStartMeeting}>
+              <Mic /> Start meeting
+            </Button>
+          )}
         </div>
+      ) : searching ? (
+        <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+          Searching…
+        </p>
       ) : noMatches ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No matches in the stash.</p>
-      ) : (
-        <div className="grid gap-3">
-          {visibleMeetings.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => onOpenMeeting(m)}
-              className="cursor-pointer rounded-xl border border-border bg-card text-left transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <CardHeader>
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <CardTitle className="truncate">{m.title}</CardTitle>
-                  {!m.ended_at && (
-                    <Badge className="gap-1.5">
-                      <span className="size-1.5 motion-safe:animate-pulse rounded-full bg-current" />
-                      Live
-                    </Badge>
-                  )}
-                </div>
-                <CardDescription>
-                  {formatMeetingSpan(m)}
-                  {m.engine ? ` · ${m.engine}` : ""}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-1.5">
-                {previewLine(m) && (
-                  <p className="truncate text-sm text-muted-foreground">{previewLine(m)}</p>
-                )}
-                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <span>{pluralize(m.decisions?.length ?? 0, "decision")}</span>
-                  <span>{pluralize(m.action_items?.length ?? 0, "action item")}</span>
-                  {(m.tags ?? []).map((t) => (
-                    <Badge key={t} variant="secondary">
-                      {t}
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </button>
-          ))}
+        <div className="grid justify-items-center gap-3 py-8 text-center">
+          <p role="status" className="text-sm text-muted-foreground">
+            No matches in the stash.
+          </p>
+          <Button size="sm" variant="outline" onClick={clearFilters}>
+            Clear filters
+          </Button>
         </div>
+      ) : (
+        <ul className="grid gap-3">
+          {visibleMeetings.map((m) => (
+            <MeetingRow key={m.id} meeting={m} onOpen={onOpenMeeting} />
+          ))}
+        </ul>
       )}
-
     </div>
+  )
+}
+
+/**
+ * One meeting card. The title is the only interactive element; its ::after
+ * stretches over the whole card so the card is still one click target,
+ * without putting block content inside a <button> or folding the whole
+ * card's text into the button's accessible name.
+ */
+function MeetingRow({ meeting: m, onOpen }: { meeting: Meeting; onOpen: (m: Meeting) => void }) {
+  const preview = previewLine(m)
+  return (
+    <li>
+      {/* content-visibility on the Card, not the <li>: its paint
+          containment would clip the Card's ring (a box-shadow). */}
+      <Card className="relative [contain-intrinsic-size:auto_7.5rem] [content-visibility:auto] transition-colors hover:bg-secondary/40 has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-ring">
+        <CardHeader>
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <CardTitle className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onOpen(m)}
+                className="block w-full cursor-pointer truncate text-left after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none"
+              >
+                {m.title}
+              </button>
+            </CardTitle>
+            {!m.ended_at && (
+              <Badge className="gap-1.5">
+                <span aria-hidden="true" className="size-1.5 motion-safe:animate-pulse rounded-full bg-current" />
+                Live
+              </Badge>
+            )}
+          </div>
+          <CardDescription>
+            {m.ended_at ? formatDateRange(m.started_at, m.ended_at) : `Started ${formatDateTime(m.started_at)}`}
+            {m.engine && (
+              <>
+                {" · "}
+                <span translate="no">{m.engine}</span>
+              </>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-1.5">
+          {preview && <p className="truncate text-sm text-muted-foreground">{preview}</p>}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
+            <span>{pluralize(m.decisions?.length ?? 0, "decision")}</span>
+            <span>{pluralize(m.action_items?.length ?? 0, "action item")}</span>
+            {(m.tags ?? []).map((t) => (
+              <Badge key={t} variant="secondary">
+                {t}
+              </Badge>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </li>
   )
 }
 
@@ -188,15 +279,4 @@ function previewLine(m: Meeting): string {
   const first = m.decisions?.[0]?.text?.trim()
   if (first) return first
   return m.summary?.trim() ?? ""
-}
-
-function formatMeetingSpan(m: Meeting): string {
-  const start = new Date(m.started_at)
-  if (!m.ended_at) return `Started ${start.toLocaleString()}`
-
-  const end = new Date(m.ended_at)
-  if (start.toDateString() === end.toDateString()) {
-    return `${start.toLocaleDateString()}, ${start.toLocaleTimeString()} – ${end.toLocaleTimeString()}`
-  }
-  return `${start.toLocaleString()} – ${end.toLocaleString()}`
 }

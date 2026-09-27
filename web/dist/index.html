@@ -4,9 +4,30 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#FBF7EA" />
+    <script>
+      // Apply the dark theme before first paint so it never flashes
+      // light. Mirrors src/lib/theme.ts (key, values, dark background).
+      (function () {
+        var pref = null
+        try {
+          pref = localStorage.getItem("catchm.theme")
+        } catch (e) {}
+        var dark =
+          pref === "dark" ||
+          (pref !== "light" && !!window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches)
+        if (!dark) return
+        document.documentElement.classList.add("dark")
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute("content", "#1E1411")
+      })()
+    </script>
     <title>CatchM</title>
-    <script type="module" crossorigin src="/assets/index-q5rI3T4k.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-B0Mky_TC.css">
+    <script type="module" crossorigin src="/assets/index-BCaCMV4r.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-CbXtAM7H.js">
+    <link rel="modulepreload" crossorigin href="/assets/format-DGMwu-51.js">
+    <link rel="modulepreload" crossorigin href="/assets/pieces-XVCOjX3v.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CwmfE6mv.css">
   </head>
   <body>
     <div id="root"></div>

@@ -1,41 +1,50 @@
-import { useEffect, useState } from "react"
-import { ChevronDown } from "lucide-react"
-import { cn } from "cn"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
-import { SaveStatus, SegmentedControl, SettingRow, SettingsSection } from "@/components/settings/pieces"
+import { Disclosure } from "@/components/Disclosure"
+import { StatusMessage } from "@/components/StatusMessage"
+import {
+  descId,
+  labelId,
+  SaveStatus,
+  SegmentedControl,
+  SettingRow,
+  SettingsSection,
+} from "@/components/settings/pieces"
 import { useConfigSave } from "@/components/settings/useConfigSave"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getConfig, type AppConfig, type SttEngine } from "@/lib/api"
-
-/** Absolute http(s) URL, checked on blur only (no red on first render). */
-function isAbsoluteHttpUrl(v: string): boolean {
-  try {
-    const u = new URL(v)
-    return u.protocol === "http:" || u.protocol === "https:"
-  } catch {
-    return false
-  }
-}
+import { noAutofill } from "@/lib/inputProps"
+import { isAbsoluteUrl } from "@/lib/url"
 
 const ENGINES: { value: SttEngine; label: string; hint: string }[] = [
   { value: "whisper", label: "Whisper (local)", hint: "Runs on this device via your Whisper server." },
   { value: "soniox", label: "Soniox (cloud)", hint: "Fast and accurate; needs an API key." },
 ]
 
+const KEY_ERROR_ID = "soniox-key-error"
+const WHISPER_URL_ERROR_ID = "stt-whisper-url-error"
+const SONIOX_URL_ERROR_ID = "stt-soniox-url-error"
+
 export function SettingsTranscription() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [keyInput, setKeyInput] = useState("")
   const [keyEditing, setKeyEditing] = useState(false)
+  const [keySaving, setKeySaving] = useState(false)
   const [keyError, setKeyError] = useState<string | null>(null)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [whisperUrl, setWhisperUrl] = useState("")
   const [sonioxUrl, setSonioxUrl] = useState("")
   const [urlErrors, setUrlErrors] = useState<{ whisper?: string; soniox?: string }>({})
 
-  useEffect(() => {
+  const keyInputRef = useRef<HTMLInputElement | null>(null)
+  // Add/Replace button; focus returns here when the key editor closes so
+  // it isn't dropped on <body> with the unmounted form.
+  const keyButtonRef = useRef<HTMLButtonElement | null>(null)
+  const restoreKeyFocus = useRef(false)
+
+  const load = useCallback(() => {
     getConfig()
       .then((c) => {
         setConfig(c)
@@ -44,6 +53,20 @@ export function SettingsTranscription() {
       })
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)))
   }, [])
+
+  useEffect(load, [load])
+
+  const retryLoad = () => {
+    setLoadError(null)
+    load()
+  }
+
+  useEffect(() => {
+    if (!keyEditing && restoreKeyFocus.current) {
+      restoreKeyFocus.current = false
+      keyButtonRef.current?.focus()
+    }
+  }, [keyEditing])
 
   const { save, put } = useConfigSave(config, setConfig)
 
@@ -57,26 +80,38 @@ export function SettingsTranscription() {
     setKeyEditing(true)
   }
 
-  const saveKey = async () => {
+  const closeKeyEditor = () => {
+    restoreKeyFocus.current = true
+    setKeyEditing(false)
+    setKeyInput("")
+    setKeyError(null)
+  }
+
+  const saveKey = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (keySaving) return
     const key = keyInput.trim()
     if (!key) {
       setKeyError("Enter an API key first.")
+      keyInputRef.current?.focus()
       return
     }
+    setKeySaving(true)
+    setKeyError(null)
     const ok = await put({ soniox_api_key: key })
+    setKeySaving(false)
     if (ok) {
-      setKeyEditing(false)
-      setKeyInput("")
-      setKeyError(null)
+      closeKeyEditor()
     } else {
-      setKeyError("Couldn't save the key — try again.")
+      setKeyError("Couldn’t save the key. Check that CatchM is still running, then try again.")
+      keyInputRef.current?.focus()
     }
   }
 
   const commitWhisperUrl = () => {
     const v = whisperUrl.trim()
-    if (!isAbsoluteHttpUrl(v)) {
-      setUrlErrors((e) => ({ ...e, whisper: "Enter an absolute http:// or https:// URL." }))
+    if (!isAbsoluteUrl(v, ["http", "https"])) {
+      setUrlErrors((e) => ({ ...e, whisper: "Enter an absolute http:// or https:// URL, like http://127.0.0.1:8080." }))
       return
     }
     setUrlErrors((e) => ({ ...e, whisper: undefined }))
@@ -85,8 +120,13 @@ export function SettingsTranscription() {
 
   const commitSonioxUrl = () => {
     const v = sonioxUrl.trim()
-    if (!isAbsoluteHttpUrl(v)) {
-      setUrlErrors((e) => ({ ...e, soniox: "Enter an absolute http:// or https:// URL." }))
+    // The Soniox engine dials this with a WebSocket client, which only
+    // speaks ws:// and wss:// (the default is wss://).
+    if (!isAbsoluteUrl(v, ["ws", "wss"])) {
+      setUrlErrors((e) => ({
+        ...e,
+        soniox: "Enter an absolute ws:// or wss:// URL, like wss://stt-rt.soniox.com/transcribe-websocket.",
+      }))
       return
     }
     setUrlErrors((e) => ({ ...e, soniox: undefined }))
@@ -96,7 +136,14 @@ export function SettingsTranscription() {
   if (loadError) {
     return (
       <SettingsSection title="Transcription" description="Speech-to-text engine and its settings.">
-        <p className="text-sm text-destructive">{loadError}</p>
+        <div className="grid justify-items-start gap-3">
+          <StatusMessage tone="error">
+            Couldn’t load transcription settings: {loadError}. Check that CatchM is still running, then try again.
+          </StatusMessage>
+          <Button size="sm" variant="outline" onClick={retryLoad}>
+            Try again
+          </Button>
+        </div>
       </SettingsSection>
     )
   }
@@ -104,6 +151,7 @@ export function SettingsTranscription() {
   if (!config) {
     return (
       <div aria-busy="true" className="grid gap-4">
+        <span className="sr-only">Loading transcription settings…</span>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-16 w-full rounded-xl" />
         <Skeleton className="h-16 w-full rounded-xl" />
@@ -113,6 +161,7 @@ export function SettingsTranscription() {
   }
 
   const keySet = config.soniox_api_key_set
+  const engine: SttEngine = config.engine === "soniox" ? "soniox" : "whisper"
 
   return (
     <div>
@@ -122,17 +171,18 @@ export function SettingsTranscription() {
       >
         <SettingRow
           label="Engine"
-          htmlFor="stt-engine"
+          id="stt-engine"
           description={
             <>
-              Used as the default when starting a meeting.{" "}
-              {ENGINES.find((e) => e.value === (config.engine === "soniox" ? "soniox" : "whisper"))?.hint}
+              Used as the default when starting a meeting. {ENGINES.find((e) => e.value === engine)?.hint}
             </>
           }
           control={
             <SegmentedControl
-              label="Transcription engine"
-              value={config.engine === "soniox" ? "soniox" : "whisper"}
+              id="stt-engine"
+              labelledBy={labelId("stt-engine")}
+              describedBy={descId("stt-engine")}
+              value={engine}
               onChange={setEngine}
               options={ENGINES.map((e) => ({ value: e.value, label: e.label }))}
             />
@@ -140,48 +190,62 @@ export function SettingsTranscription() {
         />
         <SettingRow
           label="Soniox API key"
-          htmlFor="soniox-key"
+          htmlFor={keyEditing ? "soniox-key" : undefined}
+          id="soniox-key"
           description="Stored locally on this device."
           control={
             keyEditing ? (
-              <div className="grid w-72 justify-items-end gap-1.5">
+              <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
                 <Input
+                  ref={keyInputRef}
                   id="soniox-key"
+                  name="soniox_api_key"
                   type="password"
-                  autoComplete="off"
+                  {...noAutofill}
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
-                  placeholder="New API key"
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape" && !keySaving) closeKeyEditor()
+                  }}
+                  placeholder="New API key…"
+                  // readOnly, not disabled, so focus can return here on failure.
+                  readOnly={keySaving}
+                  aria-invalid={keyError ? true : undefined}
+                  aria-describedby={keyError ? `${descId("soniox-key")} ${KEY_ERROR_ID}` : descId("soniox-key")}
+                  // The user just asked to add/replace the key: move focus into the field.
                   autoFocus
                 />
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => { setKeyEditing(false); setKeyInput(""); setKeyError(null) }}>
+                  <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
                     Cancel
                   </Button>
-                  <Button size="sm" onClick={() => void saveKey()}>
-                    Save key
+                  <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
+                    {keySaving ? "Saving…" : "Save key"}
                   </Button>
                 </div>
-                {keyError && <p className="text-sm text-destructive">{keyError}</p>}
-              </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {keySet ? (
-                    <>
-                      <span className="text-sm text-muted-foreground" aria-label="API key set">
-                        ● Set
-                      </span>
-                      <Button size="sm" variant="outline" onClick={startReplaceKey}>
-                        Replace
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" variant="outline" onClick={startReplaceKey}>
-                      Add key
+                <StatusMessage id={KEY_ERROR_ID} tone="error">
+                  {keyError}
+                </StatusMessage>
+              </form>
+            ) : (
+              <div className="flex items-center gap-2">
+                {keySet ? (
+                  <>
+                    <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
+                      Key set
+                    </span>
+                    <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
+                      Replace key
                     </Button>
-                  )}
-                </div>
-              )
+                  </>
+                ) : (
+                  <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
+                    Add key
+                  </Button>
+                )}
+              </div>
+            )
           }
         />
         <div className="flex items-center justify-end">
@@ -190,17 +254,7 @@ export function SettingsTranscription() {
       </SettingsSection>
 
       <SettingsSection title="Advanced" description="Server endpoints for the engines.">
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen((o) => !o)}
-          aria-expanded={advancedOpen}
-          className="flex w-full items-center gap-2 rounded-md py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <ChevronDown className={cn("size-4 transition-transform", advancedOpen && "rotate-180")} />
-          {advancedOpen ? "Hide" : "Show"} Whisper & Soniox server URLs
-        </button>
-
-        {advancedOpen && (
+        <Disclosure label="Whisper & Soniox server URLs">
           <div className="grid gap-2">
             <SettingRow
               label="Whisper server URL"
@@ -210,15 +264,24 @@ export function SettingsTranscription() {
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input
                     id="stt-whisper-url"
+                    name="whisper_url"
                     type="url"
+                    {...noAutofill}
                     value={whisperUrl}
                     onChange={(e) => setWhisperUrl(e.target.value)}
                     onBlur={commitWhisperUrl}
-                    placeholder="http://127.0.0.1:8080"
+                    placeholder="http://127.0.0.1:8080…"
                     aria-invalid={urlErrors.whisper ? true : undefined}
+                    aria-describedby={
+                      urlErrors.whisper
+                        ? `${descId("stt-whisper-url")} ${WHISPER_URL_ERROR_ID}`
+                        : descId("stt-whisper-url")
+                    }
                     className="w-full"
                   />
-                  {urlErrors.whisper && <p className="text-sm text-destructive">{urlErrors.whisper}</p>}
+                  <StatusMessage id={WHISPER_URL_ERROR_ID} tone="error" className="break-words">
+                    {urlErrors.whisper}
+                  </StatusMessage>
                 </div>
               }
             />
@@ -230,20 +293,29 @@ export function SettingsTranscription() {
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input
                     id="stt-soniox-url"
+                    name="soniox_url"
                     type="url"
+                    {...noAutofill}
                     value={sonioxUrl}
                     onChange={(e) => setSonioxUrl(e.target.value)}
                     onBlur={commitSonioxUrl}
-                    placeholder="wss://stt-rt.soniox.com/transcribe-websocket"
+                    placeholder="wss://stt-rt.soniox.com/transcribe-websocket…"
                     aria-invalid={urlErrors.soniox ? true : undefined}
+                    aria-describedby={
+                      urlErrors.soniox
+                        ? `${descId("stt-soniox-url")} ${SONIOX_URL_ERROR_ID}`
+                        : descId("stt-soniox-url")
+                    }
                     className="w-full"
                   />
-                  {urlErrors.soniox && <p className="text-sm text-destructive">{urlErrors.soniox}</p>}
+                  <StatusMessage id={SONIOX_URL_ERROR_ID} tone="error" className="break-words">
+                    {urlErrors.soniox}
+                  </StatusMessage>
                 </div>
               }
             />
           </div>
-        )}
+        </Disclosure>
       </SettingsSection>
     </div>
   )

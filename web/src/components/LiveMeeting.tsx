@@ -1,35 +1,41 @@
-import { useEffect, useRef, useState } from "react"
-import { ArrowDown, Minus, Plus, Radio } from "lucide-react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown, Loader2, Minus, Plus, Radio } from "lucide-react"
 import { cn } from "cn"
 
-import { SegmentedControl } from "@/components/settings/pieces"
+import { ConfirmDialog } from "@/components/ConfirmDialog"
+import { SaveStatus, SegmentedControl, type SaveState } from "@/components/settings/pieces"
+import { StatusMessage } from "@/components/StatusMessage"
 import { CompactOverlay } from "@/components/live/CompactOverlay"
 import { StatusRow } from "@/components/live/StatusRow"
 import { useCompactMode } from "@/components/live/useCompactMode"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
-import { addNote, endMeeting, getTranscript, type Meeting, type Utterance } from "@/lib/api"
+import { useStickToBottom } from "@/hooks/useStickToBottom"
+import { addNote, endMeeting, getTranscript, type AudioSource, type Meeting, type Utterance } from "@/lib/api"
 import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
+import { readStartedDevice, writeStartedDevice } from "@/lib/recordPrefs"
 
 /** How often the live transcript is polled for new utterances. */
 const POLL_INTERVAL_MS = 1500
 
-/**
- * Distance from the bottom (px) within which the view counts as
- * "at the bottom" for auto-scroll purposes. Generous enough that the
- * common case (watching live, one new utterance renders, user is now
- * ~one line above the bottom) keeps auto-scrolling; small enough that
- * anyone who scrolled up to re-read (a screenful or more) is clearly
- * outside it.
- */
-const AT_BOTTOM_THRESHOLD_PX = 120
+/** How long the note's "Saved" confirmation stays before clearing. */
+const NOTE_SAVED_MS = 2000
 
 const VIEW_MODE_OPTIONS: { value: TranscriptViewMode; label: string }[] = [
   { value: "stacked", label: "Original + translation" },
   { value: "side-by-side", label: "Side by side" },
   { value: "translation-only", label: "Translation only" },
 ]
+
+/** Stable empty list for a meeting whose transcript hasn't loaded yet
+ *  (a fresh [] each render would re-run the memo and scroll effects). */
+const EMPTY_UTTERANCES: Utterance[] = []
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
 
 /** Consecutive utterances from the same speaker render under one label
  *  (M21 §3), instead of repeating it on every line. */
@@ -44,6 +50,91 @@ function groupBySpeaker(utterances: Utterance[]): Utterance[][] {
     }
   }
   return groups
+}
+
+const UtteranceRow = memo(function UtteranceRow({
+  u,
+  viewMode,
+  fontSize,
+}: {
+  u: Utterance
+  viewMode: TranscriptViewMode
+  fontSize: number
+}) {
+  return (
+    <div className={cn(viewMode === "side-by-side" && "grid grid-cols-2 gap-4")}>
+      {viewMode !== "translation-only" && (
+        <p className="min-w-0 max-w-[72ch] break-words leading-[1.6]" style={{ fontSize }}>
+          {u.text}
+        </p>
+      )}
+      {viewMode === "translation-only" && (
+        <p className="max-w-[72ch] break-words leading-[1.6]" style={{ fontSize }}>
+          {u.translated || u.text}
+        </p>
+      )}
+      {viewMode !== "translation-only" && u.translated && (
+        <p className="min-w-0 max-w-[72ch] break-words leading-[1.6] text-muted-foreground" style={{ fontSize }}>
+          {u.lang && (
+            <span translate="no" className="mr-1 text-xs text-muted-foreground">
+              <span aria-hidden="true">→</span> {u.lang}
+            </span>
+          )}
+          {u.translated}
+        </p>
+      )}
+    </div>
+  )
+})
+
+/** One speaker's run of lines. The transcript only ever grows at the
+ *  end, so a group is unchanged while its first line and length are —
+ *  only the last group re-renders when a line arrives. content-visibility
+ *  lets the browser skip laying out groups scrolled far off-screen. */
+const SpeakerGroup = memo(
+  function SpeakerGroup({
+    group,
+    viewMode,
+    fontSize,
+    last,
+  }: {
+    group: Utterance[]
+    viewMode: TranscriptViewMode
+    fontSize: number
+    /** The newest group is laid out eagerly so stick-to-bottom scrolls
+     *  to its real height, not the 4rem placeholder. */
+    last: boolean
+  }) {
+    return (
+      <div className={last ? undefined : "[contain-intrinsic-size:auto_4rem] [content-visibility:auto]"}>
+        {group[0].speaker && <p className="text-[13px] font-medium text-muted-foreground">{group[0].speaker}</p>}
+        <div className="grid gap-2">
+          {group.map((u) => (
+            <UtteranceRow key={u.seq} u={u} viewMode={viewMode} fontSize={fontSize} />
+          ))}
+        </div>
+      </div>
+    )
+  },
+  (a, b) =>
+    a.group[0] === b.group[0] &&
+    a.group.length === b.group.length &&
+    a.viewMode === b.viewMode &&
+    a.fontSize === b.fontSize &&
+    a.last === b.last,
+)
+
+/** The input a meeting is recording from right now. Starts from the
+ *  meeting doc (source) and what the start flow asked for (device, which
+ *  the doc doesn't store); StatusRow updates it on each switch. */
+interface CaptureInput {
+  meetingId: string
+  source: AudioSource
+  device: string
+}
+
+function initialInput(meeting: Meeting): CaptureInput {
+  return { meetingId: meeting.id, source: meeting.audio_source ?? "mic", device: readStartedDevice(meeting.id) }
 }
 
 interface LiveMeetingProps {
@@ -61,47 +152,54 @@ interface LiveMeetingProps {
 }
 
 export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, onCompactChange }: LiveMeetingProps) {
-  const [utterances, setUtterances] = useState<Utterance[]>([])
+  // Tagged with the meeting it belongs to, so switching meetings shows
+  // an empty transcript at once (derived below) without resetting state
+  // from the poll effect.
+  const [transcript, setTranscript] = useState<{ meetingId: string; utterances: Utterance[] }>(() => ({
+    meetingId: meeting.id,
+    utterances: [],
+  }))
+  const utterances = transcript.meetingId === meeting.id ? transcript.utterances : EMPTY_UTTERANCES
   const cursorRef = useRef(-1)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  // The element that actually scrolls inside Radix's ScrollArea.
-  const viewportRef = useRef<HTMLDivElement | null>(null)
-  // Live "is the view at the bottom" flag, kept current by the scroll
-  // listener; read at the moment new utterances render.
-  const atBottomRef = useRef(true)
-  // Length of utterances the auto-scroll effect last saw (for the
-  // initial-batch special case).
-  const prevLenRef = useRef(0)
-  // Non-null while new lines arrived off-screen and the user hasn't
-  // come back down — drives the "New lines ↓" affordance.
-  const [newLines, setNewLines] = useState(false)
+  const [pollError, setPollError] = useState<string | null>(null)
+
+  // Lifted out of StatusRow: it unmounts in compact mode, and the
+  // compact strip shows the current source too.
+  const [input, setInput] = useState<CaptureInput>(() => initialInput(meeting))
+  if (input.meetingId !== meeting.id) setInput(initialInput(meeting))
 
   const [viewMode, setViewMode] = useState<TranscriptViewMode>(readViewMode)
   const [fontSize, setFontSize] = useState<number>(readFontSize)
 
   const [note, setNote] = useState("")
-  const [noteStatus, setNoteStatus] = useState<string | null>(null)
+  const [noteState, setNoteState] = useState<SaveState>("idle")
+  const [noteError, setNoteError] = useState<string | null>(null)
+  const noteTimerRef = useRef<number | undefined>(undefined)
+
+  const [confirmEnd, setConfirmEnd] = useState(false)
   const [ending, setEnding] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [endError, setEndError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     cursorRef.current = -1
-    setUtterances([])
-    prevLenRef.current = 0
-    setNewLines(false)
 
     const poll = () => {
       getTranscript(meeting.id, cursorRef.current)
         .then(({ utterances: batch, cursor }) => {
           if (cancelled) return
           cursorRef.current = cursor
+          setPollError(null)
           if (batch.length > 0) {
-            setUtterances((prev) => [...prev, ...batch])
+            setTranscript((prev) =>
+              prev.meetingId === meeting.id
+                ? { meetingId: meeting.id, utterances: [...prev.utterances, ...batch] }
+                : { meetingId: meeting.id, utterances: batch },
+            )
           }
         })
         .catch((err: unknown) => {
-          if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+          if (!cancelled) setPollError(errorText(err))
         })
     }
 
@@ -113,67 +211,38 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
     }
   }, [meeting.id])
 
-  // Locate Radix's scrolling viewport once mounted and keep atBottom
-  // current on every scroll — this is also what dismisses the
-  // "New lines ↓" affordance when the user scrolls back down manually.
-  useEffect(() => {
-    const el = bottomRef.current?.closest<HTMLDivElement>('[data-slot="scroll-area-viewport"]')
-    if (!el) return
-    viewportRef.current = el
-    const onScroll = () => {
-      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_THRESHOLD_PX
-      if (atBottomRef.current) setNewLines(false)
-    }
-    el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
-  }, [meeting.id])
+  useEffect(() => () => window.clearTimeout(noteTimerRef.current), [])
 
-  // Auto-scroll ONLY when the user was already at (near) the bottom.
-  // The initial batch is exempt: a transcript that just loaded should
-  // land on the newest line regardless (matching the old behavior for
-  // the only case where it was actually desirable).
-  useEffect(() => {
-    const prevLen = prevLenRef.current
-    prevLenRef.current = utterances.length
-    if (utterances.length === 0) return
-    if (prevLen === 0) {
-      scrollToBottom()
-      return
-    }
-    if (atBottomRef.current) {
-      scrollToBottom()
-    } else {
-      setNewLines(true)
-    }
-  }, [utterances])
-
-  function scrollToBottom() {
-    const el = viewportRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight })
-    else bottomRef.current?.scrollIntoView({ block: "end" })
-  }
+  const groups = useMemo(() => groupBySpeaker(utterances), [utterances])
+  // A callback ref on the sentinel below the last row: it re-attaches
+  // to the new ScrollArea after a compact-mode round-trip.
+  const { ref: bottomRef, hasNew, scrollToBottom } = useStickToBottom(utterances.length)
 
   const handleAddNote = async () => {
     const text = note.trim()
-    if (!text) return
+    if (!text || noteState === "saving") return
+    window.clearTimeout(noteTimerRef.current)
+    setNoteState("saving")
+    setNoteError(null)
     try {
       await addNote(meeting.id, text)
       setNote("")
-      setNoteStatus("Saved")
-      setTimeout(() => setNoteStatus(null), 2000)
+      setNoteState("saved")
+      noteTimerRef.current = window.setTimeout(() => setNoteState("idle"), NOTE_SAVED_MS)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setNoteState("error")
+      setNoteError(`Couldn’t add the note: ${errorText(err)}`)
     }
   }
 
   const handleEnd = async () => {
     setEnding(true)
-    setError(null)
+    setEndError(null)
     try {
       await endMeeting(meeting.id)
       onEnded({ ...meeting, ended_at: new Date().toISOString() })
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setEndError(`Couldn’t end the meeting: ${errorText(err)}`)
       setEnding(false)
     }
   }
@@ -190,8 +259,18 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
     writeViewMode(mode)
   }
 
+  const handleSourceChange = useCallback(
+    (source: AudioSource, device: string) => {
+      setInput({ meetingId: meeting.id, source, device })
+      // Remember a mid-meeting mic switch too, so returning to Live (or a
+      // later source change) starts from the device actually recording.
+      writeStartedDevice(meeting.id, device)
+    },
+    [meeting.id],
+  )
+
   const translationOn = Boolean(meeting.translate_to) || Boolean(meeting.two_way)
-  const groups = groupBySpeaker(utterances)
+  const pollErrorText = pollError ? `Couldn’t load new transcript lines: ${pollError}. Retrying…` : null
 
   const { compact, available: compactAvailable, toggle: toggleCompact } = useCompactMode()
 
@@ -206,37 +285,68 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
     return (
       <CompactOverlay
         meetingId={meeting.id}
-        audioSource={meeting.audio_source ?? "mic"}
+        audioSource={input.source}
         utterances={utterances}
         viewMode={viewMode}
+        fontSize={fontSize}
+        error={pollError}
+        captureError={captureError}
         onExit={toggleCompact}
       />
     )
   }
 
+  const unsavedNote = note.trim() !== ""
+
   return (
-    <div className="mx-auto flex h-svh max-w-4xl flex-col px-6 py-8">
+    <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6 py-8">
       <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="flex items-start gap-2 break-words text-2xl font-semibold">
-            <span className="relative mt-1.5 inline-flex shrink-0">
+        <div className="min-w-0">
+          <h1 className="flex items-start gap-2 text-2xl font-semibold text-balance">
+            <span aria-hidden="true" className="relative mt-1.5 inline-flex shrink-0">
               <Radio className="size-5 text-primary" />
               <span className="absolute -top-0.5 -right-0.5 size-1.5 motion-safe:animate-pulse rounded-full bg-primary" />
-            </span>{" "}
-            {meeting.title}
+            </span>
+            <span className="min-w-0 break-words">{meeting.title}</span>
           </h1>
           <p className="text-sm text-muted-foreground">Live meeting — transcript updates automatically.</p>
         </div>
-        <Button variant="destructive" onClick={handleEnd} disabled={ending}>
+        <Button
+          variant="destructive"
+          className="shrink-0"
+          onClick={() => {
+            setEndError(null)
+            setConfirmEnd(true)
+          }}
+          disabled={ending}
+        >
           {ending ? "Ending…" : "End meeting"}
         </Button>
       </div>
 
-      {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
+      <ConfirmDialog
+        open={confirmEnd}
+        onOpenChange={setConfirmEnd}
+        title="End this meeting?"
+        description={
+          unsavedNote
+            ? "Recording stops and the transcript is saved. Your note hasn’t been added yet and will be discarded — cancel and select Add note to keep it."
+            : "Recording stops and the transcript is saved. You can’t resume a meeting after ending it."
+        }
+        confirmLabel="End meeting"
+        destructive
+        pending={ending}
+        error={endError}
+        onConfirm={() => void handleEnd()}
+      />
+
+      <StatusMessage tone="error" className="mb-4 break-words">
+        {pollErrorText}
+      </StatusMessage>
 
       {captureError && (
         <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
-          <p className="text-sm text-destructive">
+          <p className="min-w-0 break-words text-sm text-destructive">
             <span className="font-medium">Not recording:</span> {captureError}
           </p>
           {onOpenSettings && (
@@ -250,7 +360,9 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
       <StatusRow
         meetingId={meeting.id}
         startedAt={meeting.started_at}
-        initialSource={meeting.audio_source ?? "mic"}
+        source={input.source}
+        device={input.device}
+        onSourceChange={handleSourceChange}
         compactAvailable={compactAvailable}
         onToggleCompact={toggleCompact}
       />
@@ -261,7 +373,7 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
         ) : (
           <span />
         )}
-        <div className="flex items-center gap-1">
+        <div role="group" aria-label="Text size" className="flex items-center gap-1">
           <Button
             size="icon-sm"
             variant="outline"
@@ -269,7 +381,7 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
             disabled={fontSize <= FONT_SIZES[0]}
             onClick={() => changeFontSize(-1)}
           >
-            <Minus />
+            <Minus aria-hidden="true" />
           </Button>
           <Button
             size="icon-sm"
@@ -278,89 +390,70 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
             disabled={fontSize >= FONT_SIZES[FONT_SIZES.length - 1]}
             onClick={() => changeFontSize(1)}
           >
-            <Plus />
+            <Plus aria-hidden="true" />
           </Button>
         </div>
       </div>
 
       <div className="relative mb-4 min-h-0 flex-1">
         <ScrollArea className="h-full rounded-xl border border-border bg-card">
-          <div className="grid gap-3 p-4">
+          <div role="log" aria-label="Transcript" className="grid gap-3 p-4">
             {groups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Waiting for the first utterance. Start talking to fill the transcript.
               </p>
             ) : (
-              groups.map((group) => (
-                <div key={group[0].seq}>
-                  {group[0].speaker && <p className="text-[13px] font-medium text-muted-foreground">{group[0].speaker}</p>}
-                  <div className="grid gap-2">
-                    {group.map((u) => (
-                      <div
-                        key={u.seq}
-                        className={cn(viewMode === "side-by-side" && "grid grid-cols-2 gap-4")}
-                      >
-                        {viewMode !== "translation-only" && (
-                          <p className="max-w-[72ch] break-words leading-[1.6]" style={{ fontSize }}>
-                            {u.text}
-                          </p>
-                        )}
-                        {viewMode === "translation-only" && (
-                          <p className="max-w-[72ch] break-words leading-[1.6]" style={{ fontSize }}>
-                            {u.translated || u.text}
-                          </p>
-                        )}
-                        {viewMode !== "translation-only" && u.translated && (
-                          <p
-                            className="max-w-[72ch] break-words leading-[1.6] text-muted-foreground"
-                            style={{ fontSize }}
-                          >
-                            {u.lang && <span className="mr-1 text-xs text-muted-foreground/70">→ {u.lang}</span>}
-                            {u.translated}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              groups.map((group, i) => (
+                <SpeakerGroup
+                  key={group[0].seq}
+                  group={group}
+                  viewMode={viewMode}
+                  fontSize={fontSize}
+                  last={i === groups.length - 1}
+                />
               ))
             )}
-            <div ref={bottomRef} />
           </div>
+          <div ref={bottomRef} />
         </ScrollArea>
-        {newLines && (
+        {hasNew && (
           <Button
             size="sm"
             variant="secondary"
             className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-md"
-            onClick={() => {
-              setNewLines(false)
-              scrollToBottom()
-            }}
+            onClick={scrollToBottom}
           >
-            <ArrowDown /> New lines
+            <ArrowDown aria-hidden="true" /> New lines
           </Button>
         )}
       </div>
 
-      <div className="grid shrink-0 gap-2">
-        <label htmlFor="live-note" className="text-sm font-medium">
-          Note
-        </label>
+      <form
+        className="grid shrink-0 gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void handleAddNote()
+        }}
+      >
+        <Label htmlFor="live-note">Note</Label>
         <Textarea
           id="live-note"
+          name="note"
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Add a note about this meeting…"
           rows={3}
+          aria-invalid={noteState === "error" || undefined}
+          aria-describedby="live-note-status"
         />
         <div className="flex items-center gap-3">
-          <Button onClick={handleAddNote} disabled={!note.trim()}>
-            Add note
+          <Button type="submit" disabled={!note.trim() || noteState === "saving"} aria-busy={noteState === "saving" || undefined}>
+            {noteState === "saving" && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
+            {noteState === "saving" ? "Adding…" : "Add note"}
           </Button>
-          {noteStatus && <span className="text-sm text-muted-foreground">{noteStatus}</span>}
+          <SaveStatus id="live-note-status" className="min-w-0 break-words" state={noteState === "saving" ? "idle" : noteState} error={noteError} />
         </div>
-      </div>
+      </form>
     </div>
   )
 }

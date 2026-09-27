@@ -1,22 +1,49 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import { CheckSquare } from "lucide-react"
 import { cn } from "cn"
 
+import { FilterChip } from "@/components/FilterChip"
+import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SegmentedControl } from "@/components/settings/pieces"
 import { getMeeting, listActionItems, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
+import { formatDay, parseLocalDate } from "@/lib/format"
 
 const done = (status: string | undefined) => status === "done"
 
-/** An item is overdue when it has a parseable due date in the past and
- *  isn't done. Unparseable dates never mark overdue. */
+const itemKey = (item: ActionItemRef) => `${item.meeting_id}:${item.index}`
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+/** Local midnight today: a due day is overdue only once it has passed. */
+function startOfToday(): number {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+/** Due date as ms, or +Infinity when missing/unparseable (free-text dues
+ *  like "next week" sort last and never mark overdue). "YYYY-MM-DD" is
+ *  read as local midnight; anything else the LLM wrote (ISO timestamps,
+ *  "Sep 1, 2026") falls back to Date.parse. */
+function dueTime(item: ActionItemRef): number {
+  const local = parseLocalDate(item.due)
+  if (local) return local.getTime()
+  const t = item.due ? Date.parse(item.due) : NaN
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t
+}
+
+/** An item is overdue when its due day is before today and it isn't
+ *  done. Date-only dues are parsed as local dates: Date.parse would read
+ *  them as UTC midnight and flag them overdue hours early east of UTC. */
 function isOverdue(item: ActionItemRef): boolean {
-  if (done(item.status) || !item.due) return false
-  const t = Date.parse(item.due)
-  return !Number.isNaN(t) && t < Date.now()
+  if (done(item.status)) return false
+  const t = dueTime(item)
+  return Number.isFinite(t) && t < startOfToday()
 }
 
 type FilterState = { owner: string | null; meeting: string | null }
@@ -28,8 +55,13 @@ interface ActionItemsProps {
 export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
   const [items, setItems] = useState<ActionItemRef[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [view, setView] = useState<"grouped" | "by-due">("grouped")
   const [filter, setFilter] = useState<FilterState>({ owner: null, meeting: null })
+  // Per-row toggle failures, keyed by itemKey, shown next to that row.
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+  const ownerLabelId = useId()
+  const meetingLabelId = useId()
 
   useEffect(() => {
     listActionItems()
@@ -37,29 +69,55 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
         setItems(is)
         setError(null)
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-  }, [])
+      .catch((err: unknown) =>
+        setError(`Couldn’t load action items: ${errorText(err)}. Check that CatchM is running, then retry.`),
+      )
+  }, [loadAttempt])
 
-  // Optimistic toggle: flip the row immediately, PATCH, revert on error.
+  const retryLoad = () => {
+    setError(null)
+    setLoadAttempt((n) => n + 1)
+  }
+
+  const setRowError = (key: string, message: string | null) =>
+    setRowErrors((errs) => {
+      if (message === null) {
+        if (!(key in errs)) return errs
+        const next = { ...errs }
+        delete next[key]
+        return next
+      }
+      return { ...errs, [key]: message }
+    })
+
+  // Optimistic toggle: flip the row immediately, PATCH, revert on error
+  // (reported next to the row, not at the top of the page).
   const toggle = (item: ActionItemRef) => {
     if (items === null) return
-    const prev = items
+    const key = itemKey(item)
     const status = done(item.status) ? "" : "done"
-    setItems(
-      prev.map((it) =>
-        it.meeting_id === item.meeting_id && it.index === item.index ? { ...it, status } : it,
-      ),
-    )
+    const flip = (to: string) =>
+      setItems((prev) =>
+        prev?.map((it) => (it.meeting_id === item.meeting_id && it.index === item.index ? { ...it, status: to } : it)) ??
+        prev,
+      )
+    setRowError(key, null)
+    flip(status)
     updateActionItemStatus(item.meeting_id, item.index, status).catch((err: unknown) => {
-      setItems(prev)
-      setError(err instanceof Error ? err.message : String(err))
+      flip(item.status ?? "")
+      setRowError(
+        key,
+        `Couldn’t ${status === "done" ? "mark this done" : "reopen this"}: ${errorText(err)}. Try again.`,
+      )
     })
   }
 
   const openMeeting = (item: ActionItemRef) => {
     getMeeting(item.meeting_id)
       .then(onOpenMeeting)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) =>
+        setError(`Couldn’t open “${item.meeting_title}”: ${errorText(err)}. It may have been deleted.`),
+      )
   }
 
   const owners = useMemo(() => {
@@ -74,7 +132,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
     return [...s].sort()
   }, [items])
 
-  const { byMeeting, byDue, closed, openCount } = useMemo(() => {
+  const { byMeeting, byDue, closed, openCount, visibleCount } = useMemo(() => {
     const visible = (items ?? []).filter(
       (it) =>
         (!filter.owner || it.owner === filter.owner) &&
@@ -89,120 +147,180 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       map.set(it.meeting_title, list)
     }
     const byDue = [...open].sort((a, b) => {
-      const ta = a.due ? Date.parse(a.due) : Number.POSITIVE_INFINITY
-      const tb = b.due ? Date.parse(b.due) : Number.POSITIVE_INFINITY
-      return ta - tb
+      const ta = dueTime(a)
+      const tb = dueTime(b)
+      // Infinity - Infinity is NaN; keep undated items in their order.
+      return ta === tb ? 0 : ta - tb
     })
-    return { byMeeting: [...map.entries()], byDue, closed, openCount: open.length }
+    return { byMeeting: [...map.entries()], byDue, closed, openCount: open.length, visibleCount: visible.length }
   }, [items, filter])
 
+  const pageError = (
+    <div className={error ? "mb-4 flex flex-wrap items-center gap-3" : undefined}>
+      <StatusMessage tone="error" className="min-w-0 flex-1 break-words">
+        {error}
+      </StatusMessage>
+      {error && items === null && (
+        <Button size="sm" variant="outline" onClick={retryLoad}>
+          Retry
+        </Button>
+      )}
+    </div>
+  )
+
+  const heading = (
+    <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold text-balance">
+      <CheckSquare className="size-6" /> Action items
+    </h1>
+  )
 
   if (items === null) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-8">
-        <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold">
-          <Skeleton className="size-6" /> <Skeleton className="h-7 w-40" />
-        </h1>
-        <div className="grid gap-3" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="rounded-xl border border-border bg-card p-6">
-              <div className="flex items-start gap-3">
-                <Skeleton className="mt-0.5 size-4 shrink-0" />
-                <div className="grid min-w-0 flex-1 gap-1">
-                  <Skeleton className="h-5 w-3/4" />
-                  <Skeleton className="h-3.5 w-1/3" />
+        {heading}
+        {pageError}
+        {!error && (
+          <div className="grid gap-3" aria-busy="true">
+            <p className="sr-only" role="status">
+              Loading action items…
+            </p>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-xl border border-border bg-card p-6">
+                <div className="flex items-start gap-3">
+                  <Skeleton className="mt-0.5 size-4 shrink-0" />
+                  <div className="grid min-w-0 flex-1 gap-1">
+                    <Skeleton className="h-5 w-3/4" />
+                    <Skeleton className="h-3.5 w-1/3" />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
 
-  const renderItem = (item: ActionItemRef) => (
-    <Card key={`${item.meeting_id}:${item.index}`}>
-      <CardContent className="flex items-start gap-3">
-        <Checkbox
-          id={`item-${item.meeting_id}-${item.index}`}
-          checked={done(item.status)}
-          onCheckedChange={() => toggle(item)}
-          aria-label={done(item.status) ? `Reopen "${item.text}"` : `Mark "${item.text}" done`}
-          className="mt-0.5"
-        />
-        <div className="grid min-w-0 flex-1 gap-1">
-          <label
-            htmlFor={`item-${item.meeting_id}-${item.index}`}
-            className={cn("cursor-pointer break-words", done(item.status) && "line-through")}
-          >
-            {item.text}
+  const renderItem = (item: ActionItemRef) => {
+    const key = itemKey(item)
+    const id = `item-${item.meeting_id}-${item.index}`
+    const overdue = isOverdue(item)
+    return (
+      <Card key={key}>
+        <CardContent className="grid gap-1">
+          {/* One hit target: the label wraps the checkbox and its text, so
+              the checkbox is named by the item text (no aria-label). */}
+          <label htmlFor={id} className="flex cursor-pointer items-start gap-3">
+            <Checkbox id={id} checked={done(item.status)} onCheckedChange={() => toggle(item)} className="mt-0.5" />
+            <span className={cn("min-w-0 flex-1 break-words", done(item.status) && "line-through")}>{item.text}</span>
           </label>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 pl-7 text-xs text-muted-foreground">
             <button
               type="button"
               onClick={() => openMeeting(item)}
-              className="rounded-sm font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="min-w-0 cursor-pointer rounded-sm text-left font-medium break-words text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               {item.meeting_title}
             </button>
             {item.owner && <Badge variant="outline">{item.owner}</Badge>}
-            {item.due && (
-              <span className={isOverdue(item) ? "text-destructive" : undefined}>due {item.due}</span>
-            )}
-            {isOverdue(item) && <Badge variant="destructive">Overdue</Badge>}
+            {item.due && <span className={overdue ? "text-destructive" : undefined}>due {formatDay(item.due)}</span>}
+            {overdue && <Badge variant="destructive">Overdue</Badge>}
           </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
+          <StatusMessage tone="error" className="pl-7 text-xs break-words">
+            {rowErrors[key]}
+          </StatusMessage>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const filtersActive = filter.owner !== null || filter.meeting !== null
+  const clearFilters = () => setFilter({ owner: null, meeting: null })
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
-      <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold">
-        <CheckSquare className="size-6" /> Action items
-      </h1>
+      {heading}
 
-      {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
+      {pageError}
 
       {items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border py-16 text-center">
+        <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
           <p className="text-lg font-medium">Nothing to catch up on.</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-pretty text-muted-foreground">
             Action items appear when a meeting ends and the agent extracts follow-ups from the transcript.
           </p>
         </div>
       ) : (
         <div className="grid gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl
-              label="Grouping"
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "grouped", label: "By meeting" },
-                { value: "by-due", label: "By due date" },
-              ]}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              {owners.map((o) => (
-                <Chip key={o} active={filter.owner === o} onClick={() => setFilter((f) => ({ ...f, owner: f.owner === o ? null : o }))}>
-                  {o}
-                </Chip>
-              ))}
-              {meetings.map((m) => (
-                <Chip key={m} active={filter.meeting === m} onClick={() => setFilter((f) => ({ ...f, meeting: f.meeting === m ? null : m }))}>
-                  {m}
-                </Chip>
-              ))}
+          <div className="grid gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <SegmentedControl
+                label="Grouping"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "grouped", label: "By meeting" },
+                  { value: "by-due", label: "By due date" },
+                ]}
+              />
+              {filtersActive && (
+                <Button size="sm" variant="ghost" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              )}
             </div>
+            {owners.length > 0 && (
+              <div role="group" aria-labelledby={ownerLabelId} className="flex flex-wrap items-center gap-2">
+                <span id={ownerLabelId} className="text-xs font-medium text-muted-foreground">
+                  Owner
+                </span>
+                {owners.map((o) => (
+                  <FilterChip
+                    key={o}
+                    pressed={filter.owner === o}
+                    onPressedChange={(on) => setFilter((f) => ({ ...f, owner: on ? o : null }))}
+                  >
+                    {o}
+                  </FilterChip>
+                ))}
+              </div>
+            )}
+            {meetings.length > 0 && (
+              <div role="group" aria-labelledby={meetingLabelId} className="flex flex-wrap items-center gap-2">
+                <span id={meetingLabelId} className="text-xs font-medium text-muted-foreground">
+                  Meeting
+                </span>
+                {meetings.map((m) => (
+                  <FilterChip
+                    key={m}
+                    pressed={filter.meeting === m}
+                    onPressedChange={(on) => setFilter((f) => ({ ...f, meeting: on ? m : null }))}
+                    // Long titles clip to one line. The span needs min-w-0
+                    // to shrink inside the inline-flex chip; the full title
+                    // stays in the DOM (accessible name) and the tooltip.
+                    className="max-w-64 sm:max-w-80"
+                    title={m}
+                  >
+                    <span className="min-w-0 truncate">{m}</span>
+                  </FilterChip>
+                ))}
+              </div>
+            )}
           </div>
 
-          {view === "grouped" ? (
+          {visibleCount === 0 ? (
+            <div className="grid justify-items-center gap-3 rounded-xl border border-dashed border-border px-6 py-10 text-center">
+              <p className="text-sm text-muted-foreground">No action items match these filters.</p>
+              <Button size="sm" variant="outline" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            </div>
+          ) : view === "grouped" ? (
             byMeeting.map(([title, list]) => (
-              <div key={title} className="grid gap-2">
-                <p className="text-sm font-medium text-muted-foreground">{title}</p>
+              <section key={title} className="grid gap-2">
+                <h2 className="text-sm font-medium break-words text-muted-foreground">{title}</h2>
                 {list.map(renderItem)}
-              </div>
+              </section>
             ))
           ) : (
             <div className="grid gap-2">{byDue.map(renderItem)}</div>
@@ -212,30 +330,13 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
             <p className="pt-2 text-sm font-medium text-muted-foreground">All caught up.</p>
           )}
           {closed.length > 0 && (
-            <div className="grid gap-2">
-              <p className="pt-2 text-sm font-medium text-muted-foreground">Done</p>
+            <section className="grid gap-2">
+              <h2 className="pt-2 text-sm font-medium text-muted-foreground">Done</h2>
               {closed.map(renderItem)}
-            </div>
+            </section>
           )}
         </div>
       )}
     </div>
   )
 }
-
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "cursor-pointer rounded-full border border-border px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60",
-      )}
-    >
-      {children}
-    </button>
-  )
-}
-

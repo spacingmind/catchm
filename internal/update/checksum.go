@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,9 +88,25 @@ func findAsset(rel *Release, name string) *Asset {
 //
 // Error taxonomy the caller needs to tell apart:
 //   - *ChecksumMismatchError: never execute anything; do not blind-retry.
+//   - errors.Is(err, context.Canceled): the caller cancelled ctx (the
+//     user stopped the download) — not a failure, safe to retry.
 //   - any other error: ordinary network/IO failure — safe to retry.
-func DownloadAndVerify(ctx context.Context, c *ReleaseClient, rel *Release) (VerifiedInstaller, error) {
-	out := VerifiedInstaller{}
+//
+// Every error path removes the temp file, so a cancelled or failed
+// download never leaves a partial installer behind.
+func DownloadAndVerify(ctx context.Context, c *ReleaseClient, rel *Release) (out VerifiedInstaller, err error) {
+	defer func() {
+		// A cancel surfaces as whatever the in-flight read happened to
+		// fail with — a wrapped transport error, or a Cause on a
+		// checksum-fetch *ChecksumMismatchError. Normalise it, so a user
+		// cancelling while the checksum downloads isn't treated as
+		// possible tampering (the caller defers updates on those). A
+		// real digest mismatch (Cause nil) is never rewritten.
+		var mism *ChecksumMismatchError
+		if err != nil && ctx.Err() != nil && (!errors.As(err, &mism) || mism.Cause != nil) {
+			err = fmt.Errorf("update: download cancelled: %w", ctx.Err())
+		}
+	}()
 
 	asset := findAsset(rel, "catchm-desktop-amd64-installer.exe")
 	if asset == nil {
@@ -101,7 +118,7 @@ func DownloadAndVerify(ctx context.Context, c *ReleaseClient, rel *Release) (Ver
 	}
 
 	// Installer → temp file, streaming.
-	tmp, err := os.CreateTemp("", "catchm-update-*.exe")
+	tmp, err := os.CreateTemp("", tempInstallerPattern)
 	if err != nil {
 		return out, fmt.Errorf("update: create temp file: %w", err)
 	}
@@ -151,6 +168,44 @@ func DownloadAndVerify(ctx context.Context, c *ReleaseClient, rel *Release) (Ver
 	out.Path = tmpPath
 	out.SHA256 = got
 	return out, nil
+}
+
+// tempInstallerPattern names every installer DownloadAndVerify writes
+// (os.CreateTemp pattern), so RemoveStaleInstallers only ever touches
+// our own files.
+const tempInstallerPattern = "catchm-update-*.exe"
+
+// RemoveStaleInstallers deletes installers earlier runs left in the
+// temp dir (downloaded, then deferred or never applied), except keep
+// (the currently verified one; "" keeps none). Best-effort: returns
+// the removals that failed — on Windows, e.g., an installer still
+// running holds its file open.
+//
+// The caller must make sure no DownloadAndVerify is running: its
+// partial file matches the same pattern.
+func RemoveStaleInstallers(keep string) error {
+	dir := os.TempDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("update: list temp dir: %w", err)
+	}
+	var errs []error
+	for _, e := range entries {
+		// Match on the name alone, not filepath.Glob over the full
+		// path: a temp dir containing glob metacharacters would
+		// otherwise match nothing (or the wrong files).
+		if ok, _ := filepath.Match(tempInstallerPattern, e.Name()); !ok || !e.Type().IsRegular() {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if keep != "" && filepath.Clean(keep) == path {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // VerifiedInstaller is a downloaded, checksum-verified installer

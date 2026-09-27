@@ -160,24 +160,33 @@ func (s *Server) handleCloudLogout(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleCloudStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	st := s.cloud
+	base := s.cfg.Cloud.APIBaseURL
+	// account_stored: the params a server change would wipe are on
+	// disk, so the UI knows whether that change needs a confirm.
+	accountStored := s.cfg.Cloud.Email != "" || s.cfg.Cloud.AuthSalt != "" || s.cfg.Cloud.KDFParams != ""
+	var email string
+	var loggedInAt, lastSync time.Time
+	if st != nil {
+		email, loggedInAt, lastSync = st.email, st.loggedInAt, st.lastSyncAt
+	}
 	s.mu.Unlock()
 	if st == nil {
-		s.mu.Lock()
-		base := s.cfg.Cloud.APIBaseURL
-		s.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"logged_in": false, "api_base_url": base})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"logged_in":      false,
+			"api_base_url":   base,
+			"account_stored": accountStored,
+		})
 		return
 	}
-	lastSync := st.lastSyncAt
-	s.mu.Lock()
-	base := s.cfg.Cloud.APIBaseURL
-	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"logged_in":    true,
-		"email":        st.email,
-		"logged_in_at": st.loggedInAt,
+		"email":        email,
+		"logged_in_at": loggedInAt,
 		"last_sync_at": lastSync,
 		"api_base_url": base,
+		// A live session is an account on this server, even if the
+		// config write after login failed.
+		"account_stored": true,
 	})
 }
 

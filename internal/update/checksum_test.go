@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -244,5 +245,188 @@ func TestParseChecksumFileCRLF(t *testing.T) {
 	got, err := parseChecksumFile(crlf, "catchm-desktop-amd64-installer.exe")
 	if err != nil || got != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
 		t.Fatalf("parseChecksumFile(CRLF) = %q, %v", got, err)
+	}
+}
+
+// isolateTempDir points os.CreateTemp at a fresh per-test dir (TMPDIR
+// on Unix, TMP/TEMP on Windows), so a test can assert that no partial
+// installer survives.
+func isolateTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, k := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(k, dir)
+	}
+	return dir
+}
+
+func assertDirEmpty(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temp dir has %d leftover file(s), first %q — partial download not removed", len(entries), entries[0].Name())
+	}
+}
+
+// stallingServer serves a release whose installer (or, with
+// stallOnSum, whose checksum) sends its first bytes and then stalls
+// until the client goes away; started closes once those bytes are out.
+func stallingServer(t *testing.T, stallOnSum bool) (srv *httptest.Server, started chan struct{}) {
+	t.Helper()
+	installer := []byte(strings.Repeat("x", 4096))
+	sum := sha256.Sum256(installer)
+	sumLine := hex.EncodeToString(sum[:]) + "  catchm-desktop-amd64-installer.exe\n"
+	started = make(chan struct{})
+	stall := func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Header().Set("Content-Length", fmt.Sprint(len(body)*2))
+		w.Write(body[:len(body)/2])
+		w.(http.Flusher).Flush()
+		close(started)
+		<-r.Context().Done()
+	}
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/dl/installer.exe":
+			if stallOnSum {
+				w.Write(installer)
+				return
+			}
+			stall(w, r, installer)
+		case "/dl/installer.exe.sha256":
+			if stallOnSum {
+				stall(w, r, []byte(sumLine))
+				return
+			}
+			fmt.Fprint(w, sumLine)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, started
+}
+
+func stallingRelease(srv *httptest.Server) *Release {
+	return &Release{TagName: "v9.9.9", Assets: []Asset{
+		{Name: "catchm-desktop-amd64-installer.exe", BrowserDownloadURL: srv.URL + "/dl/installer.exe"},
+		{Name: ChecksumFileName, BrowserDownloadURL: srv.URL + "/dl/installer.exe.sha256"},
+	}}
+}
+
+// Cancelling mid-stream (the user's "Cancel download") returns a
+// context.Canceled error and leaves no partial installer in temp.
+func TestDownloadAndVerifyCancelMidDownload(t *testing.T) {
+	dir := isolateTempDir(t)
+	srv, started := stallingServer(t, false)
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		_, err := DownloadAndVerify(ctx, c, stallingRelease(srv))
+		errc <- err
+	}()
+	<-started
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("mid-download: %d temp files, want the 1 partial installer", len(entries))
+	}
+	cancel()
+
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DownloadAndVerify did not return after cancel")
+	}
+	assertDirEmpty(t, dir)
+}
+
+// Cancelling while the checksum downloads must not read as a checksum
+// failure: callers defer updates for the session on those.
+func TestDownloadAndVerifyCancelDuringChecksumNotMismatch(t *testing.T) {
+	dir := isolateTempDir(t)
+	srv, started := stallingServer(t, true)
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		_, err := DownloadAndVerify(ctx, c, stallingRelease(srv))
+		errc <- err
+	}()
+	<-started
+	cancel()
+
+	select {
+	case err := <-errc:
+		var mism *ChecksumMismatchError
+		if errors.As(err, &mism) {
+			t.Fatalf("cancel during checksum fetch classified as checksum error: %v", err)
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("DownloadAndVerify did not return after cancel")
+	}
+	assertDirEmpty(t, dir)
+}
+
+// A stalled installer download is an ordinary, retryable failure:
+// ErrStalled, not a cancel and not a checksum error, partial file gone.
+func TestDownloadAndVerifyStallRemovesPartial(t *testing.T) {
+	dir := isolateTempDir(t)
+	srv, _ := stallingServer(t, false)
+	c := &ReleaseClient{BaseURL: srv.URL, Client: srv.Client(), StallTimeout: 50 * time.Millisecond}
+
+	_, err := DownloadAndVerify(context.Background(), c, stallingRelease(srv))
+	var mism *ChecksumMismatchError
+	if !errors.Is(err, ErrStalled) || errors.Is(err, context.Canceled) || errors.As(err, &mism) {
+		t.Fatalf("error = %v, want ErrStalled only", err)
+	}
+	assertDirEmpty(t, dir)
+}
+
+// RemoveStaleInstallers deletes only our own leftover installers, and
+// never the one to keep.
+func TestRemoveStaleInstallers(t *testing.T) {
+	dir := isolateTempDir(t)
+	write := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	write("catchm-update-111.exe")
+	write("catchm-update-222.exe")
+	keep := write("catchm-update-333.exe")
+	write("other-app-update.exe")
+	write("catchm-update-444.txt")
+	if err := os.Mkdir(filepath.Join(dir, "catchm-update-dir.exe"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveStaleInstallers(keep); err != nil {
+		t.Fatalf("RemoveStaleInstallers: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, e := range entries {
+		left = append(left, e.Name())
+	}
+	want := "catchm-update-333.exe catchm-update-444.txt catchm-update-dir.exe other-app-update.exe"
+	if got := strings.Join(left, " "); got != want {
+		t.Fatalf("left in temp: %s\nwant: %s", got, want)
 	}
 }

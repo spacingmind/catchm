@@ -170,3 +170,39 @@ func TestCloudSyncManifestIsolationPerServer(t *testing.T) {
 		t.Fatalf("switching back to A re-pushed unchanged meetings: %v", result.Pushed)
 	}
 }
+
+// account_stored tells the UI whether a server change would wipe
+// anything, so it can skip the confirm when there's nothing to lose.
+func TestCloudStatusAccountStored(t *testing.T) {
+	accountStored := func(t *testing.T, s *Server) any {
+		t.Helper()
+		code, body := doCloud(t, s, http.MethodGet, "/api/cloud/status", "")
+		if code != http.StatusOK {
+			t.Fatalf("status code = %d", code)
+		}
+		return body["account_stored"]
+	}
+
+	s, _ := newCloudTestServer(t)
+	if got := accountStored(t, s); got != false {
+		t.Fatalf("fresh install: account_stored = %v, want false", got)
+	}
+
+	doCloud(t, s, http.MethodPost, "/api/cloud/signup",
+		`{"email":"stored@example.com","password":"correct horse battery staple"}`)
+	if got := accountStored(t, s); got != true {
+		t.Fatalf("logged in: account_stored = %v, want true", got)
+	}
+
+	doCloud(t, s, http.MethodPost, "/api/cloud/logout", "")
+	if got := accountStored(t, s); got != true {
+		t.Fatalf("logged out with params: account_stored = %v, want true", got)
+	}
+
+	if code, _ := putCloudServer(t, s, `{"api_base_url":"https://cloud.example.net"}`); code != http.StatusOK {
+		t.Fatalf("server change code = %d", code)
+	}
+	if got := accountStored(t, s); got != false {
+		t.Fatalf("logged out after server change: account_stored = %v, want false", got)
+	}
+}

@@ -49,3 +49,37 @@ export function effectiveSource(saved: AudioSource, sources: AudioSources | null
   if (saved === "mic") return "mic"
   return sources?.system?.supported === true ? saved : "mic"
 }
+
+const STARTED_DEVICE_KEY = "catchm.prefs.recording.startedDevice"
+
+/**
+ * The mic device the start flow asked for, remembered per meeting so the
+ * Live view's mic select starts from what's actually recording — the
+ * meeting doc doesn't store the device. Only the latest start is kept
+ * (one meeting is live at a time); "" means the default device.
+ */
+export function writeStartedDevice(meetingId: string, device: string) {
+  writeStored(STARTED_DEVICE_KEY, JSON.stringify({ meetingId, device }))
+}
+
+/** The device recorded by writeStartedDevice for this meeting, else ""
+ *  (default device — also what a tray/shortcut start uses). */
+export function readStartedDevice(meetingId: string): string {
+  try {
+    const v = JSON.parse(readStored(STARTED_DEVICE_KEY) ?? "null") as { meetingId?: unknown; device?: unknown } | null
+    return v?.meetingId === meetingId && typeof v.device === "string" ? v.device : ""
+  } catch {
+    return ""
+  }
+}
+
+/** Radix Select can't have an item with value "", so the "Default
+ *  device" item uses this sentinel; map it to "" (no device) on change. */
+export const DEFAULT_DEVICE_VALUE = "__default__"
+
+/** The Select value for a stored device: the sentinel when it's the
+ *  default or no longer in the list (unplugged), so the trigger never
+ *  shows blank. */
+export function deviceSelectValue(device: string, devices: { ID: string }[]): string {
+  return device && devices.some((d) => d.ID === device) ? device : DEFAULT_DEVICE_VALUE
+}

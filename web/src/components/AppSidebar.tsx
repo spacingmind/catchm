@@ -4,10 +4,23 @@ import { cn } from "cn"
 
 import logo from "@/assets/logo.png"
 import { Button } from "@/components/ui/button"
+import { hasWindowControls } from "@/lib/wailsRuntime"
 
 export type View = "list" | "live" | "detail" | "action-items" | "settings"
 
 const COLLAPSED_KEY = "catchm.sidebar.collapsed"
+
+/**
+ * " (Ctrl+N)"-style tooltip suffix for an app shortcut, shown only in the
+ * desktop shell: in a plain browser (catchm serve) Ctrl+N / ⌘N and ⌘,
+ * belong to the browser, which never lets the page see them, so the
+ * hint would advertise a shortcut that doesn't work.
+ */
+function shortcutHint(key: string): string {
+  if (!hasWindowControls()) return ""
+  const mac = /Mac|iPhone|iPad/.test(navigator.userAgent)
+  return mac ? ` (⌘${key})` : ` (Ctrl+${key})`
+}
 
 function readCollapsed(): boolean {
   try {
@@ -26,17 +39,21 @@ interface NavButtonProps {
   collapsed: boolean
   disabled?: boolean
   onClick: () => void
+  /** Screen-reader-only text appended to the name, e.g. " (recording)". */
+  srSuffix?: string
+  /** Visual-only trailing adornment (expanded sidebar only). */
   children?: ReactNode
 }
 
-function NavButton({ icon: Icon, label, title, active, collapsed, disabled, onClick, children }: NavButtonProps) {
+function NavButton({ icon: Icon, label, title, active, collapsed, disabled, onClick, srSuffix, children }: NavButtonProps) {
+  // The accessible name comes from the (visually hidden when collapsed)
+  // label text rather than aria-label, so srSuffix can extend it.
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       title={collapsed ? (title ?? label) : title}
-      aria-label={label}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -48,7 +65,10 @@ function NavButton({ icon: Icon, label, title, active, collapsed, disabled, onCl
       )}
     >
       <Icon className="size-4 shrink-0" />
-      {!collapsed && <span className="min-w-0 flex-1 truncate text-left">{label}</span>}
+      <span className={collapsed ? "sr-only" : "min-w-0 flex-1 truncate text-left"}>
+        {label}
+        {srSuffix && <span className="sr-only">{srSuffix}</span>}
+      </span>
       {!collapsed && children}
     </button>
   )
@@ -100,10 +120,14 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
           onClick={() => onNavigate("list")}
           title={collapsed ? "CatchM" : undefined}
           aria-label="CatchM — go to meetings"
-          className="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="-m-1 flex min-w-0 cursor-pointer items-center gap-2 rounded-md p-1 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <img src={logo} alt="" className="size-6 shrink-0 rounded-md" />
-          {!collapsed && <span className="text-lg font-semibold">CatchM</span>}
+          {!collapsed && (
+            <span translate="no" className="text-lg font-semibold">
+              CatchM
+            </span>
+          )}
         </button>
         <Button
           variant="ghost"
@@ -127,8 +151,9 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
           active={view === "live"}
           disabled={!liveTitle}
           onClick={() => onNavigate("live")}
+          srSuffix={liveTitle ? " (recording)" : undefined}
         >
-          {liveTitle && <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-primary" aria-label="Recording" />}
+          {liveTitle && <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-primary" aria-hidden="true" />}
         </NavButton>
         <NavButton icon={CheckSquare} label="Action items" collapsed={collapsed} active={view === "action-items"} onClick={() => onNavigate("action-items")} />
       </nav>
@@ -140,13 +165,12 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
             size="lg"
             className={cn("w-full", collapsed && "px-0")}
             onClick={onStartMeeting}
-            title="Start meeting (Ctrl/⌘ N)"
-            aria-label="Start meeting"
+            title={`Start meeting${shortcutHint("N")}`}
           >
             <Mic />
-            {!collapsed && <span>Start meeting</span>}
+            <span className={collapsed ? "sr-only" : undefined}>Start meeting</span>
           </Button>
-          <NavButton icon={Settings2} label="Settings" title="Settings (Ctrl/⌘,)" collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
+          <NavButton icon={Settings2} label="Settings" title={`Settings${shortcutHint(",")}`} collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
         </div>
       </div>
     </aside>

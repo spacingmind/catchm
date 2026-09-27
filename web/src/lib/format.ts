@@ -1,0 +1,65 @@
+// Locale-aware date/time formatting. Every formatter uses the user's
+// locale (undefined) and is built once at module load — constructing
+// Intl.DateTimeFormat is far more expensive than calling format().
+// Unparseable input comes back as the raw string, never "Invalid Date".
+
+const dateTimeFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
+const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: "short" })
+const dayFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
+
+function parseIso(iso: string | null | undefined): Date | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/** "Sep 27, 2026, 3:04 PM" (locale-dependent), no seconds. */
+export function formatDateTime(iso: string | null | undefined): string {
+  const d = parseIso(iso)
+  return d ? dateTimeFmt.format(d) : (iso ?? "")
+}
+
+/** "3:04 PM" (locale-dependent), no seconds. */
+export function formatTime(iso: string | null | undefined): string {
+  const d = parseIso(iso)
+  return d ? timeFmt.format(d) : (iso ?? "")
+}
+
+/**
+ * A meeting's span: "Sep 27, 2026, 3:04 – 4:10 PM" when both ends fall on
+ * the same day (formatRange collapses the shared parts), a full range
+ * across days, or just the start while it's still live (no end).
+ */
+export function formatDateRange(startIso: string, endIso?: string | null): string {
+  const start = parseIso(startIso)
+  if (!start) return startIso ?? ""
+  const end = parseIso(endIso)
+  if (!end || end < start) return dateTimeFmt.format(start)
+  return dateTimeFmt.formatRange(start, end)
+}
+
+/**
+ * Parses a date-only "YYYY-MM-DD" as local midnight. `new Date("2026-09-27")`
+ * is UTC midnight, which is the previous evening west of UTC and shifts
+ * "is it overdue" comparisons east of it. Returns null when it isn't a
+ * valid calendar date.
+ */
+export function parseLocalDate(ymd: string | null | undefined): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd?.trim() ?? "")
+  if (!m) return null
+  const [y, mo, d] = [Number(m[1]), Number(m[2]) - 1, Number(m[3])]
+  const date = new Date(y, mo, d)
+  // Reject rollovers like 2026-02-31 → Mar 3.
+  if (date.getFullYear() !== y || date.getMonth() !== mo || date.getDate() !== d) return null
+  return date
+}
+
+/**
+ * "Sep 27, 2026" for a date-only "YYYY-MM-DD" (parsed as local, see
+ * parseLocalDate). Also accepts a full ISO timestamp, formatted as that
+ * instant's local day.
+ */
+export function formatDay(ymd: string | null | undefined): string {
+  const d = parseLocalDate(ymd) ?? parseIso(ymd)
+  return d ? dayFmt.format(d) : (ymd ?? "")
+}
