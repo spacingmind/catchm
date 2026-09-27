@@ -3,8 +3,8 @@ package autostart
 import "testing"
 
 func TestCommandLineQuotesPathWithSpaces(t *testing.T) {
-	got := CommandLine(`C:\Program Files\CatchM\catchm-desktop.exe`)
-	want := `"C:\Program Files\CatchM\catchm-desktop.exe" --autostart`
+	got := CommandLine(`C:\Program Files\SpacingMind\CatchM\catchm-desktop.exe`)
+	want := `"C:\Program Files\SpacingMind\CatchM\catchm-desktop.exe" --autostart`
 	if got != want {
 		t.Fatalf("CommandLine() = %q, want %q", got, want)
 	}

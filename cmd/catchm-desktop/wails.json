@@ -9,10 +9,10 @@
   "frontend:dev:serverUrl": "",
   "wailsjsdir": "bindings",
   "info": {
-    "companyName": "CatchM",
+    "companyName": "SpacingMind",
     "productName": "CatchM",
     "productVersion": "0.1.0",
-    "copyright": "Copyright © 2026 CatchM",
+    "copyright": "Copyright © 2026 SpacingMind",
     "comments": "Local-first meeting transcription and translation",
     "protocols": [
       {

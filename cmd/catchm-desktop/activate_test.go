@@ -14,7 +14,7 @@ func TestParseMeetingURI(t *testing.T) {
 		{"empty id", "catchm://meeting/", ""},
 		{"other path", "catchm://settings", ""},
 		{"other scheme", "https://meeting/04ca1a14b0554486", ""},
-		{"not a uri", "C:\\Program Files\\CatchM\\catchm-desktop.exe", ""},
+		{"not a uri", "C:\\Program Files\\SpacingMind\\CatchM\\catchm-desktop.exe", ""},
 		{"path traversal id", "catchm://meeting/../etc/passwd", ""},
 		{"non-hex id", "catchm://meeting/zz-not-hex", ""},
 	}
