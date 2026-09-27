@@ -1,17 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 
 import { SettingRow, SettingsSection, SaveStatus, type SaveState } from "@/components/settings/pieces"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import {
-  getAutostart,
-  getNotificationsEnabled,
-  getShortcuts,
-  setAutostart,
-  setNotificationsEnabled,
-  setShortcuts,
-  type ShortcutsInfo,
-} from "@/lib/wailsRuntime"
+import { getShortcuts, setShortcuts, type ShortcutsInfo } from "@/lib/wailsRuntime"
 
 /** Matches internal/hotkeys.Action string values exactly. */
 const ACTIONS: { id: string; label: string; description: string }[] = [
@@ -21,11 +12,13 @@ const ACTIONS: { id: string; label: string; description: string }[] = [
 ]
 
 /**
- * M22 §5: global shortcuts, launch at login, and the toast-notification
- * opt-out — all desktop-only, so this page only renders inside the
- * Wails window (App.tsx/Settings.tsx hide the nav item entirely in
- * `catchm serve`, matching M21's hasWindowControls() convention; this
- * component assumes it's already gated and doesn't re-check).
+ * M22 §5: the global shortcuts. Desktop-only, so this page only
+ * renders inside the Wails window (Settings.tsx hides the nav item
+ * entirely in `catchm serve`, matching M21's hasWindowControls()
+ * convention; this component assumes it's already gated and doesn't
+ * re-check). Launch-at-login/notifications/updates used to live here
+ * too — they moved to the System page (SettingsSystem.tsx) so neither
+ * page outgrows the default 1180x760 window.
  */
 export function SettingsShortcuts() {
   const [bindings, setBindings] = useState<Record<string, string>>({})
@@ -34,18 +27,13 @@ export function SettingsShortcuts() {
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const saveTimer = useRef<number | null>(null)
 
-  const [autostart, setAutostartState] = useState(false)
-  const [notifications, setNotificationsState] = useState(true)
-
   useEffect(() => {
     let cancelled = false
-    Promise.all([getShortcuts(), getAutostart(), getNotificationsEnabled()])
-      .then(([shortcuts, auto, notif]) => {
+    getShortcuts()
+      .then((shortcuts) => {
         if (cancelled) return
         setBindings(shortcuts.bindings)
         setErrors(shortcuts.errors)
-        setAutostartState(auto)
-        setNotificationsState(notif)
         setLoaded(true)
       })
       .catch(() => {
@@ -82,28 +70,6 @@ export function SettingsShortcuts() {
     }
   }
 
-  const handleAutostart = async (enabled: boolean) => {
-    setAutostartState(enabled)
-    try {
-      await setAutostart(enabled)
-      flashSaved()
-    } catch {
-      setSaveState("error")
-      setAutostartState(!enabled)
-    }
-  }
-
-  const handleNotifications = async (enabled: boolean) => {
-    setNotificationsState(enabled)
-    try {
-      await setNotificationsEnabled(enabled)
-      flashSaved()
-    } catch {
-      setSaveState("error")
-      setNotificationsState(!enabled)
-    }
-  }
-
   if (!loaded) return null
 
   return (
@@ -132,35 +98,6 @@ export function SettingsShortcuts() {
         <div className="flex items-center justify-end">
           <SaveStatus state={saveState} error={saveState === "error" ? "Couldn't save that shortcut." : null} />
         </div>
-      </SettingsSection>
-
-      <SettingsSection title="Launch at login" description="Opens hidden to the tray on sign-in.">
-        <SettingRow
-          label="Launch CatchM at login"
-          htmlFor="autostart-toggle"
-          control={
-            <Checkbox
-              id="autostart-toggle"
-              checked={autostart}
-              onCheckedChange={(checked) => void handleAutostart(checked === true)}
-            />
-          }
-        />
-      </SettingsSection>
-
-      <SettingsSection title="Notifications" description="Toasts for events while CatchM's window is hidden.">
-        <SettingRow
-          label="Show notifications"
-          htmlFor="notifications-toggle"
-          description="Capture failing, a meeting ending, or a cloud sync conflict."
-          control={
-            <Checkbox
-              id="notifications-toggle"
-              checked={notifications}
-              onCheckedChange={(checked) => void handleNotifications(checked === true)}
-            />
-          }
-        />
       </SettingsSection>
     </div>
   )

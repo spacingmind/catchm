@@ -1,16 +1,16 @@
 import { useState, type ComponentType } from "react"
-import { Cloud, Keyboard, Languages, Mic, Settings2, Speech } from "lucide-react"
+import { Cloud, Keyboard, Languages, Mic, Monitor, Settings2, Speech } from "lucide-react"
 import { cn } from "cn"
 
 import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
 import { SettingsShortcuts } from "@/components/settings/SettingsShortcuts"
+import { SettingsSystem } from "@/components/settings/SettingsSystem"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
-import { SettingsAbout } from "@/components/settings/SettingsAbout"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
 import { hasWindowControls } from "@/lib/wailsRuntime"
 
-export type Section = "recording" | "transcription" | "translation" | "cloud" | "shortcuts"
+export type Section = "recording" | "transcription" | "translation" | "cloud" | "shortcuts" | "system"
 
 const ALL_SECTIONS: { id: Section; label: string; icon: ComponentType<{ className?: string }>; desktopOnly?: boolean }[] = [
   { id: "recording", label: "Recording", icon: Mic },
@@ -22,6 +22,11 @@ const ALL_SECTIONS: { id: Section; label: string; icon: ComponentType<{ classNam
   // `catchm serve`, same hasWindowControls() convention M21 set for
   // the compact-mode button.
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard, desktopOnly: true },
+  // Launch-at-login/notifications/updates — the desktop-shell toggles
+  // that used to make the Shortcuts page taller than the default
+  // 1180x760 window. "System": nothing else claims the name, and it
+  // covers OS-integration concerns (login item, toasts, updates).
+  { id: "system", label: "System", icon: Monitor, desktopOnly: true },
 ]
 
 const SECTIONS = ALL_SECTIONS.filter((s) => !s.desktopOnly || hasWindowControls())
@@ -62,12 +67,8 @@ export function Settings({ initialSection = "recording" }: { initialSection?: Se
         {section === "transcription" && <SettingsTranscription />}
         {section === "translation" && <SettingsTranslation />}
         {section === "cloud" && <SettingsCloudSync />}
-        {section === "shortcuts" && (
-          <>
-            <SettingsShortcuts />
-            <SettingsAbout />
-          </>
-        )}
+        {section === "shortcuts" && <SettingsShortcuts />}
+        {section === "system" && <SettingsSystem />}
       </div>
     </div>
   )
