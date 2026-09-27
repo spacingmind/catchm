@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -31,10 +33,30 @@ import (
 //
 //	1. waits for our pid to exit (exe lock released)
 //	2. runs the verified installer silently — already elevated, so no
-//	   second UAC prompt
-//	3. relaunches the updated exe UNELEVATED via explorer.exe (running
-//	   the app itself elevated just because the updater was would be
-//	   wrong; explorer.exe is the standard unelevated broker)
+//	   second UAC prompt — with /D set to the running exe's
+//	   directory, so the update always installs OVER the running copy
+//	3. relaunches that same exe path UNELEVATED via explorer.exe
+//	   (running the app itself elevated just because the updater was
+//	   would be wrong; explorer.exe is the standard unelevated broker)
+//
+// /D matters because NSIS otherwise installs to the installer's own
+// default ($PROGRAMFILES64\SpacingMind\CatchM from project.nsi's
+// InstallDir), which is only correct if the running copy happens to
+// live there. It really didn't, once: v0.1.0 was installed under
+// Program Files\CatchM\CatchM (old company name), so updating to
+// v0.1.2 installed a SECOND copy under Program Files\SpacingMind\
+// CatchM and the babysitter relaunched the stale v0.1.0 exe. /D
+// removes the divergence by construction — the new version lands
+// exactly where the old one ran, and the relaunch path is right
+// without any registry lookup. Per NSIS's command-line rules /D must
+// be the LAST argument, followed by the path UNQUOTED even when it
+// contains spaces (Program Files) — NSIS re-joins the tail of the
+// command line itself. /D has no effect on per-machine vs per-user
+// scope: that is decided by project.nsi's compile-time
+// REQUEST_EXECUTION_LEVEL (the wails.setShellContext macro reads that
+// define, not $INSTDIR), and $INSTDIR is used as-is wherever the
+// directory page is skipped (/S), so shortcuts, the uninstaller, and
+// the WebView2/AUMID steps all follow the /D directory.
 //
 // One UAC prompt total, at babysitter launch — the same single prompt
 // the previous design had.
@@ -70,15 +92,29 @@ var shellExecuteExProc = syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecute
 // such constant, so the value is spelled out directly.
 const errWinCancelled = syscall.Errno(1223)
 
+// installerArgs builds the argument list the babysitter passes to the
+// NSIS installer: /S for silent, then /D=<dir> pinned to the running
+// exe's directory so the update installs over it (see the design
+// comment above). Per NSIS rules /D must be LAST and its path
+// UNQUOTED — Start-Process -ArgumentList keeps the string verbatim,
+// and NSIS re-joins everything after /D= up to end-of-line as the
+// path, spaces included. filepath.Dir normalizes trailing slashes so
+// "/D=C:\" (which NSIS would read as an escaped quote mid-command in
+// some parsing contexts) never forms.
+func installerArgs(installDir string) []string {
+	return []string{"/S", "/D=" + filepath.Clean(installDir)}
+}
+
 // babysitterScript waits for the old pid to die, runs the installer
-// (/S), and relaunches the updated exe unelevated via explorer.exe.
-// The three values (old pid, installer path, exe path) are formatted
-// into the script BEFORE -EncodedCommand encoding — live-tested
-// finding: env vars do NOT survive the runas elevation boundary (the
-// broker builds a fresh environment), so $env: passing silently
-// delivered $null and the babysitter died doing nothing. Paths are
-// base64-encoded into the script body (never string-interpolated into
-// a PowerShell expression) so no quoting/escaping surface exists.
+// (args from installerArgs), and relaunches the updated exe
+// unelevated via explorer.exe. The three values (old pid, installer
+// path, exe path) are formatted into the script BEFORE
+// -EncodedCommand encoding — live-tested finding: env vars do NOT
+// survive the runas elevation boundary (the broker builds a fresh
+// environment), so $env: passing silently delivered $null and the
+// babysitter died doing nothing. Paths are base64-encoded into the
+// script body (never string-interpolated into a PowerShell
+// expression) so no quoting/escaping surface exists.
 func babysitterScript(oldPID int, installerPath, exePath string) string {
 	return `
 $ErrorActionPreference = 'Stop'
@@ -87,7 +123,7 @@ $installer = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('` + ba
 $exe = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('` + base64.StdEncoding.EncodeToString([]byte(exePath)) + `'))
 try { Wait-Process -Id $oldPid -ErrorAction SilentlyContinue } catch {}
 Start-Sleep -Milliseconds 800   # let file handles drain after process exit
-$p = Start-Process $installer -ArgumentList '/S' -PassThru -Wait
+$p = Start-Process $installer -ArgumentList '` + strings.Join(installerArgs(filepath.Dir(exePath)), "', '") + `' -PassThru -Wait
 if ($p.ExitCode -ne 0) { exit 2 }
 Start-Process explorer.exe $exe
 exit 0

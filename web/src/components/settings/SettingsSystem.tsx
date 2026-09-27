@@ -24,7 +24,9 @@ import {
  * convention (this component assumes it's already gated and doesn't
  * re-check). When a check finds a newer release this page offers the
  * same download → confirm → apply flow as the banner (useUpdateInstall
- * — one shared copy), via the "Update now" button.
+ * — one shared store: both surfaces read the same phase/error/status,
+ * and download/apply are no-ops while one is in flight), via the
+ * "Update now" button.
  */
 export function SettingsSystem() {
   const [version, setVersion] = useState("")
@@ -109,6 +111,12 @@ export function SettingsSystem() {
     }
   }
 
+  // The manual check's result is fresher than the shared store's
+  // event-derived status; when no check has run here yet, fall back to
+  // the shared one so this page agrees with the banner (a background
+  // check may already have found an update).
+  const effectiveStatus = status ?? update.status
+
   const checkedLabel = lastChecked
     ? `Last checked ${new Date(lastChecked).toLocaleString()}`
     : "Not checked yet this session"
@@ -117,11 +125,11 @@ export function SettingsSystem() {
     : status?.error
       ? status.error
       : update.phase === "downloading"
-        ? `Downloading version ${status?.latestVersion}…`
+        ? `Downloading version ${effectiveStatus?.latestVersion}…`
         : update.phase === "applying"
           ? "Updating — CatchM will restart shortly."
-          : status?.updateAvailable
-            ? `Version ${status.latestVersion} is available.`
+          : effectiveStatus?.updateAvailable
+            ? `Version ${effectiveStatus.latestVersion} is available.`
             : status
               ? "You're up to date."
               : checkedLabel
@@ -166,10 +174,10 @@ export function SettingsSystem() {
           description={updateDetail}
           control={
             <div className="flex shrink-0 items-center gap-2">
-              {status?.updateAvailable && update.phase === "idle" && (
+              {effectiveStatus?.updateAvailable && update.phase === "idle" && (
                 <Button onClick={() => void update.download()}>Update now</Button>
               )}
-              {status?.updateAvailable && update.phase === "confirm" && (
+              {effectiveStatus?.updateAvailable && update.phase === "confirm" && (
                 <>
                   <Button variant="outline" onClick={() => update.reset()}>
                     Not now

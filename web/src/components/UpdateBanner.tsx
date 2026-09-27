@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react"
 import { ExternalLink } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useUpdateInstall } from "@/components/useUpdateInstall"
-import { deferUpdate, windowEventsOn, type UpdateStatus } from "@/lib/wailsRuntime"
 
 /**
  * M23: unobtrusive banner shown when a check (background or manual)
@@ -11,33 +9,18 @@ import { deferUpdate, windowEventsOn, type UpdateStatus } from "@/lib/wailsRunti
  * same UpdateStatus shape CheckForUpdate returns. Visual treatment
  * mirrors LiveMeeting's capture-error banner (flex-wrap rounded-lg
  * border row with a trailing button cluster) rather than a new
- * component family. The download → confirm → apply flow lives in
- * useUpdateInstall, shared with the Settings Updates row's "Update
- * now" button. Dismissing calls DeferUpdate: no further prompting this
- * session (a manual check from Settings still reports and re-triggers
- * this banner — manual=true bypasses the deferred flag Go-side).
+ * component family. The download → confirm → apply flow AND the
+ * update:available status live in useUpdateInstall's shared store —
+ * the same state the Settings Updates row reads, so both surfaces
+ * always agree on the phase. Dismissing calls DeferUpdate: no further
+ * prompting this session (a manual check from Settings still reports
+ * and re-triggers this banner — manual=true bypasses the deferred flag
+ * Go-side).
  */
 export function UpdateBanner() {
-  const [status, setStatus] = useState<UpdateStatus | null>(null)
-  const { phase, error, download, apply, reset } = useUpdateInstall()
-
-  useEffect(() => {
-    const cancel = windowEventsOn("update:available", (data) => {
-      const s = Array.isArray(data) ? data[0] : data
-      if (s && typeof s === "object") {
-        setStatus(s as UpdateStatus)
-        reset()
-      }
-    })
-    return cancel
-  }, [reset])
+  const { phase, error, status, download, apply, dismiss } = useUpdateInstall()
 
   if (!status) return null
-
-  const dismiss = () => {
-    setStatus(null)
-    deferUpdate()
-  }
 
   return (
     <div
@@ -65,7 +48,7 @@ export function UpdateBanner() {
         </p>
         <div className="flex shrink-0 items-center gap-2">
           {status.notesURL && (
-            <Button size="sm" variant="ghost" onClick={() => window.open(status.notesURL, "_blank")}>
+            <Button size="sm" variant="ghost" onClick={() => window.open(status.notesURL!, "_blank")}>
               <ExternalLink /> Release notes
             </Button>
           )}
