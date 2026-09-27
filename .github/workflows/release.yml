@@ -112,7 +112,12 @@ jobs:
         shell: bash
         run: |
           cd cmd/catchm-desktop/build/bin
-          sha256sum catchm-desktop-amd64-installer.exe > catchm-desktop-amd64-installer.exe.sha256
+          # Canonical two-space format, no binary-mode "*": the MSYS/Git
+          # Bash sha256sum on this runner defaults to binary mode and
+          # writes "<hex> *<name>", which already-shipped strict parsers
+          # (pre-v0.1.1 clients) reject.
+          h=$(sha256sum catchm-desktop-amd64-installer.exe | cut -d' ' -f1)
+          printf '%s  %s\n' "$h" catchm-desktop-amd64-installer.exe > catchm-desktop-amd64-installer.exe.sha256
           cat catchm-desktop-amd64-installer.exe.sha256
 
       # Dry runs stop here: the artifact is the whole point of a dry
