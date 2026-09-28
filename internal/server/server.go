@@ -107,6 +107,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
 	s.mux.HandleFunc("POST /api/meetings/import", s.handleImportMeeting)
 	s.mux.HandleFunc("GET /api/action-items", s.handleListActionItems)
+	s.mux.HandleFunc("GET /api/projects", s.handleListProjects)
+	s.mux.HandleFunc("POST /api/projects/rename", s.handleRenameProject)
 	s.mux.HandleFunc("PATCH /api/meetings/{id}/action-items/{index}", s.handleSetActionItemStatus)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handlePutConfig)
@@ -148,6 +150,33 @@ func (s *Server) handleListMeetings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListActionItems(w http.ResponseWriter, _ *http.Request) {
 	items, err := s.surface.ListActionItems()
 	respond(w, items, err)
+}
+
+// handleListProjects serves the projects derived from the meetings'
+// project tags: [{name, meetings, last_meeting_at}], most recent first.
+func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
+	ps, err := s.surface.ListProjects()
+	respond(w, ps, err)
+}
+
+// handleRenameProject moves every meeting of project "from" to "to"
+// (body {"from", "to"}); renaming onto an existing project merges them.
+// Answers {"renamed": n}.
+func (s *Server) handleRenameProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	n, err := s.surface.RenameProject(req.From, req.To)
+	if errors.Is(err, tools.ErrProjectName) {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	respond(w, map[string]int{"renamed": n}, err)
 }
 
 func (s *Server) handleDevices(w http.ResponseWriter, _ *http.Request) {
@@ -290,6 +319,8 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		TranslateTo string   `json:"translate_to"`
 		TwoWay      bool     `json:"two_way"`
 		Tags        []string `json:"tags"`
+		// Project, when set, is added as the meeting's project tag.
+		Project string `json:"project"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -303,12 +334,21 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "two_way requires both lang and translate_to (language A and B)")
 		return
 	}
+	tags := req.Tags
+	if meeting.NormalizeProject(req.Project) != "" {
+		project, err := tools.ValidProjectName(req.Project)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		tags = meeting.WithProject(tags, project)
+	}
 	m, err := s.surface.StartMeetingWithOptions(req.Title, meeting.StartOptions{
 		Engine:      req.Engine,
 		Lang:        req.Lang,
 		TranslateTo: req.TranslateTo,
 		TwoWay:      req.TwoWay,
-		Tags:        req.Tags,
+		Tags:        tags,
 	})
 	if err != nil {
 		respond(w, nil, err)

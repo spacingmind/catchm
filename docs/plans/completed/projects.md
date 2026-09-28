@@ -1,6 +1,6 @@
 # Plan: Group meetings by project
 
-- Status: in progress (branch `feat/projects`); approved 2026-09-28, the user chose "project = special tag".
+- Status: completed 2026-09-28 (branch `feat/projects`); the user chose "project = special tag".
   Starts after meeting-insights P1 merges, because both touch
   MeetingDetail.tsx and api.ts.
 - Created: 2026-09-28
@@ -97,3 +97,55 @@ project?".
 5. **Checks:** `task test`, `task lint`, `bunx tsc -b`, `bun run build`
    and oxlint are clean. Tests cover ProjectOf/WithProject, the projects
    endpoint and rename.
+
+## Status (2026-09-28)
+
+Implemented on `feat/projects`, and smoke-tested in a browser against
+`catchm serve` (fresh CATCHM_HOME).
+
+Choices made during implementation:
+- **Spelling:** when the same project is written with different case,
+  `GET /api/projects` shows the most-used spelling. A tie goes to the
+  newest meeting's spelling. `WithProject` puts the project tag first.
+- **Validation:** names are normalized (trim, collapse spaces) and must
+  be 1 to 80 characters. Rename returns 400 otherwise, and so do start
+  and import when `project` is set.
+- **Action items:** `ActionItemRef` has a new `meeting_project` field
+  (omitted when empty), so the Project filter needs no extra fetch.
+- **"All projects":** its own route, `#/projects`, beside
+  `#/meetings?project=<name>`.
+- **Date grouping:** Today, Yesterday, Last 7 days, then one group per
+  month.
+- **MCP:** there is no MCP server or tag filter yet, so nothing was
+  added there.
+
+Not covered: the desktop shell (Wails), and dark-mode visuals (the
+automated browser couldn't take screenshots).
+
+## Status (2026-09-28)
+
+Done:
+- **Backend:** `ProjectOf`/`WithProject`, `GET /api/projects`,
+  `POST /api/projects/rename` (merges onto an existing project), a
+  `project` field on start and import, and `meeting_project` on action
+  items.
+- **UI:**
+  - a sidebar Projects section
+  - an All projects page (`#/projects`) with rename and merge
+  - the Meetings list: grouping by Date or Project, and the project
+    filter via `#/meetings?project=`
+  - on the meeting page, a project picker and a tag editor
+  - a project select in Start and Import
+  - an Action items Project filter
+
+Checked:
+- `task test`, `task lint`, `tsc`, build and oxlint are clean.
+- On `catchm serve`, over HTTP and the DOM:
+  - A case-insensitive merge keeps the most-used spelling.
+  - The sidebar lists projects.
+  - Grouping gives "Website redesign · 3" and "No project · 1".
+  - A sidebar click filters the list.
+  - The picker and tag editor are on the meeting page.
+
+Left for meeting-insights P2: suggest a project from
+`analysis.entities`.

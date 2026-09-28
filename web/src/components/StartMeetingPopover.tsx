@@ -3,6 +3,7 @@ import { flushSync } from "react-dom"
 import { ArrowLeftRight, Loader2 } from "lucide-react"
 
 import { Disclosure } from "@/components/Disclosure"
+import { ProjectSelectField } from "@/components/Projects"
 import { SegmentedControl } from "@/components/settings/pieces"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,7 @@ import {
 } from "@/lib/recordPrefs"
 import { ENGINE_HINT, ENGINE_LABEL, SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Last-used start-flow values (non-secret UI prefs only). */
 const LAST_KEY = "catchm.prefs.startflow"
@@ -114,6 +116,10 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const [error, setError] = useState<string | null>(null)
   const [pairError, setPairError] = useState<string | null>(null)
   const [optionsOpen, setOptionsOpen] = useState(false)
+  const projects = useProjects()
+  // Defaults to the last used project (if it still exists).
+  const [projectChoice, setProjectChoice] = useState<ProjectChoice>(() => ({ name: readLastProject(), isNew: false }))
+  const [projectError, setProjectError] = useState<string | null>(null)
   // null = unknown (loading or the check failed): never blocks a start.
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
   const [translateStatus, setTranslateStatus] = useState<TranslateStatus | null>(null)
@@ -125,6 +131,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    void refreshProjects()
     getAudioSources()
       .then((s: AudioSources) => {
         if (cancelled) return
@@ -267,6 +274,13 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
 
   const start = async () => {
     if (submitting) return
+    const project = choiceProject(projectChoice, projects)
+    if (projectChoice.isNew && !project) {
+      setProjectError("Type a name for the new project, or choose No project.")
+      document.getElementById("start-project-name")?.focus()
+      return
+    }
+    setProjectError(null)
     if (twoWay && (!lang || !translateTo)) {
       setPairError("Two-way translation needs both languages. Pick the first and second language.")
       // The language selects live inside Options, which unmounts its
@@ -289,7 +303,11 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
         lang: lang.trim() || undefined,
         translate_to: translateTo.trim() || undefined,
         two_way: twoWay || undefined,
+        project: project || undefined,
       })
+      writeLastProject(project)
+      setProjectChoice({ name: project, isNew: false })
+      void refreshProjects()
       writeLast({ lang: lang.trim(), translateTo: translateTo.trim(), twoWay, engine: activeEngine })
       writeStartedDevice(meeting.id, deviceForStart)
       onStarted(meeting)
@@ -325,6 +343,17 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               Optional. If left blank, it’s named after today’s date and time.
             </p>
           </div>
+
+          <ProjectSelectField
+            id="start-project"
+            value={projectChoice}
+            onChange={(c) => {
+              setProjectChoice(c)
+              setProjectError(null)
+            }}
+            projects={projects}
+            error={projectError}
+          />
 
           <div className="grid gap-1.5">
             <span id="start-source-label" className="text-sm font-medium">
