@@ -141,7 +141,7 @@ func summaryReadiness(ctx context.Context, cfg *config.Config, auth summarize.Cl
 		}
 	case summarize.ProviderOpenAI:
 		if !openai.Configured {
-			st.Reason = "Add the server address and model name to use this option."
+			st.Reason = "Add your Cloudflare Account ID and API token in Settings → Summaries."
 		}
 	default:
 		st.Reason = fmt.Sprintf("Unknown summary provider %q. Pick one in Settings → Summaries.", st.Provider)
