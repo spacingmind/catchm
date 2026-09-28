@@ -1,6 +1,6 @@
 # Plan: Pluggable summarizer (drop Claude Code)
 
-- Status: in progress
+- Status: completed (2026-09-28; remaining manual checks skipped by the user, see below)
 - Created: 2026-09-28
 - Branch: `fix/non-tech-ux`. It shares the working tree with
   `non-tech-ux.md` (now in completed/), because MeetingDetail and Settings copy overlap.
@@ -309,3 +309,15 @@ Fixed in this pass:
 
 Not covered: pressing keys into the shortcut recorder. That needs real
 keyboard focus on the user's desktop.
+
+## Closed (2026-09-28)
+
+The user skipped the remaining manual checks and closed the plan. These
+were never run:
+- a real CatchM Cloud summary end to end (catchm-api is deployed and its
+  routes answer, but no authenticated summarize call was made)
+- recording a shortcut by pressing keys in the desktop shell
+- a warning in the Mini window when Whisper is down (only the full Live
+  view has it)
+- the linker warning "multiple non-default manifests" in the Windows
+  build (the exe still builds and runs)
