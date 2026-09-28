@@ -1,0 +1,126 @@
+{
+  "title": "Họp kế hoạch sprint 14 ứng dụng Sổ Mây — Thứ Hai 2026-10-05 (giả lập)",
+  "lang": "vi",
+  "transcript": [
+    {
+      "seq": 1,
+      "speaker": "Lan",
+      "text": "Chào cả nhà, hôm nay mình chốt phạm vi sprint 14 nhé."
+    },
+    {
+      "seq": 2,
+      "speaker": "Lan",
+      "text": "Có hai việc lớn: thanh toán trong ứng dụng và tính năng xuất PDF."
+    },
+    {
+      "seq": 3,
+      "speaker": "Hùng",
+      "text": "Làm cả hai trong hai tuần thì không kịp đâu chị Lan."
+    },
+    {
+      "seq": 4,
+      "speaker": "Thảo",
+      "text": "Bên thiết kế cũng chưa có màn hình xuất PDF, mới có bản phác thảo thôi."
+    },
+    {
+      "seq": 5,
+      "speaker": "Lan",
+      "text": "Vậy mình hoãn tính năng xuất PDF sang sprint 15, sprint này tập trung vào thanh toán."
+    },
+    {
+      "seq": 6,
+      "speaker": "Minh",
+      "text": "Em đồng ý, để QA còn thời gian kiểm thử kỹ luồng thanh toán."
+    },
+    {
+      "seq": 7,
+      "speaker": "Hùng",
+      "text": "Về thanh toán, em đề xuất làm ví điện tử trước, thẻ tín dụng làm sau."
+    },
+    {
+      "seq": 8,
+      "speaker": "Hùng",
+      "text": "Tích hợp thẻ tín dụng cần chứng nhận bảo mật, mất ít nhất một tháng."
+    },
+    {
+      "seq": 9,
+      "speaker": "Lan",
+      "text": "Hợp lý. Mình thống nhất làm thanh toán qua ví điện tử trước, thẻ tín dụng để sau."
+    },
+    {
+      "seq": 10,
+      "speaker": "Lan",
+      "text": "Anh Hùng ước lượng API thanh toán ví điện tử bao lâu thì xong?"
+    },
+    {
+      "seq": 11,
+      "speaker": "Hùng",
+      "text": "Khoảng tám ngày. Anh sẽ hoàn thành API thanh toán ví điện tử trước thứ Sáu tuần sau."
+    },
+    {
+      "seq": 12,
+      "speaker": "Lan",
+      "text": "Được. Thảo ơi, màn hình thanh toán thì sao?"
+    },
+    {
+      "seq": 13,
+      "speaker": "Thảo",
+      "text": "Em sẽ gửi bản thiết kế màn hình thanh toán cho cả team vào thứ Tư này."
+    },
+    {
+      "seq": 14,
+      "speaker": "Hùng",
+      "text": "Thảo nhớ thêm trạng thái lỗi khi ví không đủ tiền nhé."
+    },
+    {
+      "seq": 15,
+      "speaker": "Thảo",
+      "text": "Vâng, em sẽ thêm trạng thái lỗi vào bản thiết kế."
+    },
+    {
+      "seq": 16,
+      "speaker": "Minh",
+      "text": "Còn em sẽ viết kịch bản kiểm thử cho luồng thanh toán ví điện tử."
+    },
+    {
+      "seq": 17,
+      "speaker": "Lan",
+      "text": "Minh viết xong thì gửi anh Hùng xem luôn nhé."
+    },
+    {
+      "seq": 18,
+      "speaker": "Minh",
+      "text": "Dạ, em gửi anh Hùng khi xong."
+    },
+    {
+      "seq": 19,
+      "speaker": "Lan",
+      "text": "Mọi người còn gì không? Không thì mình kết thúc ở đây."
+    },
+    {
+      "seq": 20,
+      "speaker": "Thảo",
+      "text": "Không ạ. Cảm ơn chị."
+    }
+  ],
+  "decisions": [
+    "Hoãn tính năng xuất PDF sang sprint 15, sprint 14 tập trung vào thanh toán",
+    "Làm thanh toán qua ví điện tử trước, thẻ tín dụng làm sau"
+  ],
+  "actions": [
+    {
+      "text": "Hoàn thành API thanh toán ví điện tử",
+      "owner": "Hùng",
+      "due": "2026-10-16"
+    },
+    {
+      "text": "Gửi bản thiết kế màn hình thanh toán cho team, có trạng thái lỗi khi ví không đủ tiền",
+      "owner": "Thảo",
+      "due": "2026-10-07"
+    },
+    {
+      "text": "Viết kịch bản kiểm thử cho luồng thanh toán ví điện tử và gửi anh Hùng xem",
+      "owner": "Minh"
+    }
+  ]
+}

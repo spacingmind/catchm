@@ -1,0 +1,132 @@
+{
+  "title": "Fernleaf app standup — Tuesday 2026-10-06 (synthetic)",
+  "lang": "en",
+  "transcript": [
+    {
+      "seq": 1,
+      "speaker": "Dana",
+      "text": "Morning everyone, let's keep this quick. Priya, do you want to start?"
+    },
+    {
+      "seq": 2,
+      "speaker": "Priya",
+      "text": "Sure. Yesterday I finished the new onboarding screens, they're in code review now."
+    },
+    {
+      "seq": 3,
+      "speaker": "Priya",
+      "text": "The open question is whether we ship them to everyone in 4.2 or put them behind a flag."
+    },
+    {
+      "seq": 4,
+      "speaker": "Marcus",
+      "text": "I'd go with a flag. The last onboarding change hurt day-one retention for a week before anyone noticed."
+    },
+    {
+      "seq": 5,
+      "speaker": "Dana",
+      "text": "Agreed. We ship the onboarding redesign in 4.2 behind a feature flag and ramp it up from ten percent."
+    },
+    {
+      "seq": 6,
+      "speaker": "Priya",
+      "text": "Okay. I'll write the rollout plan for the flag: the ramp steps and which metrics we watch."
+    },
+    {
+      "seq": 7,
+      "speaker": "Dana",
+      "text": "Can you have the rollout plan by Thursday?"
+    },
+    {
+      "seq": 8,
+      "speaker": "Priya",
+      "text": "Thursday works."
+    },
+    {
+      "seq": 9,
+      "speaker": "Marcus",
+      "text": "On my side, the settings screen still crashes on older Android versions."
+    },
+    {
+      "seq": 10,
+      "speaker": "Marcus",
+      "text": "It's a null pointer when the notification permission was never requested. I have a fix locally."
+    },
+    {
+      "seq": 11,
+      "speaker": "Dana",
+      "text": "Can the fix go out tomorrow?"
+    },
+    {
+      "seq": 12,
+      "speaker": "Marcus",
+      "text": "Yes, I'll get the settings crash fix merged by tomorrow."
+    },
+    {
+      "seq": 13,
+      "speaker": "Jo",
+      "text": "For support, I need the release notes before we submit 4.2. Last time support saw the notes the same day as users."
+    },
+    {
+      "seq": 14,
+      "speaker": "Dana",
+      "text": "Jo, can you draft the 4.2 release notes and send them to the support team?"
+    },
+    {
+      "seq": 15,
+      "speaker": "Jo",
+      "text": "Yes, I'll send the release notes draft to support by Friday."
+    },
+    {
+      "seq": 16,
+      "speaker": "Marcus",
+      "text": "One more thing. The Android tablet layout is nowhere near done, it needs at least two more weeks."
+    },
+    {
+      "seq": 17,
+      "speaker": "Priya",
+      "text": "Honestly it doesn't block anything in 4.2."
+    },
+    {
+      "seq": 18,
+      "speaker": "Dana",
+      "text": "Then we drop the tablet layout from this sprint and plan it for the next one."
+    },
+    {
+      "seq": 19,
+      "speaker": "Marcus",
+      "text": "Fine by me. That frees up time for the crash backlog."
+    },
+    {
+      "seq": 20,
+      "speaker": "Jo",
+      "text": "Nice. Support will be happy about fewer crash tickets."
+    },
+    {
+      "seq": 21,
+      "speaker": "Dana",
+      "text": "Okay, that's everything. Thanks all."
+    }
+  ],
+  "decisions": [
+    "Ship the onboarding redesign in 4.2 behind a feature flag, ramping up from ten percent",
+    "Drop the Android tablet layout from this sprint and plan it for the next sprint"
+  ],
+  "actions": [
+    {
+      "text": "Write the rollout plan for the onboarding feature flag",
+      "owner": "Priya",
+      "due": "2026-10-08"
+    },
+    {
+      "text": "Merge the fix for the settings screen crash on older Android versions",
+      "owner": "Marcus",
+      "due": "2026-10-07"
+    },
+    {
+      "text": "Send the 4.2 release notes draft to the support team",
+      "owner": "Jo",
+      "due": "2026-10-09"
+    }
+  ]
+}

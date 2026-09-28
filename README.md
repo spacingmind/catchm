@@ -33,9 +33,34 @@ task desktop:dev     # wails dev
 task desktop:build   # wails build
 ```
 
+### Evaluating summary quality
+
+`catchm eval` runs your configured summary provider over a set of gold
+meetings and scores what it finds, so you can compare models and prompts
+before changing a default:
+
+```sh
+go run ./cmd/catchm eval                                  # provider + model from your config
+go run ./cmd/catchm eval --provider ollama --model qwen3.5:9b
+go run ./cmd/catchm eval --dir eval-local --json          # your own gold files, machine-readable
+```
+
+- Gold files are JSON: `{title, lang, transcript: [{seq, speaker, text}],
+  decisions: [text], actions: [{text, owner?, due?}]}`. The committed set in
+  `internal/summarize/eval/testdata/` is synthetic (EN, VI, bilingual, a
+  process walkthrough and a no-decisions catch-up).
+- Put real transcripts in `eval-local/`. Git ignores that directory.
+- Scores, per file and averaged: JSON validity, decision recall/precision,
+  action recall/precision, owner and due accuracy, evidence validity, and
+  the count of unsupported items. `-` means the metric doesn't apply to
+  that file.
+- The command reads the config from `CATCHM_HOME` and never writes to it.
+  `catchm-cloud` isn't supported from the CLI yet, because it needs the
+  app's logged-in session.
+
 ## Layout
 
-- `cmd/catchm` — binary entrypoint (`catchm serve`).
+- `cmd/catchm` — binary entrypoint (`catchm serve`, `catchm eval`).
 - `cmd/catchm-desktop` — optional native desktop shell (Wails v2), same
   handler as `cmd/catchm`, no duplicate frontend/API.
 - `internal/meeting` — session model + store (JSONL transcript, markdown

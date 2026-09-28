@@ -433,6 +433,129 @@ export function getMeeting(id: string): Promise<Meeting> {
   return apiFetch(`/api/meetings/${encodeURIComponent(id)}`)
 }
 
+/** internal/summarize.GeneratedInfo: how an analysis was produced. */
+export interface AnalysisGenerated {
+  /** RFC3339 timestamp string. */
+  at?: string
+  provider?: string
+  model?: string
+  /** Which transcript was read: the batch one ("v2") or the live one. */
+  transcript?: "v2" | "live"
+  /** The meeting's language hint, or "auto". */
+  analysis_lang?: string
+}
+
+/** internal/summarize.Topic. key is a canonical English slug, e.g. "topic:pricing-page". */
+export interface AnalysisTopic {
+  id: string
+  title: string
+  key: string
+  /** Utterance seqs (in the transcript named by generated.transcript). */
+  evidence: number[]
+}
+
+/** internal/summarize.AnalysisDecision. topic is a topic id. */
+export interface AnalysisDecision {
+  id: string
+  text: string
+  topic?: string
+  scope?: string
+  evidence: number[]
+}
+
+/** internal/summarize.AnalysisAction. owner is a person key ("person:long")
+ *  when it names a listed person, else plain text. due is YYYY-MM-DD only;
+ *  any other stated deadline is due_text. */
+export interface AnalysisAction {
+  id: string
+  text: string
+  topic?: string
+  owner?: string
+  due?: string
+  due_text?: string
+  evidence: number[]
+}
+
+/** internal/summarize.Person. */
+export interface AnalysisPerson {
+  key: string
+  name: string
+  aliases?: string[]
+  /** The transcript's speaker label, when known. */
+  speaker?: string
+}
+
+export type EntityKind = "project" | "product" | "org" | "tool" | "term" | "place"
+
+/** internal/summarize.Entity. key is "<kind>:<slug>". */
+export interface AnalysisEntity {
+  key: string
+  name: string
+  kind: EntityKind
+  evidence: number[]
+}
+
+/** internal/summarize.FlowNext: an edge to another step, optionally a branch. */
+export interface FlowNext {
+  to: string
+  condition?: string
+}
+
+/** internal/summarize.FlowStep. */
+export interface FlowStep {
+  id: string
+  order: number
+  text: string
+  actor?: string
+  next?: FlowNext[]
+}
+
+/** internal/summarize.Flow. */
+export interface Flow {
+  id: string
+  name: string
+  actor?: string
+  trigger?: string
+  evidence: number[]
+  steps: FlowStep[]
+}
+
+/** internal/summarize.Analysis: a meeting's analysis.json (v1). */
+export interface Analysis {
+  version: number
+  generated: AnalysisGenerated
+  summary: string
+  topics: AnalysisTopic[]
+  decisions: AnalysisDecision[]
+  actions: AnalysisAction[]
+  people: AnalysisPerson[]
+  entities: AnalysisEntity[]
+  /** Empty until the flows pass runs. */
+  flows: Flow[]
+  /** The validator's log: "auto-corrected: …" / "dropped: …". */
+  issues: string[]
+}
+
+/** internal/summarize.MindNode. ref is "topic:<id>", "decision:<id>" or
+ *  "action:<id>"; absent on the root and on the "Other" branch. */
+export interface MindNode {
+  label: string
+  ref?: string
+  children?: MindNode[]
+}
+
+export interface MeetingAnalysis {
+  analysis: Analysis
+  mindmap: MindNode
+}
+
+/** GET /api/meetings/{id}/analysis — the analysis sidecar and its derived
+ *  mind map. Rejects with a 404 ApiError when the meeting has no analysis
+ *  yet (or doesn't exist). */
+export function getMeetingAnalysis(id: string): Promise<MeetingAnalysis> {
+  return apiFetch(`/api/meetings/${encodeURIComponent(id)}/analysis`)
+}
+
 /** PATCH /api/meetings/{id} — update title and/or tags. */
 export function updateMeeting(id: string, body: UpdateMeetingRequest): Promise<Meeting> {
   return apiFetch(`/api/meetings/${encodeURIComponent(id)}`, {

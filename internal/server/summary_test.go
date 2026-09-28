@@ -23,11 +23,11 @@ import (
 
 // fakeSummarizer stands in for a real provider in HTTP-layer tests.
 type fakeSummarizer struct {
-	ex  summarize.Extraction
+	ex  summarize.Analysis
 	err error
 }
 
-func (f *fakeSummarizer) Summarize(context.Context, summarize.Input) (summarize.Extraction, error) {
+func (f *fakeSummarizer) Summarize(context.Context, summarize.Input) (summarize.Analysis, error) {
 	return f.ex, f.err
 }
 
@@ -318,7 +318,7 @@ func TestRefineReadinessSkipsBatchPass(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				return summarizerFunc(func(ctx context.Context, in summarize.Input) (summarize.Extraction, error) {
+				return summarizerFunc(func(ctx context.Context, in summarize.Input) (summarize.Analysis, error) {
 					summarized.Add(1)
 					return sum.Summarize(ctx, in)
 				}), nil
@@ -373,9 +373,9 @@ func TestRefineProceedsWhenQuotaUnreachable(t *testing.T) {
 }
 
 // summarizerFunc adapts a function to summarize.Summarizer.
-type summarizerFunc func(context.Context, summarize.Input) (summarize.Extraction, error)
+type summarizerFunc func(context.Context, summarize.Input) (summarize.Analysis, error)
 
-func (f summarizerFunc) Summarize(ctx context.Context, in summarize.Input) (summarize.Extraction, error) {
+func (f summarizerFunc) Summarize(ctx context.Context, in summarize.Input) (summarize.Analysis, error) {
 	return f(ctx, in)
 }
 
@@ -639,5 +639,61 @@ func TestConfigSummaryDefaultsOnGet(t *testing.T) {
 	decode(t, w, &v)
 	if v.Summary.Provider != "ollama" || v.Summary.OllamaModel != "qwen3.5:9b" || v.KeySet == nil || *v.KeySet {
 		t.Fatalf("defaults = %+v", v)
+	}
+}
+
+// TestMeetingAnalysisEndpoint: refine writes analysis.json, served with
+// its mind map; a meeting without one (or an unknown id) is a 404.
+func TestMeetingAnalysisEndpoint(t *testing.T) {
+	s, store := newTestServer(t)
+	m := refinableMeeting(t, s, store)
+	upWhisper(t, s)
+	stubBatchEngineFor(s, []meeting.Utterance{{Speaker: "S1", Text: "We ship on Friday; Long writes the notes."}})
+
+	w := do(t, s, "GET", "/api/meetings/"+m.ID+"/analysis", "")
+	var e struct {
+		Error string `json:"error"`
+	}
+	decode(t, w, &e)
+	if w.Code != http.StatusNotFound || e.Error == "" {
+		t.Fatalf("before summary: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if w := do(t, s, "GET", "/api/meetings/nope/analysis", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown meeting: status = %d", w.Code)
+	}
+
+	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Analysis{
+		Summary:   "Shipping plan.",
+		Topics:    []summarize.Topic{{ID: "t1", Title: "Release", Key: "topic:release", Evidence: []int64{1}}},
+		Decisions: []summarize.AnalysisDecision{{ID: "d1", Text: "Ship on Friday", Topic: "t1", Evidence: []int64{1, 99}}},
+		Actions:   []summarize.AnalysisAction{{ID: "a1", Text: "Write the notes", Owner: "Long", Evidence: []int64{1}}},
+		People:    []summarize.Person{{Key: "person:long", Name: "Long"}},
+	}})
+	if w := do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", ""); w.Code != http.StatusOK {
+		t.Fatalf("refine: status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	w = do(t, s, "GET", "/api/meetings/"+m.ID+"/analysis", "")
+	var v struct {
+		Analysis summarize.Analysis `json:"analysis"`
+		MindMap  summarize.MindNode `json:"mindmap"`
+	}
+	decode(t, w, &v)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	a := v.Analysis
+	if a.Version != 1 || a.Generated.Transcript != "v2" || a.Generated.At == "" ||
+		len(a.Decisions) != 1 || len(a.Decisions[0].Evidence) != 1 || a.Actions[0].Owner != "person:long" {
+		t.Fatalf("analysis = %+v", a)
+	}
+	mm := v.MindMap
+	if mm.Label != m.Title || len(mm.Children) != 2 || mm.Children[0].Ref != "topic:t1" ||
+		mm.Children[0].Children[0].Ref != "decision:d1" || mm.Children[1].Label != "Other" {
+		t.Fatalf("mindmap = %+v", mm)
+	}
+	got, _ := store.Get(m.ID)
+	if got.Summary != "Shipping plan." || len(got.ActionItems) != 1 || got.ActionItems[0].Owner != "Long" {
+		t.Fatalf("frontmatter not synced from the analysis: %+v", got)
 	}
 }

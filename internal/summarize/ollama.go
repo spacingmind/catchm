@@ -16,14 +16,14 @@ const (
 	// model's memory use) modest on a laptop.
 	ollamaBudgetTokens = 12000
 	// ollamaReplyTokens is the context headroom left for the reply.
-	ollamaReplyTokens = 4096
+	ollamaReplyTokens = 6144
 	// ollamaMinCtx is the smallest num_ctx requested, so short meetings
 	// don't thrash the model's context size between calls.
 	ollamaMinCtx = 8192
 )
 
 // Ollama summarizes with a local model through Ollama's native
-// /api/chat, constraining the reply with the Extraction JSON schema.
+// /api/chat, constraining the reply with the analysis JSON schema.
 type Ollama struct {
 	Host  string
 	Model string
@@ -31,12 +31,14 @@ type Ollama struct {
 	HTTP *http.Client
 }
 
-func (o *Ollama) Summarize(ctx context.Context, in Input) (Extraction, error) {
+func (o *Ollama) Summarize(ctx context.Context, in Input) (Analysis, error) {
 	if o.Host == "" || o.Model == "" {
-		return Extraction{}, notReady("Pick an Ollama model in Settings → Summaries.", nil)
+		return Analysis{}, notReady("Pick an Ollama model in Settings → Summaries.", nil)
 	}
 	return runLLM(ctx, o, ollamaBudgetTokens, in)
 }
+
+func (o *Ollama) describe() (string, string) { return ProviderOllama, o.Model }
 
 type ollamaMessage struct {
 	Role    string `json:"role"`

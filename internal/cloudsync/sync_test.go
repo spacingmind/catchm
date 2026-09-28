@@ -145,6 +145,74 @@ func TestSyncPullsMeetingFromOtherDevice(t *testing.T) {
 	}
 }
 
+// TestSyncCarriesAnalysisSidecar: analysis.json travels with the
+// meeting, and a pull whose bundle lacks it removes the stale local one.
+// Step one of the analysis.json rollout (see syncAnalysis): the
+// sidecar is not bundled yet, so pre-insights clients never see it, and
+// a local one survives syncs instead of being deleted as stale.
+func TestSyncDoesNotBundleAnalysisYet(t *testing.T) {
+	f := newSyncFixture(t)
+	m := createMeeting(t, f.storeA, "Analyzed")
+	const analysis = `{"version":1,"summary":"s"}`
+	if err := f.storeA.WriteAnalysis(m.ID, []byte(analysis)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.syncA(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.syncB(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.storeB.ReadAnalysis(m.ID); !errors.Is(err, meeting.ErrNoAnalysis) {
+		t.Fatalf("analysis reached B before the writer is enabled: err = %v", err)
+	}
+	// B changes the doc; A's pull of that bundle (no sidecar) must keep
+	// A's analysis.
+	if err := f.storeB.UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
+		mm.Title = "Renamed on B"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.syncB(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.syncA(); err != nil {
+		t.Fatal(err)
+	}
+	if got := readMeetingFile(t, f.storeA, m.ID, analysisFile); got != analysis {
+		t.Fatalf("A's analysis after pull = %q", got)
+	}
+}
+
+// The reader half: a bundle from a newer client may carry
+// analysis.json (written) or files this build doesn't know (skipped),
+// and neither may fail the sync.
+func TestMaterializeAcceptsAnalysisAndSkipsUnknownFiles(t *testing.T) {
+	f := newSyncFixture(t)
+	m := createMeeting(t, f.storeA, "From a newer client")
+	doc := readMeetingFile(t, f.storeA, m.ID, docFile)
+	files := map[string][]byte{
+		docFile:           []byte(doc),
+		transcriptFile:    {},
+		analysisFile:      []byte(`{"version":1}`),
+		"graph-hint.json": []byte(`{}`),
+		"../escape.txt":   []byte("x"),
+	}
+	if err := materializeMeeting(f.storeB, m.ID, files); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if got := readMeetingFile(t, f.storeB, m.ID, analysisFile); got != `{"version":1}` {
+		t.Fatalf("analysis = %q", got)
+	}
+	dir := filepath.Join(f.storeB.Root(), m.ID)
+	for _, name := range []string{"graph-hint.json", filepath.Join("..", "escape.txt")} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("unknown file %q was written (err = %v)", name, err)
+		}
+	}
+}
+
 func TestSyncDetectsConflictAndPreservesBothVersions(t *testing.T) {
 	f := newSyncFixture(t)
 	m := createMeeting(t, f.storeA, "Contested")

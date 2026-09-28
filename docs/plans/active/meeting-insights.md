@@ -283,3 +283,31 @@ four things:
 8. **Checks:** `task test`, `task lint`, `bunx tsc -b`, `bun run build`
    and oxlint are clean. The new dependencies are the permissive ones
    listed in decision 9.
+
+## P0 status (2026-09-28)
+
+Done on `feat/meeting-insights-p0`:
+- **P0-A:** the Analysis types, the tolerant validator, the
+  seq-numbered prompt and schema, the sidecar writer, frontmatter sync
+  that keeps statuses, the mind-map builder, and
+  `GET /api/meetings/{id}/analysis`.
+- **P0-B:** `catchm eval` with 5 synthetic EN/VI gold meetings. It also
+  scores `action_precision`, which the contract didn't list, so invented
+  actions show up.
+
+Integration decisions:
+- **Two-step cloud-sync rollout for `analysis.json`.** Pre-insights
+  clients (v0.2.1 and earlier) reject bundles that contain unknown files
+  and abort the whole sync. Step one, in this change: the reader accepts
+  `analysis.json` and skips unknown files instead of failing, and the
+  writer stays off (`syncAnalysis = false`), so the sidecar isn't
+  bundled and a local one is kept on pull. Step two, a later release:
+  turn `syncAnalysis` on once most installs have the tolerant reader.
+
+Follow-ups:
+- The CatchM Cloud Worker (`/v1/summarize`) still returns the old
+  four-field shape, which is lifted into an Analysis with no topics and
+  no evidence. Extend it to the analysis schema.
+- Re-summarizing clears `flows`. P1b must keep them.
+- Run `catchm eval` against real models (Ollama qwen3.5:9b and
+  Cloudflare qwen3-30b) and record the baseline here.

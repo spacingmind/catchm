@@ -79,7 +79,7 @@ func TestRefineAutoEngineMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, store := newTestServer(t)
 			m := refinableMeeting(t, s, store)
-			stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Extraction{Summary: "ok"}})
+			stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Analysis{Summary: "ok"}})
 			if err := store.UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
 				mm.Engine = tc.meetingEng
 				return nil

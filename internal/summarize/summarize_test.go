@@ -72,20 +72,33 @@ func TestParseExtraction(t *testing.T) {
 	}
 }
 
-func TestParseReplyCleansAndValidates(t *testing.T) {
-	ex, err := parseReply("<think>{maybe}</think>\n```json\n" +
-		`{"summary":" s ","participants":["alex","Alex",""],"decisions":[{"text":""},{"text":"ship"}],"action_items":[{"text":"demo","due":"Friday"},{"text":"notes","due":"2026-10-01"}]}` +
+func TestParseReplyCleansAndSanitizes(t *testing.T) {
+	a, err := parseReply("<think>{maybe}</think>\n```json\n" +
+		`{"summary":" s ","participants":["alex","sam"],"decisions":["ship it"],` +
+		`"action_items":[{"task":"demo","assignee":"sam","deadline":"Friday","evidence":"[2], 3","topic":null}],` +
+		`"topics":[{"id":"t1","name":"Scope","key":"topic:scope","evidence":[1.0,"4"]}],` +
+		`"entities":[{"name":"CatchM","type":"company","evidence":7}]}` +
 		"\n```")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ex.Summary != "s" || len(ex.Participants) != 1 || len(ex.Decisions) != 1 {
-		t.Fatalf("not normalized: %+v", ex)
+	if a.Summary != "s" || len(a.People) != 2 || a.People[1].Name != "sam" || a.Decisions[0].Text != "ship it" {
+		t.Fatalf("analysis = %+v", a)
 	}
-	if ex.ActionItems[0].Due != "" || ex.ActionItems[0].Text != "demo (due: Friday)" || ex.ActionItems[1].Due != "2026-10-01" {
-		t.Fatalf("due not normalized: %+v", ex.ActionItems)
+	act := a.Actions[0]
+	if act.Text != "demo" || act.Owner != "sam" || act.Due != "Friday" || fmt.Sprint(act.Evidence) != "[2 3]" {
+		t.Fatalf("action = %+v", act)
 	}
-	if _, err := parseReply(`{"summary":"","participants":[]}`); !errors.Is(err, errEmptySummary) {
+	if a.Topics[0].Title != "Scope" || fmt.Sprint(a.Topics[0].Evidence) != "[1 4]" {
+		t.Fatalf("topic = %+v", a.Topics[0])
+	}
+	if a.Entities[0].Kind != "company" || fmt.Sprint(a.Entities[0].Evidence) != "[7]" {
+		t.Fatalf("entity = %+v", a.Entities[0])
+	}
+	if !strings.Contains(strings.Join(a.Issues, "\n"), `field "action_items" renamed "actions"`) {
+		t.Fatalf("issues = %q", a.Issues)
+	}
+	if _, err := parseReply(`{"summary":"","people":[]}`); !errors.Is(err, errEmptySummary) {
 		t.Fatalf("empty summary: err = %v", err)
 	}
 }
@@ -125,7 +138,7 @@ func TestLoadInputPrefersBatchTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in.Title != "Q3 Roadmap Sync" || in.Language != "en" || !strings.Contains(in.Transcript, "alex: We freeze the scope by Friday.\n") {
+	if in.Title != "Q3 Roadmap Sync" || in.Language != "en" || !strings.Contains(in.Transcript, "[1] alex: We freeze the scope by Friday.\n") {
 		t.Fatalf("live input = %+v", in)
 	}
 
@@ -136,7 +149,7 @@ func TestLoadInputPrefersBatchTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in.Transcript != "S1: refined line\n" {
+	if in.Transcript != "[1] S1: refined line\n" {
 		t.Fatalf("batch input transcript = %q", in.Transcript)
 	}
 
@@ -146,13 +159,13 @@ func TestLoadInputPrefersBatchTranscript(t *testing.T) {
 }
 
 type stubSummarizer struct {
-	ex    Extraction
+	ex    Analysis
 	err   error
 	calls int
 	in    Input
 }
 
-func (f *stubSummarizer) Summarize(_ context.Context, in Input) (Extraction, error) {
+func (f *stubSummarizer) Summarize(_ context.Context, in Input) (Analysis, error) {
 	f.calls++
 	f.in = in
 	return f.ex, f.err
@@ -161,7 +174,7 @@ func (f *stubSummarizer) Summarize(_ context.Context, in Input) (Extraction, err
 func TestSummarizeMeetingSetsRefined(t *testing.T) {
 	s := newTestStore(t)
 	m := fixtureMeeting(t, s)
-	sum := &stubSummarizer{ex: Extraction{Summary: "done", Participants: []string{"alex"}}}
+	sum := &stubSummarizer{ex: Analysis{Summary: "done", People: []Person{{Name: "alex"}}}}
 	if err := SummarizeMeeting(context.Background(), s, m.ID, sum); err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +204,9 @@ func TestSummarizeMeetingSetsRefined(t *testing.T) {
 	}
 	if got, _ := s.Get(empty.ID); !got.Refined || stub.calls != 0 {
 		t.Fatalf("empty meeting: refined = %v, calls = %d", got.Refined, stub.calls)
+	}
+	if _, err := s.ReadAnalysis(empty.ID); !errors.Is(err, meeting.ErrNoAnalysis) {
+		t.Fatalf("empty meeting got an analysis: err = %v", err)
 	}
 }
 
@@ -236,7 +252,7 @@ func TestNewSelectsProviderAndGuardsConsent(t *testing.T) {
 }
 
 func testInput() Input {
-	return Input{Title: "Q3 Roadmap Sync", Language: "en", Transcript: "alex: We freeze the scope by Friday.\nsam: I'll prepare the demo.\n"}
+	return Input{Title: "Q3 Roadmap Sync", Language: "en", Transcript: "[1] alex: We freeze the scope by Friday.\n[2] sam: I'll prepare the demo.\n"}
 }
 
 func TestOllamaChat(t *testing.T) {
@@ -260,8 +276,8 @@ func TestOllamaChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ex.Summary != "Synced on Q3." || len(ex.ActionItems) != 1 || ex.ActionItems[0].Owner != "sam" {
-		t.Fatalf("extraction = %+v", ex)
+	if ex.Summary != "Synced on Q3." || len(ex.Actions) != 1 || ex.Actions[0].Owner != "sam" {
+		t.Fatalf("analysis = %+v", ex)
 	}
 	if got.Model != "qwen3.5:9b" || got.Stream || got.Options.Temperature != 0 || got.Options.NumCtx < ollamaMinCtx {
 		t.Fatalf("request = %+v", got)
@@ -570,11 +586,11 @@ func TestChunkAndMerge(t *testing.T) {
 	if extracts.Load() < 3 || merges.Load() != 1 {
 		t.Fatalf("extract calls = %d, merge calls = %d", extracts.Load(), merges.Load())
 	}
-	if ex.Summary != "whole meeting" || len(ex.Decisions) != 1 || len(ex.ActionItems) != 1 {
+	if ex.Summary != "whole meeting" || len(ex.Decisions) != 1 || len(ex.Actions) != 1 {
 		t.Fatalf("merged = %+v", ex)
 	}
-	if len(ex.Participants) != 2 {
-		t.Fatalf("participants the merge dropped not restored: %v", ex.Participants)
+	if len(ex.People) != 2 {
+		t.Fatalf("people the merge dropped not restored: %v", ex.People)
 	}
 }
 
@@ -604,7 +620,8 @@ func TestCloudChunksMergeWithoutExtraCall(t *testing.T) {
 	if n := calls.Load(); n != 2 {
 		t.Fatalf("calls = %d, want exactly one per chunk", n)
 	}
-	if !strings.HasPrefix(ex.Summary, "part 1.") || len(ex.Decisions) != 1 || len(ex.ActionItems) != 1 || len(ex.Participants) != 1 {
+	if !strings.HasPrefix(ex.Summary, "part 1.") || len(ex.Decisions) != 1 || len(ex.Actions) != 1 || len(ex.People) != 1 ||
+		ex.Actions[0].Owner != "sam" || len(ex.Topics) != 0 {
 		t.Fatalf("merged = %+v", ex)
 	}
 }

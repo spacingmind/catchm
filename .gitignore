@@ -5,3 +5,4 @@ refs/
 cmd/catchm-desktop/bindings/
 cmd/catchm-desktop/build/bin/
 __pycache__/
+eval-local/

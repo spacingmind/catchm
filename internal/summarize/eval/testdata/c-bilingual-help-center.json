@@ -1,0 +1,132 @@
+{
+  "title": "Help center localization sync — Tuesday 2026-10-13 (synthetic)",
+  "lang": "en",
+  "transcript": [
+    {
+      "seq": 1,
+      "speaker": "Speaker 1",
+      "text": "Okay, let's start. The goal today is the Vietnamese help center launch."
+    },
+    {
+      "seq": 2,
+      "speaker": "Speaker 2",
+      "text": "Hi Sarah. Bên em đã dịch xong khoảng 80% articles rồi, còn phần billing thôi."
+    },
+    {
+      "seq": 3,
+      "speaker": "Speaker 1",
+      "text": "Great, thanks Vy. What's blocking the billing articles?"
+    },
+    {
+      "seq": 4,
+      "speaker": "Speaker 2",
+      "text": "Billing articles có nhiều thuật ngữ, em cần anh Tuấn review terminology trước."
+    },
+    {
+      "seq": 5,
+      "speaker": "Speaker 3",
+      "text": "Anh review được, nhưng tuần này anh bận release. Friday được không?"
+    },
+    {
+      "seq": 6,
+      "speaker": "Speaker 1",
+      "text": "Friday is fine. Tuấn, you'll review the billing terminology by Friday, right?"
+    },
+    {
+      "seq": 7,
+      "speaker": "Speaker 3",
+      "text": "Yes, anh sẽ review billing terminology xong trước thứ Sáu."
+    },
+    {
+      "seq": 8,
+      "speaker": "Speaker 1",
+      "text": "Now the launch date. Marketing wants the Vietnamese help center live on October 20."
+    },
+    {
+      "seq": 9,
+      "speaker": "Speaker 2",
+      "text": "Nếu anh Tuấn review xong thứ Sáu thì em kịp, October 20 okay."
+    },
+    {
+      "seq": 10,
+      "speaker": "Speaker 1",
+      "text": "Then it's decided: the Vietnamese help center launches on October 20."
+    },
+    {
+      "seq": 11,
+      "speaker": "Speaker 3",
+      "text": "Còn search thì sao? Search hiện tại không hiểu tiếng Việt có dấu."
+    },
+    {
+      "seq": 12,
+      "speaker": "Speaker 1",
+      "text": "Good point. Can the search handle Vietnamese diacritics?"
+    },
+    {
+      "seq": 13,
+      "speaker": "Speaker 3",
+      "text": "Cần bật Vietnamese analyzer cho search index. Việc đó nhỏ thôi."
+    },
+    {
+      "seq": 14,
+      "speaker": "Speaker 1",
+      "text": "Tuấn, can you enable the Vietnamese analyzer on the search index before launch?"
+    },
+    {
+      "seq": 15,
+      "speaker": "Speaker 3",
+      "text": "Ok, anh sẽ enable Vietnamese analyzer cho search index trước ngày launch."
+    },
+    {
+      "seq": 16,
+      "speaker": "Speaker 2",
+      "text": "Em đề xuất giữ URL tiếng Anh cho articles, chỉ dịch title và nội dung thôi."
+    },
+    {
+      "seq": 17,
+      "speaker": "Speaker 1",
+      "text": "I like that, it keeps the links stable. Let's keep English URLs for all articles."
+    },
+    {
+      "seq": 18,
+      "speaker": "Speaker 3",
+      "text": "Đồng ý, như vậy redirect cũng đơn giản hơn."
+    },
+    {
+      "seq": 19,
+      "speaker": "Speaker 1",
+      "text": "Vy, can you send me a list of articles that still need screenshots?"
+    },
+    {
+      "seq": 20,
+      "speaker": "Speaker 2",
+      "text": "Dạ được, em gửi chị danh sách articles cần screenshots trong hôm nay."
+    },
+    {
+      "seq": 21,
+      "speaker": "Speaker 1",
+      "text": "Perfect. Thanks both, cảm ơn nhé."
+    }
+  ],
+  "decisions": [
+    "Launch the Vietnamese help center on October 20",
+    "Keep English URLs for all help center articles and translate only titles and content"
+  ],
+  "actions": [
+    {
+      "text": "Review the billing terminology for the Vietnamese help center articles",
+      "owner": "Tuấn",
+      "due": "2026-10-16"
+    },
+    {
+      "text": "Enable the Vietnamese analyzer on the help center search index before launch",
+      "owner": "Tuấn",
+      "due": "2026-10-20"
+    },
+    {
+      "text": "Send Sarah the list of help center articles that still need screenshots",
+      "owner": "Vy",
+      "due": "2026-10-13"
+    }
+  ]
+}

@@ -19,8 +19,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "eval" {
+		os.Exit(evalMain(os.Args[2:]))
+	}
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
-		fmt.Fprintln(os.Stderr, "usage: catchm serve")
+		fmt.Fprintln(os.Stderr, "usage: catchm serve | catchm eval [flags]")
 		os.Exit(2)
 	}
 	if err := serve(); err != nil {

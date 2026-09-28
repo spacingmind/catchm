@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spacingmind/catchm/internal/config"
+	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/summarize"
 	"github.com/spacingmind/catchm/internal/sysinfo"
 	"github.com/spacingmind/catchm/internal/translate"
@@ -196,4 +199,34 @@ func validateSummaryBaseURL(raw string) (string, error) {
 		return "", fmt.Errorf("query and fragment not allowed")
 	}
 	return trimmed, nil
+}
+
+// handleMeetingAnalysis answers GET /api/meetings/{id}/analysis with the
+// meeting's analysis.json and the mind map derived from it, or 404 when
+// the meeting (or its analysis) doesn't exist.
+func (s *Server) handleMeetingAnalysis(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, err := s.surface.GetMeeting(id)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	raw, err := s.surface.Store().ReadAnalysis(id)
+	if errors.Is(err, meeting.ErrNoAnalysis) {
+		httpError(w, http.StatusNotFound, "This meeting has no analysis yet. Create a summary to make one.")
+		return
+	}
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	var a summarize.Analysis
+	if err := json.Unmarshal(raw, &a); err != nil {
+		httpError(w, http.StatusInternalServerError, "The meeting's analysis.json can't be read: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Analysis summarize.Analysis `json:"analysis"`
+		MindMap  summarize.MindNode `json:"mindmap"`
+	}{a, summarize.BuildMindMap(a, m.Title)})
 }

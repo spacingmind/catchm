@@ -100,6 +100,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/meetings/{id}", s.handleUpdateMeeting)
 	s.mux.HandleFunc("DELETE /api/meetings/{id}", s.handleDeleteMeeting)
 	s.mux.HandleFunc("GET /api/meetings/{id}/transcript", s.handleTranscript)
+	s.mux.HandleFunc("GET /api/meetings/{id}/analysis", s.handleMeetingAnalysis)
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)

@@ -68,24 +68,27 @@ type cloudRequest struct {
 	Language   string `json:"language,omitempty"`
 }
 
-func (c *Cloud) Summarize(ctx context.Context, in Input) (Extraction, error) {
+// Summarize sends the transcript to the Worker, which still answers the
+// four-field Extraction shape; each reply is lifted into an Analysis
+// with no topics and no evidence.
+func (c *Cloud) Summarize(ctx context.Context, in Input) (Analysis, error) {
 	if !c.Consent {
-		return Extraction{}, consentRequired()
+		return Analysis{}, consentRequired()
 	}
 	if c.Token == "" {
-		return Extraction{}, notReady("Log in to CatchM Cloud in Settings → Cloud sync to use cloud summaries.", nil)
+		return Analysis{}, notReady("Log in to CatchM Cloud in Settings → Cloud sync to use cloud summaries.", nil)
 	}
 	chunks := splitTranscript(in.Transcript, cloudChunkChars, runeUTF16)
 	if len(chunks) > 1 {
 		if err := c.checkQuotaFor(ctx, len(chunks)); err != nil {
-			return Extraction{}, err
+			return Analysis{}, err
 		}
 	}
-	parts := make([]Extraction, 0, len(chunks))
+	parts := make([]Analysis, 0, len(chunks))
 	for len(chunks) > 0 {
 		chunk := chunks[0]
 		body := cloudRequest{Title: in.Title, Transcript: chunk, Language: in.Language}
-		ex, err := withRetry(func() (string, error) { return c.post(ctx, body) })
+		a, err := withRetry(func() (string, error) { return c.post(ctx, body) }, parseCloudReply)
 		var tl *errTooLarge
 		if errors.As(err, &tl) {
 			if tl.maxChars > 0 && tl.maxChars < costOf(chunk, runeUTF16) {
@@ -97,9 +100,9 @@ func (c *Cloud) Summarize(ctx context.Context, in Input) (Extraction, error) {
 			err = tl.err
 		}
 		if err != nil {
-			return Extraction{}, err
+			return Analysis{}, err
 		}
-		parts = append(parts, ex)
+		parts = append(parts, a)
 		chunks = chunks[1:]
 	}
 	if len(parts) == 1 {
@@ -107,8 +110,10 @@ func (c *Cloud) Summarize(ctx context.Context, in Input) (Extraction, error) {
 	}
 	// No model-side merge: a merge call would spend another unit of
 	// the user's daily quota.
-	return mergeExtractions(parts), nil
+	return mergeAnalyses(parts), nil
 }
+
+func (c *Cloud) describe() (string, string) { return ProviderCloud, "" }
 
 func (c *Cloud) post(ctx context.Context, body cloudRequest) (string, error) {
 	raw, err := json.Marshal(body)

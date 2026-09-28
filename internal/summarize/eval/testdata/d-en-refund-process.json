@@ -1,0 +1,115 @@
+{
+  "title": "Refund handling walkthrough — Thursday 2026-10-08 (synthetic)",
+  "lang": "en",
+  "transcript": [
+    {
+      "seq": 1,
+      "speaker": "Rosa",
+      "text": "Thanks for joining. Kenji is new on the support team, so I'll walk through how we handle refund requests end to end."
+    },
+    {
+      "seq": 2,
+      "speaker": "Kenji",
+      "text": "Great, I've only seen the ticket queue so far."
+    },
+    {
+      "seq": 3,
+      "speaker": "Rosa",
+      "text": "Step one: the customer submits the refund form in the help widget. That creates a ticket tagged refund."
+    },
+    {
+      "seq": 4,
+      "speaker": "Rosa",
+      "text": "Step two: the on-duty agent checks the order in the admin panel, mainly the order date and the amount."
+    },
+    {
+      "seq": 5,
+      "speaker": "Kenji",
+      "text": "What are we checking for?"
+    },
+    {
+      "seq": 6,
+      "speaker": "Rosa",
+      "text": "If the order is less than thirty days old and under fifty dollars, the agent approves it right away."
+    },
+    {
+      "seq": 7,
+      "speaker": "Rosa",
+      "text": "If it's older than thirty days or over fifty dollars, the agent escalates the ticket to a team lead."
+    },
+    {
+      "seq": 8,
+      "speaker": "Omar",
+      "text": "That's me or Rosa most weeks. The team lead looks at the customer history and either approves or rejects."
+    },
+    {
+      "seq": 9,
+      "speaker": "Kenji",
+      "text": "And if the lead rejects it?"
+    },
+    {
+      "seq": 10,
+      "speaker": "Omar",
+      "text": "Then the agent replies with the rejection macro, which explains the policy and offers store credit instead."
+    },
+    {
+      "seq": 11,
+      "speaker": "Rosa",
+      "text": "Once a refund is approved, by the agent or the lead, the agent marks the ticket approved and finance picks it up."
+    },
+    {
+      "seq": 12,
+      "speaker": "Omar",
+      "text": "Finance issues the refund to the original payment method within five business days."
+    },
+    {
+      "seq": 13,
+      "speaker": "Rosa",
+      "text": "The last step: when finance confirms, the customer gets the automatic refund-issued email and the ticket closes."
+    },
+    {
+      "seq": 14,
+      "speaker": "Kenji",
+      "text": "How often do refunds get escalated?"
+    },
+    {
+      "seq": 15,
+      "speaker": "Omar",
+      "text": "Too often, honestly. Most escalations are orders between fifty and a hundred dollars, and we approve almost all of them."
+    },
+    {
+      "seq": 16,
+      "speaker": "Rosa",
+      "text": "Yeah, the fifty dollar limit is old. Prices went up since we set it."
+    },
+    {
+      "seq": 17,
+      "speaker": "Omar",
+      "text": "I'd raise the automatic approval limit to a hundred dollars."
+    },
+    {
+      "seq": 18,
+      "speaker": "Rosa",
+      "text": "Agreed. Let's raise the automatic approval limit from fifty to one hundred dollars, starting today."
+    },
+    {
+      "seq": 19,
+      "speaker": "Kenji",
+      "text": "So under a hundred dollars and under thirty days, I approve it myself."
+    },
+    {
+      "seq": 20,
+      "speaker": "Rosa",
+      "text": "Exactly. Everything else still goes to a team lead."
+    },
+    {
+      "seq": 21,
+      "speaker": "Kenji",
+      "text": "Makes sense. Thanks, this was really clear."
+    }
+  ],
+  "decisions": [
+    "Raise the automatic refund approval limit from $50 to $100"
+  ],
+  "actions": []
+}
