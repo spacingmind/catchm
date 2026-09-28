@@ -501,12 +501,15 @@ export interface FlowNext {
   condition?: string
 }
 
-/** internal/summarize.FlowStep. */
+/** internal/summarize.FlowStep. order is 1..n; actor, like Flow.actor, is
+ *  a person key when it names a listed person, else a role as plain text. */
 export interface FlowStep {
   id: string
   order: number
   text: string
   actor?: string
+  /** Utterance seqs, where the model could tell; else use the flow's. */
+  evidence?: number[]
   next?: FlowNext[]
 }
 
@@ -556,6 +559,24 @@ export function getMeetingAnalysis(id: string): Promise<MeetingAnalysis> {
   return apiFetch(`/api/meetings/${encodeURIComponent(id)}/analysis`)
 }
 
+/** The body of GET /analysis and POST /flows. */
+export type MeetingAnalysisResponse = MeetingAnalysis
+
+/** POST /api/meetings/{id}/flows — runs the on-demand flows pass (one or
+ *  more LLM calls, can take a while) and answers the updated analysis;
+ *  no flows is a valid result. Throws RefineError when the error body has
+ *  a kind (provider not ready, CatchM Cloud unsupported, model failed);
+ *  "Create a summary first." (409) is a plain ApiError. */
+export async function findFlows(id: string): Promise<MeetingAnalysisResponse> {
+  try {
+    return await apiFetch<MeetingAnalysisResponse>(`/api/meetings/${encodeURIComponent(id)}/flows`, {
+      method: "POST",
+    })
+  } catch (err) {
+    throw withKind(err)
+  }
+}
+
 /** PATCH /api/meetings/{id} — update title and/or tags. */
 export function updateMeeting(id: string, body: UpdateMeetingRequest): Promise<Meeting> {
   return apiFetch(`/api/meetings/${encodeURIComponent(id)}`, {
@@ -572,11 +593,20 @@ export function deleteMeeting(id: string): Promise<void> {
 }
 
 /** GET /api/meetings/{id}/transcript?cursor=N */
-export async function getTranscript(id: string, cursor: number): Promise<TranscriptResponse> {
-  const res = await apiFetch<TranscriptResponse>(
-    `/api/meetings/${encodeURIComponent(id)}/transcript?cursor=${cursor}`,
+/** Which transcript to read: the live one (default), the batch one a
+ *  refine wrote, or v2-when-present. The response says which it served. */
+export type TranscriptSource = "live" | "v2" | "best"
+
+export async function getTranscript(
+  id: string,
+  cursor: number,
+  source?: TranscriptSource,
+): Promise<TranscriptResponse & { source: "live" | "v2" }> {
+  const q = source && source !== "live" ? `&source=${source}` : ""
+  const res = await apiFetch<TranscriptResponse & { source?: "live" | "v2" }>(
+    `/api/meetings/${encodeURIComponent(id)}/transcript?cursor=${cursor}${q}`,
   )
-  return { utterances: res.utterances ?? [], cursor: res.cursor }
+  return { utterances: res.utterances ?? [], cursor: res.cursor, source: res.source ?? "live" }
 }
 
 /** POST /api/meetings/{id}/notes */
@@ -618,13 +648,19 @@ export async function refineMeeting(
       body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
     })
   } catch (err) {
-    const kind = err instanceof ApiError ? err.body?.kind : undefined
-    if (err instanceof ApiError && typeof kind === "string") {
-      const resetAt = typeof err.body?.reset_at === "string" ? err.body.reset_at : undefined
-      throw new RefineError(err.message, err.status, kind as SummaryErrorKind, resetAt, err.body)
-    }
-    throw err
+    throw withKind(err)
   }
+}
+
+/** withKind turns an ApiError whose body carries a kind into a RefineError;
+ *  anything else is returned as is. */
+function withKind(err: unknown): unknown {
+  const kind = err instanceof ApiError ? err.body?.kind : undefined
+  if (err instanceof ApiError && typeof kind === "string") {
+    const resetAt = typeof err.body?.reset_at === "string" ? err.body.reset_at : undefined
+    return new RefineError(err.message, err.status, kind as SummaryErrorKind, resetAt, err.body)
+  }
+  return err
 }
 
 /** importRecording opts: everything except file, which is the first argument. */

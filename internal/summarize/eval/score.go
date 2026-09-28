@@ -38,6 +38,11 @@ type Report struct {
 	EvidenceValid *float64 `json:"evidence_valid"`
 	// Unsupported: predicted decisions and actions with no evidence.
 	Unsupported float64 `json:"unsupported"`
+	// FlowsOK is 1 when the flows pass found exactly the gold's
+	// expect_flows flows (after validation), 0 when it found another
+	// number or failed; nil when the gold sets no expectation or the
+	// provider has no flows pass.
+	FlowsOK *float64 `json:"flows_ok"`
 }
 
 // Score compares a against g. Items match when their token-set
@@ -266,5 +271,6 @@ func Aggregate(rs []Report) Report {
 	out.OwnerAccuracy = mean(func(r Report) *float64 { return r.OwnerAccuracy })
 	out.DueAccuracy = mean(func(r Report) *float64 { return r.DueAccuracy })
 	out.EvidenceValid = mean(func(r Report) *float64 { return r.EvidenceValid })
+	out.FlowsOK = mean(func(r Report) *float64 { return r.FlowsOK })
 	return out
 }

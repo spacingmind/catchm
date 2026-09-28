@@ -401,7 +401,7 @@ func TestMergeAnalysesByKeyRemapsIDs(t *testing.T) {
 }
 
 func TestSchemaOrderAndStrictness(t *testing.T) {
-	raw, err := json.Marshal(schema)
+	raw, err := json.Marshal(analysisFormat.schema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestSchemaOrderAndStrictness(t *testing.T) {
 		Required []string `json:"required"`
 	}
 	json.Unmarshal(raw, &loose)
-	sraw, _ := json.Marshal(strictSchema)
+	sraw, _ := json.Marshal(analysisFormat.strict)
 	json.Unmarshal(sraw, &strict)
 	for name, p := range strict.Properties {
 		if name == "summary" {

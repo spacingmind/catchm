@@ -109,5 +109,6 @@
     }
   ],
   "decisions": [],
-  "actions": []
+  "actions": [],
+  "expect_flows": 0
 }

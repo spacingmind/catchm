@@ -39,24 +39,34 @@ func (o ordered) MarshalJSON() ([]byte, error) {
 	return append(buf, '}'), nil
 }
 
-// analysisSchema is the reply's JSON schema: flat arrays of flat
-// objects. Strict (OpenAI's json_schema strict mode) requires every
-// property; otherwise only the fields the analysis can't do without are
-// required, which keeps small models' grammar light. Either way extra
-// properties are forbidden and "" stands for "not stated".
-func analysisSchema(strict bool) ordered {
-	str := ordered{{"type", "string"}}
-	seqs := ordered{{"type", "array"}, {"items", ordered{{"type", "integer"}}}}
-	obj := func(props ordered, required ...string) ordered {
-		if strict {
-			required = required[:0]
-			for _, p := range props {
-				required = append(required, p.name)
-			}
+// schemaObj is a JSON-schema object with props in order. Strict
+// (OpenAI's json_schema strict mode) requires every property; otherwise
+// only required, which keeps small models' grammar light. Either way
+// extra properties are forbidden.
+func schemaObj(strict bool, props ordered, required ...string) ordered {
+	if strict {
+		required = make([]string, 0, len(props))
+		for _, p := range props {
+			required = append(required, p.name)
 		}
-		return ordered{{"type", "object"}, {"properties", props}, {"required", required}, {"additionalProperties", false}}
 	}
-	list := func(item ordered) ordered { return ordered{{"type", "array"}, {"items", item}} }
+	return ordered{{"type", "object"}, {"properties", props}, {"required", required}, {"additionalProperties", false}}
+}
+
+func schemaList(item ordered) ordered { return ordered{{"type", "array"}, {"items", item}} }
+
+var (
+	schemaStr  = ordered{{"type", "string"}}
+	schemaSeqs = ordered{{"type", "array"}, {"items", ordered{{"type", "integer"}}}}
+)
+
+// analysisSchema is the reply's JSON schema: flat arrays of flat
+// objects, where only the fields the analysis can't do without are
+// required unless strict (see schemaObj), and "" stands for "not
+// stated".
+func analysisSchema(strict bool) ordered {
+	str, seqs, list := schemaStr, schemaSeqs, schemaList
+	obj := func(props ordered, required ...string) ordered { return schemaObj(strict, props, required...) }
 	kinds := []string{"project", "product", "org", "tool", "term", "place"}
 	return obj(ordered{
 		{"summary", str},
@@ -81,12 +91,17 @@ func analysisSchema(strict bool) ordered {
 	}, "summary", "people", "topics", "decisions", "actions", "entities")
 }
 
-var (
-	// schema is Ollama's format.
-	schema = analysisSchema(false)
-	// strictSchema is OpenAI's json_schema (strict mode).
-	strictSchema = analysisSchema(true)
-)
+// replyFormat is the JSON schema one kind of call's reply follows:
+// schema is Ollama's format, strict OpenAI's json_schema (strict mode),
+// named name.
+type replyFormat struct {
+	name   string
+	schema ordered
+	strict ordered
+}
+
+// analysisFormat is the summary call's reply format.
+var analysisFormat = replyFormat{"meeting_extraction", analysisSchema(false), analysisSchema(true)}
 
 const shapeInstructions = `Respond with ONLY a JSON object — no markdown fences, no prose outside
 the JSON — with these keys:
@@ -160,7 +175,7 @@ func mergeUser(in Input, partsJSON []byte) string {
 // completer is one LLM call: system and user prompt in, raw reply out.
 // Errors are already classified *Error values.
 type completer interface {
-	complete(ctx context.Context, system, user string) (string, error)
+	complete(ctx context.Context, f replyFormat, system, user string) (string, error)
 }
 
 // promptOverheadTokens reserves room in each chunk for the system
@@ -176,7 +191,7 @@ func runLLM(ctx context.Context, c completer, budgetTokens int, in Input) (Analy
 		part := in
 		part.Transcript = chunk
 		user := extractUser(part, i+1, len(chunks))
-		a, err := withRetry(func() (string, error) { return c.complete(ctx, extractSystem, user) }, parseReply)
+		a, err := withRetry(func() (string, error) { return c.complete(ctx, analysisFormat, extractSystem, user) }, parseReply, errNoSummary)
 		if err != nil {
 			return Analysis{}, err
 		}
@@ -200,7 +215,7 @@ func mergeLLM(ctx context.Context, c completer, budgetTokens int, in Input, part
 		return fallback, nil
 	}
 	user := mergeUser(in, raw)
-	a, err := withRetry(func() (string, error) { return c.complete(ctx, mergeSystem, user) }, parseReply)
+	a, err := withRetry(func() (string, error) { return c.complete(ctx, analysisFormat, mergeSystem, user) }, parseReply, errNoSummary)
 	if err != nil {
 		var se *Error
 		if errors.As(err, &se) && se.Kind == KindFailed {

@@ -6,7 +6,7 @@ import { useMemo, useSyncExternalStore } from "react"
  * Go SPA fallback and no router dependency.
  *
  *   #/meetings
- *   #/meetings/{id}[?tab=transcript]
+ *   #/meetings/{id}[?tab=mindmap|flows|transcript]
  *   #/live/{id}
  *   #/action-items
  *   #/settings/{section}
@@ -16,7 +16,14 @@ import { useMemo, useSyncExternalStore } from "react"
  * the one on screen.
  */
 
-export type MeetingTab = "overview" | "transcript"
+export type MeetingTab = "overview" | "mindmap" | "flows" | "transcript"
+
+const MEETING_TABS: readonly MeetingTab[] = ["overview", "mindmap", "flows", "transcript"]
+
+/** A tab param or tab-trigger value as a MeetingTab; anything else is Overview. */
+export function meetingTab(value: string | null | undefined): MeetingTab {
+  return MEETING_TABS.find((t) => t === value) ?? "overview"
+}
 
 export type Route =
   | { name: "meetings" }
@@ -54,7 +61,7 @@ export function parseRoute(hash: string): Route {
     case "meetings":
       if (arg === undefined) return MEETINGS
       if (!id) return MEETINGS
-      return { name: "meeting", id, tab: params.get("tab") === "transcript" ? "transcript" : "overview" }
+      return { name: "meeting", id, tab: meetingTab(params.get("tab")) }
     case "live":
       return id ? { name: "live", id } : MEETINGS
     case "action-items":
@@ -73,7 +80,7 @@ export function formatRoute(route: Route): string {
       return "#/meetings"
     case "meeting":
       // Overview is the default tab, so it stays out of the URL.
-      return `#/meetings/${encodeURIComponent(route.id)}${route.tab === "transcript" ? "?tab=transcript" : ""}`
+      return `#/meetings/${encodeURIComponent(route.id)}${route.tab === "overview" ? "" : `?tab=${route.tab}`}`
     case "live":
       return `#/live/${encodeURIComponent(route.id)}`
     case "action-items":

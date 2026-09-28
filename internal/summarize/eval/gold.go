@@ -24,6 +24,10 @@ type Gold struct {
 	Transcript []GoldUtterance `json:"transcript"`
 	Decisions  []string        `json:"decisions"`
 	Actions    []GoldAction    `json:"actions"`
+	// ExpectFlows, when set, is how many flows the flows pass should
+	// find (0 for a meeting that describes no process); the pass runs
+	// only for gold files that set it.
+	ExpectFlows *int `json:"expect_flows,omitempty"`
 }
 
 // GoldUtterance is one transcript line.
