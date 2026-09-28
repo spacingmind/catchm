@@ -173,5 +173,7 @@ jobs:
             echo "::error::origin/master has diverged from the tag's history -- refusing to move it; resolve by hand"
             exit 1
           fi
-          git push origin "v$VERSION:refs/heads/master"
+          # ^{commit}: the tag is annotated, and a branch must point at a
+          # commit, not a tag object (v0.2.1: "remote rejected ... (failed)").
+          git push origin "v$VERSION^{commit}:refs/heads/master"
           echo "master fast-forwarded to v$VERSION"
