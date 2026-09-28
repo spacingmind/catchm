@@ -7,7 +7,7 @@ import { CheckSquare, ChevronRight, Circle, GitBranch } from "lucide-react"
 
 import { Disclosure } from "@/components/Disclosure"
 import { SourceLink } from "@/components/insights/Evidence"
-import { dueLabel, narrowScreen, ownerName, resolveRef, type JumpToEvidence } from "@/components/insights/evidence"
+import { dueLabel, narrowScreen, ownerName, resolveRef, type JumpToEvidence } from "@/components/insights/evidenceData"
 import { Badge } from "@/components/ui/badge"
 import type { Analysis, MindNode } from "@/lib/api"
 import { cn } from "cn"
