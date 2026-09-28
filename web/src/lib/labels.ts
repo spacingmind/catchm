@@ -30,6 +30,6 @@ export const ENGINE_LABEL: Record<SttEngine, string> = {
 }
 
 export const ENGINE_HINT: Record<SttEngine, string> = {
-  whisper: "Free and private. Needs the Whisper server set up in Settings → Transcription.",
+  whisper: "Free and private. Needs the free Whisper server running on this computer.",
   soniox: "More accurate and tells speakers apart. Needs a paid Soniox API key.",
 }

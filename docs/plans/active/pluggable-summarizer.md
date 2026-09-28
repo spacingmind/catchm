@@ -3,7 +3,7 @@
 - Status: in progress
 - Created: 2026-09-28
 - Branch: `fix/non-tech-ux`. It shares the working tree with
-  `non-tech-ux.md`, because MeetingDetail and Settings copy overlap.
+  `non-tech-ux.md` (now in completed/), because MeetingDetail and Settings copy overlap.
 - Related repos:
   - `../catchm-api`: the CatchM Cloud endpoint.
   - `../chatgpt-proxy-go`: new; the ChatGPT-login proxy for personal use.

@@ -227,6 +227,10 @@ export function StatusRow({
     }
 
     const start = () => {
+      // Already polling: a repeated "visible" event must not stack a
+      // second interval, which cleanup (holding only the last id)
+      // would leak past unmount.
+      if (id !== undefined) return
       poll()
       id = window.setInterval(poll, LEVELS_POLL_MS)
     }
@@ -329,7 +333,7 @@ export function StatusRow({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={DEFAULT_DEVICE_VALUE}>Default device</SelectItem>
+              <SelectItem value={DEFAULT_DEVICE_VALUE}>Default microphone</SelectItem>
               {devices.map((d) => (
                 <SelectItem key={d.ID} value={d.ID}>
                   {d.Name}

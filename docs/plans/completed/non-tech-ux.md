@@ -1,6 +1,6 @@
 # Plan: Non-tech UX pass
 
-- Status: in progress
+- Status: completed (web smoke-tested 2026-09-28)
 - Created: 2026-09-28
 - Branch: `fix/non-tech-ux`
 
@@ -123,3 +123,33 @@ against `catchm serve`. Check:
   Windows fires the existing global hotkey instead of passing the keys to
   the field. Fixing this needs a backend pause on hotkeys while
   recording.
+
+## Smoke test (2026-09-28, web on `catchm serve`, fresh CATCHM_HOME)
+
+These worked as intended:
+- **Get started card:** shows all three items as not ready.
+- **Start popover:**
+  - It blocks Start with the Whisper reason, and "Start anyway" and
+    "Open settings" (which opens Transcription) both work.
+  - The live view, End confirm and meeting-detail setup card also work.
+- **Summaries CTA:**
+  - "Try anyway" fails fast with a plain message.
+  - The cloud consent dialog works, and when logged out it then points
+    to Cloud sync.
+- **Recommended model:** a 21.5 GiB machine gets qwen3.5:9b.
+
+Fixed during the test:
+- **Model recommendation:** it recommended qwen3.5:27b on a 21.5 GiB
+  machine. That model's requirement is now 32 GB.
+- **Whisper hint:** the engine hint pointed to the page it was shown on.
+- **Microphone label:** the live mic select said "Default device"
+  instead of "Default microphone".
+- **Leaked polling interval (pre-existing):** repeated `visibilitychange`
+  events stacked extra `/levels` polling intervals in StatusRow, and
+  they kept running after unmount.
+- **Meeting ended elsewhere (pre-existing):** when a meeting was ended
+  from somewhere else, the Live view never left or stopped polling. The
+  App sync now refreshes the selected meeting.
+
+Not covered here: the desktop shell (Windows) — press-to-record
+shortcuts and the Mini window.

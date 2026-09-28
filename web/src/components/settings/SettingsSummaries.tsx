@@ -93,7 +93,7 @@ const MODEL_PRESETS: ModelPreset[] = [
     ramGb: 16,
     needs: "About 16 GB of memory (RAM).",
   },
-  { model: "qwen3.5:27b", label: "Best", plainLabel: "Best", ramGb: 24, needs: "24 GB of memory (RAM) or more." },
+  { model: "qwen3.5:27b", label: "Best", plainLabel: "Best", ramGb: 32, needs: "32 GB of memory (RAM) or more." },
 ]
 
 /** A "16 GB" computer reports a little less (about 15.6 GiB, often less

@@ -199,7 +199,16 @@ function App() {
     const sync = () => {
       listMeetings()
         .then((ms) => {
-          if (!cancelled) setLive(ms.find((m) => !m.ended_at) ?? null)
+          if (cancelled) return
+          setLive(ms.find((m) => !m.ended_at) ?? null)
+          // A meeting ended elsewhere (global shortcut, tray, another
+          // window): refresh the open one so the ended_at route guard
+          // moves Live to its detail view instead of polling forever.
+          setSelected((prev) => {
+            if (!prev || prev.ended_at) return prev
+            const fresh = ms.find((m) => m.id === prev.id)
+            return fresh?.ended_at ? fresh : prev
+          })
         })
         .catch(() => {
           // Server unreachable — keep the last known state.
