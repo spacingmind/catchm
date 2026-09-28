@@ -1,6 +1,6 @@
 # Cuts a release: creates the vX.Y.Z tag on develop HEAD (as
-# github-actions[bot], never a human token) and pushes it, which
-# triggers release.yml -- the existing, unchanged artifact half of the
+# github-actions[bot], never a human token), pushes it, and dispatches
+# release.yml on it (a GITHUB_TOKEN push can't trigger it) -- the artifact half of the
 # pipeline (NSIS installer + checksum + GitHub release + R2 update
 # manifest).
 #
@@ -42,6 +42,13 @@ on:
 
 permissions:
   contents: write
+  # A tag pushed with GITHUB_TOKEN never triggers another workflow
+  # (GitHub's anti-recursion rule; only workflow_dispatch and
+  # repository_dispatch are exempt), so this workflow dispatches
+  # release.yml itself and then reads its runs: both need actions.
+  # Found on the first real release (v0.2.0): the tag landed, release.yml
+  # never ran, and the run-list call answered 403.
+  actions: write
 
 concurrency:
   # One tagging attempt at a time; a second dispatch while one runs
@@ -109,13 +116,26 @@ jobs:
         if: inputs.dry_run == false
         run: git push origin "refs/tags/v${{ inputs.version }}"
 
+      # The push above can't trigger release.yml (see permissions), so
+      # dispatch it on the tag's ref with publishing on. release.yml
+      # names the release from GITHUB_REF_NAME, i.e. vX.Y.Z, exactly as
+      # a tag push would.
+      - name: Start the release build
+        if: inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" \
+            --ref "v$VERSION" -f version="$VERSION" -f dry_run=false
+
       - name: Dry-run notice
         if: inputs.dry_run == true
         run: |
           echo "dry run: tag v${{ inputs.version }} created locally on $(git rev-parse --short HEAD), nothing pushed"
           echo "re-run this dispatch with dry_run=false to publish"
 
-      # After release.yml (triggered by the tag push) finishes
+      # After release.yml (dispatched above) finishes
       # successfully, fast-forward master to the tag: master = "code
       # that has been released", a read-only pointer. Done here rather
       # than in release.yml so the artifact workflow stays unchanged;
@@ -128,13 +148,14 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          # Wait for the release workflow this tag push triggers.
-          # Query by head_sha (the tag's commit) -- there is exactly
-          # one workflow triggered by this push, release.yml.
+          # Wait for the release run dispatched above: the dispatch
+          # event on the tag's commit (the run can take a few seconds
+          # to appear, which the loop's "none" case covers).
           sha="$(git rev-parse HEAD)"
           for i in $(seq 1 90); do # up to ~15 min
             status="$(gh run list --workflow release.yml --repo "$GITHUB_REPOSITORY" \
-              --commit "$sha" --limit 1 --json status,conclusion --jq '.[0] // {} | (.status // "none") + ":" + (.conclusion // "")')"
+              --event workflow_dispatch --commit "$sha" --limit 1 \
+              --json status,conclusion --jq '.[0] // {} | (.status // "none") + ":" + (.conclusion // "")')"
             case "$status" in
               completed:success) break ;;
               completed:*) echo "::error::release.yml finished with $status -- not moving master"; exit 1 ;;

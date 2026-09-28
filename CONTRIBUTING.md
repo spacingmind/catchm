@@ -55,7 +55,9 @@ themselves" — one human decision, everything after it validated:
    client may be mid-download), and the tag must not already exist.
    The tag is annotated, authored by `github-actions[bot]`, pointed at
    `origin/develop` HEAD, and pushed alone (never `--tags`).
-3. **The tag push triggers `release.yml`** (unchanged): builds the
+3. **`tag-release` then dispatches `release.yml` on the tag.** A tag
+   pushed with `GITHUB_TOKEN` can't trigger workflows itself, so the
+   dispatch replaces the push trigger (`dry_run=false`, same result). It builds the
    NSIS installer (`task desktop:release`), attaches it + its SHA-256
    checksum to the GitHub release, builds `latest.json`, and uploads
    everything to the catchm-releases R2 bucket — `latest.json` last,
