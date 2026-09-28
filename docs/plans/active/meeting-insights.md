@@ -311,3 +311,50 @@ Follow-ups:
 - Re-summarizing clears `flows`. P1b must keep them.
 - Run `catchm eval` against real models (Ollama qwen3.5:9b and
   Cloudflare qwen3-30b) and record the baseline here.
+
+## P1 contract (fixed; P1a and P1b code against it)
+
+**Backend (P1b):**
+- **`summarize.FlowFinder` interface:**
+  `FindFlows(ctx, in Input, a Analysis) ([]Flow, error)`.
+  - Ollama and OpenAI-compatible implement it.
+  - CatchM Cloud doesn't. The endpoint answers `summary_not_ready`:
+    "Finding flows isn't available with CatchM Cloud yet. Use On this
+    computer or Your Cloudflare account."
+  - The prompt follows the domain-analyzer rules:
+    - return `[]` when the meeting describes no process
+    - 3–10 steps per flow, with an explicit `order` and `next[{to,
+      condition?}]` edges for branches
+    - evidence seqs on the flow, and on steps where possible
+    - no invented steps
+  - Validate drops steps and edges that point at unknown ids, and seqs
+    not in the transcript.
+- **`POST /api/meetings/{id}/flows`:**
+  - It needs an existing `analysis.json`. Without one it answers 409
+    `{error:"Create a summary first."}`.
+  - It runs the flows pass, stores `flows` in `analysis.json`, and
+    returns `{analysis, mindmap}` (same shape as GET). An empty result
+    is valid.
+  - Errors are `{error, kind}`, as for refine.
+- **Re-summarizing keeps the existing `flows`** in `analysis.json`.
+  Evidence seqs no longer present are dropped by Validate.
+
+**Web API (P1b owns `api.ts`):**
+- `findFlows(id): Promise<MeetingAnalysisResponse>`, where
+  `MeetingAnalysisResponse` is the existing GET shape
+  `{analysis, mindmap}`. It throws `RefineError` on a `kind`.
+
+**UI (P1a):**
+- **New web dependencies:** `@xyflow/react` (MIT), `d3-hierarchy` (ISC)
+  with `@types/d3-hierarchy`, and `@dagrejs/dagre` (MIT). They are
+  lazy-loaded (`React.lazy`), so the list and live views don't grow.
+- **MeetingDetail tabs:** Overview / **Mind map** / **Flows** /
+  Transcript. The route's `tab` param accepts `mindmap` and `flows`.
+- **Evidence jump:**
+  - Transcript rows get `id="utt-<seq>"`.
+  - Clicking a mind-map leaf, a flow step, or a new small "source" link
+    next to each decision and action on Overview switches to the
+    Transcript tab, scrolls to the row, and highlights it briefly.
+  - Evidence refers to the transcript the analysis came from:
+    `generated.transcript` is `v2` or `live`, and the Transcript tab
+    shows that one.
