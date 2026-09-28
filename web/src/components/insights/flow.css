@@ -10,23 +10,27 @@
  * Mind-map branch colours: one per topic, cycling. Used for edges, the
  * topic card's edge strip and the leaf icons (non-text, ≥3:1 on the
  * page and card surfaces in both themes); text stays --foreground.
+ * The brand tokens are all one brown, so a categorical palette has to
+ * sit outside them: these are the project-dot hues (PROJECT_COLORS in
+ * lib/projects.ts, Tailwind's amber/teal/violet/rose/sky/lime at the
+ * same light / dark: shades), so the app has one set of accent colours.
  */
 :root {
-  --branch-1: #B45309;
-  --branch-2: #0F766E;
-  --branch-3: #6D28D9;
-  --branch-4: #BE185D;
-  --branch-5: #1D4ED8;
-  --branch-6: #4D7C0F;
+  --branch-1: #B45309; /* amber-700 */
+  --branch-2: #0F766E; /* teal-700 */
+  --branch-3: #7C3AED; /* violet-600 */
+  --branch-4: #BE123C; /* rose-700 */
+  --branch-5: #0369A1; /* sky-700 */
+  --branch-6: #4D7C0F; /* lime-700 */
 }
 
 .dark {
-  --branch-1: #FBBF24;
-  --branch-2: #5EEAD4;
-  --branch-3: #C4B5FD;
-  --branch-4: #F9A8D4;
-  --branch-5: #93C5FD;
-  --branch-6: #BEF264;
+  --branch-1: #FCD34D; /* amber-300 */
+  --branch-2: #5EEAD4; /* teal-300 */
+  --branch-3: #C4B5FD; /* violet-300 */
+  --branch-4: #FDA4AF; /* rose-300 */
+  --branch-5: #7DD3FC; /* sky-300 */
+  --branch-6: #BEF264; /* lime-300 */
 }
 
 .catchm-flow {

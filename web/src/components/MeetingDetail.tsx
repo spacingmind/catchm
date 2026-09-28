@@ -663,25 +663,6 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           <p className="text-sm text-muted-foreground">{formatDateRange(meeting.started_at, meeting.ended_at)}</p>
           <MeetingOrganize meeting={meeting} onSaved={setMeeting} />
         </div>
-        {showImprove && (
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              aria-describedby="improve-soniox-desc"
-              onClick={() => {
-                setImproveError(null)
-                setImproveOpen(true)
-              }}
-            >
-              <AudioLines aria-hidden="true" className="size-4" />
-              Improve with Soniox
-            </Button>
-            <p id="improve-soniox-desc" className="min-w-0 flex-1 text-xs text-muted-foreground">
-              Adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.
-            </p>
-          </div>
-        )}
         <div className="flex gap-2">
           {refined && summaryButton}
           <Button variant="destructive" onClick={openDelete}>
@@ -689,6 +670,26 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           </Button>
         </div>
       </div>
+
+      {showImprove && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            aria-describedby="improve-soniox-desc"
+            onClick={() => {
+              setImproveError(null)
+              setImproveOpen(true)
+            }}
+          >
+            <AudioLines aria-hidden="true" />
+            Improve with Soniox
+          </Button>
+          <p id="improve-soniox-desc" className="min-w-0 flex-1 text-sm text-muted-foreground">
+            Adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.
+          </p>
+        </div>
+      )}
 
       <div className={needsSetup && error ? "mb-4 flex flex-wrap items-center gap-3" : undefined}>
         <StatusMessage tone="error" className={needsSetup && error ? "min-w-0 flex-1" : "mb-4"}>
@@ -726,7 +727,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           <TabsTrigger value="transcript">
             Transcript
             {meeting.refined_with === "soniox" && (
-              <Badge variant="secondary" className="ml-1.5">
+              <Badge variant="secondary">
                 Soniox
               </Badge>
             )}
@@ -736,9 +737,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         <TabsContent value="overview">
           {showSummaryCta &&
             (setupNeeded ? (
-              <Card className="mb-8 border-primary/40">
+              <Card className="mb-8">
                 <CardHeader>
-                  <CardTitle className="text-lg">
+                  <CardTitle className="text-lg font-semibold">
                     <h2 className="flex items-center gap-2">
                       <Sparkles aria-hidden="true" className="size-4" />
                       Summaries aren’t set up yet
@@ -751,7 +752,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   <ul className="grid gap-3 sm:grid-cols-2">
-                    <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-4">
+                    <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
                       <div>
                         <h3 className="flex items-center gap-2 text-sm font-medium">
                           <HardDrive aria-hidden="true" className="size-4" />
@@ -771,7 +772,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                       </Button>
                     </li>
                     {offerCloud && (
-                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-4">
+                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
                         <div>
                           <h3 className="flex items-center gap-2 text-sm font-medium">
                             <Cloud aria-hidden="true" className="size-4" />
@@ -810,7 +811,6 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                   </StatusMessage>
                   <Button
                     variant="link"
-                    size="sm"
                     className="h-auto justify-self-start px-0 text-muted-foreground"
                     onClick={() => void handleRefine()}
                   >
@@ -819,11 +819,13 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 </CardContent>
               </Card>
             ) : (
-              <Card className="mb-8 border-primary/40">
+              <Card className="mb-8">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Sparkles aria-hidden="true" className="size-4" />
-                    Get a summary of this meeting
+                  <CardTitle className="text-lg font-semibold">
+                    <h2 className="flex items-center gap-2">
+                      <Sparkles aria-hidden="true" className="size-4" />
+                      Get a summary of this meeting
+                    </h2>
                   </CardTitle>
                   <CardDescription className="text-pretty">{SUMMARY_HELP}</CardDescription>
                 </CardHeader>
@@ -966,7 +968,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               <StatusMessage tone="error">
                 Couldn’t load the transcript ({transcriptError}). Try again.
               </StatusMessage>
-              <Button variant="outline" onClick={retryTranscript}>
+              <Button size="sm" variant="outline" onClick={retryTranscript}>
                 Try again
               </Button>
             </div>

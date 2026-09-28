@@ -205,7 +205,7 @@ export function SettingsShortcuts() {
               : "Couldn’t load your shortcuts. Try again, or restart CatchM if it keeps failing."}
           </StatusMessage>
           {load === "error" && (
-            <Button variant="outline" className="mt-3" onClick={retryLoad}>
+            <Button size="sm" variant="outline" className="mt-3" onClick={retryLoad}>
               Try again
             </Button>
           )}

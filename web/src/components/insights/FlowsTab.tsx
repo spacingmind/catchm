@@ -102,7 +102,7 @@ export function FlowsTab({
       {/* The result, spoken once; the visible text below says the same. */}
       <StatusMessage className="sr-only">{finder.announcement}</StatusMessage>
 
-      {noneFound && <p className="text-sm">No step-by-step process was found in this meeting.</p>}
+      {noneFound && <p className="text-sm text-muted-foreground">No step-by-step process was found in this meeting.</p>}
       {found && (
         <Suspense fallback={<GraphSkeleton label="Loading processes…" />}>
           <FlowsView analysis={data.analysis} canJump={canJump} onJump={onJump} />

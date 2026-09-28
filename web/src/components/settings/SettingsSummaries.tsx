@@ -636,7 +636,7 @@ export function SettingsSummaries() {
                           · {p.model}
                         </span>
                         {recommended === p && (
-                          <Badge className="ml-2 border-transparent bg-primary/15 align-middle text-primary">
+                          <Badge variant="secondary" className="ml-2 border-transparent bg-primary/15 align-middle text-primary">
                             Recommended for this computer
                           </Badge>
                         )}
@@ -1074,7 +1074,9 @@ function SetupStep({
               Checking…
             </Badge>
           ) : done ? (
-            <Badge className="border-transparent bg-primary/15 text-primary">Done</Badge>
+            <Badge variant="secondary" className="border-transparent bg-primary/15 text-primary">
+              Done
+            </Badge>
           ) : (
             <Badge variant="outline">To do</Badge>
           )}
