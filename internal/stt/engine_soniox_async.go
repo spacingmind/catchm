@@ -401,12 +401,18 @@ func groupTokens(tokens []sonioxAsyncToken) []meeting.Utterance {
 			return
 		}
 		u := meeting.Utterance{
-			Seq:     int64(cur.seq),
-			At:      time.Time{}.Add(time.Duration(cur.startMS) * time.Millisecond),
-			Text:    cur.text.String(),
+			Seq: int64(cur.seq),
+			At:  time.Time{}.Add(time.Duration(cur.startMS) * time.Millisecond),
+			// Tokens carry their own leading space ("Good", " morning");
+			// the first one of an utterance would otherwise start it.
+			Text:    strings.TrimSpace(cur.text.String()),
 			Speaker: cur.speaker,
 		}
-		u.Translated = cur.translated.String()
+		u.Translated = strings.TrimSpace(cur.translated.String())
+		if cur.lastEndMS > cur.startMS {
+			end := time.Time{}.Add(time.Duration(cur.lastEndMS) * time.Millisecond)
+			u.End = &end
+		}
 		dominant, best := "", 0
 		for lang, n := range cur.langs {
 			if n > best {

@@ -276,8 +276,15 @@ func TestSonioxAsyncGrouping(t *testing.T) {
 	if len(us) != 3 {
 		t.Fatalf("utterances = %d (%+v)", len(us), us)
 	}
-	if us[0].Text != "Hi there." || us[0].Speaker != "Speaker 1" || us[0].Translated != " hello" {
+	// Token-leading spaces are trimmed at utterance edges.
+	if us[0].Text != "Hi there." || us[0].Speaker != "Speaker 1" || us[0].Translated != "hello" {
 		t.Errorf("u0 = %+v", us[0])
+	}
+	if us[0].End == nil || !us[0].End.Equal(time.Time{}.Add(500*time.Millisecond)) {
+		t.Errorf("u0 end = %v", us[0].End)
+	}
+	if us[2].End == nil || !us[2].End.Equal(time.Time{}.Add(5100*time.Millisecond)) {
+		t.Errorf("u2 end = %v", us[2].End)
 	}
 	if us[1].Text != "Later" || us[1].Speaker != "Speaker 1" {
 		t.Errorf("u1 = %+v", us[1])
