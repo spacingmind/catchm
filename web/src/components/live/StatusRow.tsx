@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   getAudioSources,
   getMeetingLevels,
+  getSttStatus,
   setMeetingSource,
   type AudioSource,
   type Device,
@@ -18,6 +19,11 @@ import {
 } from "@/lib/api"
 import { SOURCE_LABEL, SOURCE_SHORT_LABEL } from "@/lib/labels"
 import { DEFAULT_DEVICE_VALUE, deviceSelectValue } from "@/lib/recordPrefs"
+
+/** How often a Whisper meeting re-checks GET /api/stt/status. The
+ *  Whisper engine always reports "streaming" in /levels, so a server
+ *  that's down (or dies mid-meeting) only shows up here. */
+const STT_CHECK_MS = 10_000
 
 /** GET /api/meetings/{id}/levels polling rate (M21 §1: "~5 Hz"). */
 const LEVELS_POLL_MS = 200
@@ -173,6 +179,28 @@ export function StatusRow({
   }, [startedAt])
 
   // Devices + system capability, for the source switch and mic select.
+  // Whisper reachability (see STT_CHECK_MS): the plain reason while the
+  // local server isn't answering, null when it is (or for other engines).
+  const [whisperDown, setWhisperDown] = useState<string | null>(null)
+  useEffect(() => {
+    if (engineId !== "whisper") return
+    let cancelled = false
+    const check = () => {
+      if (document.visibilityState !== "visible") return
+      getSttStatus()
+        .then((st) => {
+          if (!cancelled) setWhisperDown(st.whisper.ready ? null : (st.whisper.reason ?? "The Whisper server isn’t responding."))
+        })
+        .catch(() => undefined)
+    }
+    check()
+    const id = window.setInterval(check, STT_CHECK_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [engineId])
+
   useEffect(() => {
     let cancelled = false
     getAudioSources()
@@ -294,8 +322,16 @@ export function StatusRow({
 
   const shownSource = pending?.source ?? source
   const shownDevice = pending?.device ?? device
-  const engine = engineLabel(levels?.engine)
   const engineError = levels?.engine?.state === "error" ? levels.engine.error : undefined
+  const engine =
+    whisperDown && !engineError
+      ? { label: "Transcription not working", className: "border-transparent bg-destructive/10 text-destructive" }
+      : engineLabel(levels?.engine)
+  const engineErrorText = engineError
+    ? `Transcription stopped working: ${sentence(engineError)} ${engineErrorHint(engineId)}`
+    : whisperDown
+      ? `Transcription isn’t working: ${sentence(whisperDown)} Fix it in Settings → Transcription.`
+      : null
   const unavailableReason = systemReason || SYSTEM_UNAVAILABLE_FALLBACK
   const now = Date.now()
   const micNoSignal = source !== "system" && now - lastSignalRef.current.mic > NO_SIGNAL_AFTER_MS
@@ -348,7 +384,7 @@ export function StatusRow({
           role="status"
           variant="outline"
           className={cn("max-w-64", engine.className)}
-          aria-describedby={engineError ? "live-engine-error" : undefined}
+          aria-describedby={engineErrorText ? "live-engine-error" : undefined}
         >
           <span className="truncate">{engine.label}</span>
         </Badge>
@@ -367,10 +403,10 @@ export function StatusRow({
         )}
       </div>
 
-      {engineError && (
+      {engineErrorText && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p id="live-engine-error" className="min-w-0 break-words text-sm text-destructive">
-            Transcription stopped working: {sentence(engineError)} {engineErrorHint(engineId)}
+            {engineErrorText}
           </p>
           {onOpenTranscriptionSettings && (
             <Button size="sm" variant="outline" onClick={onOpenTranscriptionSettings}>
