@@ -117,7 +117,7 @@ func New(cfg *config.Config, cloud CloudAuth) (Summarizer, error) {
 	case ProviderOpenAI:
 		o := cfg.Summary.OpenAI
 		if o.BaseURL == "" || o.Model == "" {
-			return nil, notReady("Add the server address and model name in Settings → Summaries.", nil)
+			return nil, notReady("Add your Cloudflare Account ID and API token in Settings → Summaries.", nil)
 		}
 		return &OpenAI{BaseURL: o.BaseURL, Model: o.Model, APIKey: o.APIKey}, nil
 	case ProviderCloud:

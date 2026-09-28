@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react"
 
-import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Disclosure } from "@/components/Disclosure"
 import { RecoveryCodeDialog } from "@/components/RecoveryCodeDialog"
 import { StatusMessage } from "@/components/StatusMessage"
 import { descId, SettingRow, SettingsSection } from "@/components/settings/pieces"
@@ -14,7 +12,6 @@ import {
   cloudLogin,
   cloudLogout,
   cloudRecover,
-  cloudServer,
   cloudSignup,
   cloudStatus,
   cloudSync,
@@ -22,8 +19,6 @@ import {
   type SyncResult,
 } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
-import { noAutofill } from "@/lib/inputProps"
-import { isAbsoluteUrl } from "@/lib/url"
 import { pluralize } from "@/lib/utils"
 
 const STATUS_POLL_MS = 30_000
@@ -96,14 +91,6 @@ export function SettingsCloudSync() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
 
-  // Advanced: cloud server URL (M18). Editable only while logged out.
-  const [serverUrl, setServerUrl] = useState("")
-  const [serverSaving, setServerSaving] = useState(false)
-  const [serverError, setServerError] = useState<string | null>(null)
-  const [serverNote, setServerNote] = useState<string | null>(null)
-  const [serverConfirmOpen, setServerConfirmOpen] = useState(false)
-  const serverUrlRef = useRef<HTMLInputElement | null>(null)
-
   const refresh = () => {
     cloudStatus()
       .then((s) => {
@@ -118,12 +105,6 @@ export function SettingsCloudSync() {
     const timer = setInterval(refresh, STATUS_POLL_MS)
     return () => clearInterval(timer)
   }, [])
-
-  // Keep the Advanced input in sync with the server until the user edits it.
-  useEffect(() => {
-    if (!serverUrl) setServerUrl(status?.api_base_url ?? "")
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.api_base_url])
 
   // Move focus to the field a server-side auth error is about, once it
   // has rendered with aria-invalid/aria-describedby.
@@ -255,58 +236,7 @@ export function SettingsCloudSync() {
     }
   }
 
-  const submitServer = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    const v = serverUrl.trim()
-    setServerNote(null)
-    if (!v) {
-      setServerError("Enter a server address, like https://catchm-cloud.example.com.")
-      serverUrlRef.current?.focus()
-      return
-    }
-    if (!isAbsoluteUrl(v, ["http", "https"])) {
-      setServerError("Enter a full address that starts with https:// (http:// works only for localhost).")
-      serverUrlRef.current?.focus()
-      return
-    }
-    setServerError(null)
-    // The server normalizes by trimming trailing slashes. Re-saving the
-    // same URL would still clear the stored account, so skip it.
-    if (v.replace(/\/+$/, "") === status?.api_base_url) {
-      setServerNote("Already using this server.")
-      return
-    }
-    // Nothing to lose without a stored account, so skip the confirm.
-    if (accountStored) setServerConfirmOpen(true)
-    else void handleSaveServer()
-  }
-
-  // Changing server clears the account stored on this device (email and
-  // key params; see handleCloudServer), so that case confirms first.
-  const handleSaveServer = async () => {
-    if (serverSaving) return
-    setServerSaving(true)
-    setServerError(null)
-    try {
-      const res = await cloudServer(serverUrl.trim())
-      setServerUrl(res.api_base_url)
-      setServerNote("Saved")
-      setServerConfirmOpen(false)
-      refresh()
-    } catch (err) {
-      // Shown in the dialog (if open) and, after it's dismissed, next to
-      // the field.
-      setServerError(errorMessage(err))
-      if (!serverConfirmOpen) serverUrlRef.current?.focus()
-    } finally {
-      setServerSaving(false)
-    }
-  }
-
   const loggedIn = status?.logged_in === true
-  // Older backends don't send account_stored; assume an account is
-  // stored so the confirm still guards the change.
-  const accountStored = loggedIn || status?.account_stored !== false
 
   const describedBy = (field: AuthField, errorId: string) =>
     [fieldErrors[field] && errorId, authError?.field === field && AUTH_ERROR_ID].filter(Boolean).join(" ") ||
@@ -622,79 +552,6 @@ export function SettingsCloudSync() {
           </div>
         )}
       </SettingsSection>
-
-      <SettingsSection title="Advanced" description="Only change this if you run your own CatchM server.">
-        <Disclosure label="Cloud server URL">
-          <SettingRow
-            label="Server"
-            htmlFor={loggedIn ? undefined : "cloud-server-url"}
-            id="cloud-server-url"
-            description={
-              loggedIn
-                ? "Log out first to change servers."
-                : accountStored
-                  ? "Changing servers removes your account details from this computer. You’ll need to sign up or log in again afterwards."
-                  : "The CatchM server this computer signs up and syncs with."
-            }
-            control={
-              loggedIn ? (
-                <p translate="no" className="w-96 truncate text-sm text-muted-foreground" title={status.api_base_url}>
-                  {status.api_base_url}
-                </p>
-              ) : (
-                <form noValidate onSubmit={submitServer} className="grid w-96 justify-items-end gap-1">
-                  <div className="flex w-full gap-2">
-                    <Input
-                      id="cloud-server-url"
-                      ref={serverUrlRef}
-                      name="cloud_server_url"
-                      type="url"
-                      {...noAutofill}
-                      value={serverUrl}
-                      onChange={(e) => {
-                        setServerUrl(e.target.value)
-                        setServerError(null)
-                        setServerNote(null)
-                      }}
-                      aria-invalid={serverError ? true : undefined}
-                      aria-describedby={
-                        serverError ? `${descId("cloud-server-url")} cloud-server-url-error` : descId("cloud-server-url")
-                      }
-                      className="w-full min-w-0"
-                      placeholder="https://catchm-cloud.example.com…"
-                    />
-                    <Button type="submit" disabled={serverSaving} aria-busy={serverSaving || undefined}>
-                      {serverSaving ? "Saving…" : "Save server URL"}
-                    </Button>
-                  </div>
-                  <StatusMessage id="cloud-server-url-error" tone="error" className="break-words">
-                    {serverError}
-                  </StatusMessage>
-                  <StatusMessage>{!serverError && serverNote}</StatusMessage>
-                </form>
-              )
-            }
-          />
-        </Disclosure>
-      </SettingsSection>
-
-      <ConfirmDialog
-        open={serverConfirmOpen}
-        onOpenChange={setServerConfirmOpen}
-        title="Change cloud server?"
-        description={
-          <>
-            CatchM will switch to <span translate="no" className="break-all">{serverUrl.trim()}</span> and forget
-            the account details saved on this computer for the current server. You’ll need to sign up or log in again on
-            the new server.
-          </>
-        }
-        confirmLabel="Change server"
-        destructive
-        pending={serverSaving}
-        error={serverError}
-        onConfirm={() => void handleSaveServer()}
-      />
 
       <RecoveryCodeDialog code={recoveryCode} onAcked={() => setRecoveryCode(null)} />
     </div>

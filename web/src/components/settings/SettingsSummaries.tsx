@@ -3,13 +3,12 @@ import { Check, ShieldAlert, TriangleAlert } from "lucide-react"
 import { cn } from "cn"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
+import { Disclosure } from "@/components/Disclosure"
 import { StatusMessage } from "@/components/StatusMessage"
 import {
   descId,
   ExternalLink,
-  labelId,
   SaveStatus,
-  SegmentedControl,
   SettingRow,
   SettingsSection,
 } from "@/components/settings/pieces"
@@ -35,7 +34,6 @@ import { formatDateTime } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { navigate } from "@/lib/route"
-import { isAbsoluteUrl } from "@/lib/url"
 
 const OLLAMA_DOWNLOAD = "https://ollama.com/download"
 
@@ -62,8 +60,8 @@ const PROVIDERS: ProviderOption[] = [
   },
   {
     value: "openai",
-    label: "Custom service (advanced)",
-    description: "Any OpenAI-compatible service — such as OpenRouter or your own Cloudflare account.",
+    label: "Your Cloudflare account",
+    description: "Workers AI on your own free Cloudflare account. Only the transcript is sent, and it stays under your account.",
   },
 ]
 
@@ -145,25 +143,21 @@ const SETUP_POLL_MS = 5000
 
 const CUSTOM_MODEL = "custom"
 
-/** Custom-service presets (UI only; the preset is derived from the
- *  stored base_url — there is no new config field). */
-type ServicePreset = "cloudflare" | "openrouter" | "other"
-
+/** The "Your Cloudflare account" option is the OpenAI-compatible
+ *  provider pointed at Workers AI: only the Account ID and API token are
+ *  asked for; the base URL and model are derived (no new config field). */
 const CLOUDFLARE_ACCOUNTS_PREFIX = "https://api.cloudflare.com/client/v4/accounts/"
 const CLOUDFLARE_BASE_SUFFIX = "/ai/v1"
 const CLOUDFLARE_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8"
-const OPENROUTER_URL = "https://openrouter.ai/api/v1"
 const CLOUDFLARE_TOKENS_URL = "https://dash.cloudflare.com/profile/api-tokens"
 
-function presetFromBaseUrl(url: string): ServicePreset {
-  if (url === OPENROUTER_URL) return "openrouter"
-  if (url.startsWith(CLOUDFLARE_ACCOUNTS_PREFIX) && url.endsWith(CLOUDFLARE_BASE_SUFFIX)) return "cloudflare"
-  return "other"
+function isCloudflareUrl(url: string): boolean {
+  return url.startsWith(CLOUDFLARE_ACCOUNTS_PREFIX) && url.endsWith(CLOUDFLARE_BASE_SUFFIX)
 }
 
 /** The Cloudflare Account ID inside a saved base_url, if any. */
 function cloudflareAccountId(url: string): string | null {
-  if (presetFromBaseUrl(url) !== "cloudflare") return null
+  if (!isCloudflareUrl(url)) return null
   return url.slice(CLOUDFLARE_ACCOUNTS_PREFIX.length, url.length - CLOUDFLARE_BASE_SUFFIX.length)
 }
 
@@ -175,7 +169,6 @@ function cloudflareBaseUrl(accountId: string): string {
 const CLOUD_PRIVACY =
   "Your transcript is sent unencrypted to CatchM Cloud, which uses Cloudflare Workers AI (or a zero-retention partner model when Cloudflare is busy) to write the summary. It isn’t stored."
 
-const OPENAI_URL_ERROR_ID = "summary-openai-url-error"
 const OPENAI_KEY_ERROR_ID = "summary-openai-key-error"
 
 /**
@@ -287,10 +280,8 @@ export function SettingsSummaries() {
   const abortRef = useRef<AbortController | null>(null)
 
   const [baseUrl, setBaseUrl] = useState("")
-  const [baseUrlError, setBaseUrlError] = useState<string | null>(null)
   const [openaiModel, setOpenaiModel] = useState("")
 
-  const [service, setService] = useState<ServicePreset>("other")
   const [cloudflareAccount, setCloudflareAccount] = useState("")
   const [cloudflareError, setCloudflareError] = useState<string | null>(null)
   const [keyInput, setKeyInput] = useState("")
@@ -310,11 +301,7 @@ export function SettingsSummaries() {
         setCustomModel(preset ? "" : c.summary.ollama_model)
         setBaseUrl(c.summary.openai.base_url)
         setOpenaiModel(c.summary.openai.model)
-        const savedPreset = presetFromBaseUrl(c.summary.openai.base_url)
-        setService(savedPreset)
-        setCloudflareAccount(
-          savedPreset === "cloudflare" ? (cloudflareAccountId(c.summary.openai.base_url) ?? "") : "",
-        )
+        setCloudflareAccount(cloudflareAccountId(c.summary.openai.base_url) ?? "")
       })
       .catch((err: unknown) => setLoadError(errorMessage(err)))
   }, [])
@@ -440,18 +427,6 @@ export function SettingsSummaries() {
     }
   }
 
-  const commitBaseUrl = () => {
-    const v = baseUrl.trim()
-    if (v && !isAbsoluteUrl(v, ["http", "https"])) {
-      setBaseUrlError("Enter a full address that starts with http:// or https://, like https://openrouter.ai/api/v1.")
-      return
-    }
-    setBaseUrlError(null)
-    if (v && v !== config?.summary.openai.base_url) {
-      void openaiSave.put({ summary: { openai: { base_url: v } } }).then((ok) => ok && refreshStatus())
-    }
-  }
-
   /** Saving the Cloudflare Account ID rewrites the base URL (and the
    *  model, the first time / when still blank). */
   const commitCloudflareAccount = () => {
@@ -463,24 +438,16 @@ export function SettingsSummaries() {
     setCloudflareError(null)
     const url = cloudflareBaseUrl(id)
     setBaseUrl(url)
-    const model = openaiModel.trim() || CLOUDFLARE_MODEL
+    // Keep a model already chosen for Workers AI; anything else (a model
+    // from an earlier custom service) gives way to the default.
+    const onCloudflare = isCloudflareUrl(config?.summary.openai.base_url ?? "")
+    const model = onCloudflare && openaiModel.trim() ? openaiModel.trim() : CLOUDFLARE_MODEL
     if (model !== CLOUDFLARE_MODEL) setOpenaiModel(model)
     void openaiSave
       .put({ summary: { openai: { base_url: url, model } } })
       .then((ok) => ok && refreshStatus())
   }
 
-  const chooseService = (preset: ServicePreset) => {
-    setService(preset)
-    setCloudflareError(null)
-    if (preset === "openrouter") {
-      setBaseUrl(OPENROUTER_URL)
-      void openaiSave.put({ summary: { openai: { base_url: OPENROUTER_URL } } }).then((ok) => ok && refreshStatus())
-    } else if (preset === "cloudflare") {
-      const id = cloudflareAccount.trim()
-      if (id) commitCloudflareAccount()
-    }
-  }
 
   const commitOpenaiModel = () => {
     const v = openaiModel.trim()
@@ -875,139 +842,58 @@ export function SettingsSummaries() {
   const keySet = config.summary_openai_api_key_set
   const openaiDetails = (
     <SettingsSection
-      title="Custom service"
-      description="For people who already have an AI service. Your transcript is sent to the service you choose below."
+      title="Your Cloudflare account"
+      description="Workers AI on your own Cloudflare account writes the summary. Only the transcript is sent (never the audio), and it stays under your account."
     >
-      <SettingRow
-        label="Service"
-        id="summary-openai-service"
-        description={
-          service === "cloudflare"
-            ? "Uses Workers AI on your own Cloudflare account. The transcript stays under your account."
-            : service === "openrouter"
-              ? "Uses your OpenRouter account and its pricing."
-              : "Any OpenAI-compatible service."
-        }
-        control={
-          <SegmentedControl
-            id="summary-openai-service"
-            labelledBy={labelId("summary-openai-service")}
-            describedBy={descId("summary-openai-service")}
-            value={service}
-            onChange={chooseService}
-            options={[
-              { value: "cloudflare", label: "Cloudflare (your account)" },
-              { value: "openrouter", label: "OpenRouter" },
-              { value: "other", label: "Other" },
-            ]}
-          />
-        }
-      />
-      {service === "cloudflare" && (
-        <>
-          <SettingRow
-            label="Account ID"
-            htmlFor="summary-cloudflare-account"
-            description={
-              <>
-                From your Cloudflare dashboard.{" "}
-                <ExternalLink href={CLOUDFLARE_TOKENS_URL}>Create an API token</ExternalLink> with the Workers AI
-                permission, then paste it below.
-              </>
-            }
-            control={
-              <div className="grid w-72 justify-items-end gap-1">
-                <Input
-                  id="summary-cloudflare-account"
-                  name="summary_cloudflare_account"
-                  {...noAutofill}
-                  value={cloudflareAccount}
-                  onChange={(e) => setCloudflareAccount(e.target.value)}
-                  onBlur={commitCloudflareAccount}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitCloudflareAccount()
-                  }}
-                  placeholder="e.g. 1234abcd…"
-                  aria-invalid={cloudflareError ? true : undefined}
-                  aria-describedby={
-                    cloudflareError
-                      ? `${descId("summary-cloudflare-account")} summary-cloudflare-error`
-                      : descId("summary-cloudflare-account")
-                  }
-                  className="w-full"
-                />
-                <StatusMessage id="summary-cloudflare-error" tone="error">
-                  {cloudflareError}
-                </StatusMessage>
-              </div>
-            }
-          />
-          <p className="border-b border-border py-4 text-sm text-muted-foreground">
-            Workers AI includes a free daily allowance; beyond it, your Cloudflare plan’s rates apply. Only the
-            transcript is sent (never the audio), and it stays under your own Cloudflare account.
-          </p>
-        </>
-      )}
-      {service === "other" && (
-        <SettingRow
-          label="Service address"
-          htmlFor="summary-openai-url"
-          description="The OpenAI-compatible address, usually ending in /v1."
-          control={
-            <div className="grid w-96 justify-items-end gap-1">
-              <Input
-                id="summary-openai-url"
-                name="summary_openai_base_url"
-                type="url"
-                {...noAutofill}
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                onBlur={commitBaseUrl}
-                placeholder="https://openrouter.ai/api/v1"
-                aria-invalid={baseUrlError ? true : undefined}
-                aria-describedby={
-                  baseUrlError ? `${descId("summary-openai-url")} ${OPENAI_URL_ERROR_ID}` : descId("summary-openai-url")
-                }
-                className="w-full"
-              />
-              <StatusMessage id={OPENAI_URL_ERROR_ID} tone="error" className="break-words">
-                {baseUrlError}
-              </StatusMessage>
-            </div>
-          }
-        />
+      {baseUrl && !isCloudflareUrl(baseUrl) && (
+        <p className="py-3 text-sm text-muted-foreground">
+          This was set to another service (<span translate="no" className="break-all">{baseUrl}</span>). Enter your
+          Cloudflare Account ID to switch to Cloudflare.
+        </p>
       )}
       <SettingRow
-        label="Model"
-        htmlFor="summary-openai-model"
+        label="Account ID"
+        htmlFor="summary-cloudflare-account"
         description={
-          service === "cloudflare"
-            ? `A Workers AI model. Leave this as ${CLOUDFLARE_MODEL} unless you know a better one.`
-            : "The model name the service expects."
+          <>
+            From your Cloudflare dashboard. Then{" "}
+            <ExternalLink href={CLOUDFLARE_TOKENS_URL}>create an API token</ExternalLink> with the Workers AI
+            permission and add it below.
+          </>
         }
         control={
-          <Input
-            id="summary-openai-model"
-            name="summary_openai_model"
-            translate="no"
-            {...noAutofill}
-            value={openaiModel}
-            onChange={(e) => setOpenaiModel(e.target.value)}
-            onBlur={commitOpenaiModel}
-            placeholder={service === "cloudflare" ? CLOUDFLARE_MODEL : "gpt-5-mini…"}
-            aria-describedby={descId("summary-openai-model")}
-            className="w-72"
-          />
+          <div className="grid w-72 justify-items-end gap-1">
+            <Input
+              id="summary-cloudflare-account"
+              name="summary_cloudflare_account"
+              {...noAutofill}
+              value={cloudflareAccount}
+              onChange={(e) => setCloudflareAccount(e.target.value)}
+              onBlur={commitCloudflareAccount}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitCloudflareAccount()
+              }}
+              placeholder="e.g. 1234abcd…"
+              aria-invalid={cloudflareError ? true : undefined}
+              aria-describedby={
+                cloudflareError
+                  ? `${descId("summary-cloudflare-account")} summary-cloudflare-error`
+                  : descId("summary-cloudflare-account")
+              }
+              className="w-full"
+            />
+            <StatusMessage id="summary-cloudflare-error" tone="error">
+              {cloudflareError}
+            </StatusMessage>
+          </div>
         }
       />
       <SettingRow
-        label={service === "cloudflare" ? "API token" : "API key"}
+        label="API token"
         htmlFor={keyEditing ? "summary-openai-key" : undefined}
         id="summary-openai-key"
         description={
-          service === "cloudflare"
-            ? "The Workers AI API token from the link above. The token stays on this computer."
-            : "Only if the service needs one. The key stays on this computer."
+          "The Workers AI API token from the link above. The token stays on this computer."
         }
         control={
           keyEditing ? (
@@ -1023,7 +909,7 @@ export function SettingsSummaries() {
                 onKeyDown={(e) => {
                   if (e.key === "Escape" && !keySaving) closeKeyEditor()
                 }}
-                placeholder={service === "cloudflare" ? "New API token…" : "New API key…"}
+                placeholder="New API token…"
                 readOnly={keySaving}
                 aria-invalid={keyError ? true : undefined}
                 aria-describedby={
@@ -1048,7 +934,7 @@ export function SettingsSummaries() {
               {keySet && (
                 <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                  {service === "cloudflare" ? "Token set" : "Key set"}
+                  Token set
                 </span>
               )}
               <Button
@@ -1058,18 +944,36 @@ export function SettingsSummaries() {
                 onClick={startReplaceKey}
                 aria-describedby={descId("summary-openai-key")}
               >
-                {keySet
-                  ? service === "cloudflare"
-                    ? "Replace token"
-                    : "Replace key"
-                  : service === "cloudflare"
-                    ? "Add token"
-                    : "Add key"}
+                {keySet ? "Replace token" : "Add token"}
               </Button>
             </div>
           )
         }
       />
+      <Disclosure label="Model (optional)">
+        <SettingRow
+          label="Model"
+          htmlFor="summary-openai-model"
+          description={`A Workers AI model. Leave this as ${CLOUDFLARE_MODEL} unless you know a better one.`}
+          control={
+            <Input
+              id="summary-openai-model"
+              name="summary_openai_model"
+              translate="no"
+              {...noAutofill}
+              value={openaiModel}
+              onChange={(e) => setOpenaiModel(e.target.value)}
+              onBlur={commitOpenaiModel}
+              placeholder={CLOUDFLARE_MODEL}
+              aria-describedby={descId("summary-openai-model")}
+              className="w-72"
+            />
+          }
+        />
+      </Disclosure>
+      <p className="py-3 text-sm text-muted-foreground">
+        Workers AI includes a free daily allowance; beyond it, your Cloudflare plan’s rates apply.
+      </p>
       <div className="flex items-center justify-end">
         <SaveStatus state={openaiSave.save.state} error={openaiSave.save.error} />
       </div>
