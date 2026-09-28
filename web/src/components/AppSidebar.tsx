@@ -1,12 +1,18 @@
-import { useEffect, useState, type ComponentType, type ReactNode, type RefObject } from "react"
-import { CheckSquare, ListVideo, Mic, PanelLeftClose, PanelLeftOpen, Radio, Settings2, Upload } from "lucide-react"
+import { useEffect, useId, useState, type ComponentType, type ReactNode, type RefObject } from "react"
+import { CheckSquare, FolderOpen, ListVideo, Mic, PanelLeftClose, PanelLeftOpen, Radio, Settings2, Upload } from "lucide-react"
 import { cn } from "cn"
 
 import logo from "@/assets/logo.png"
+import { ProjectDot } from "@/components/Projects"
 import { Button } from "@/components/ui/button"
+import { projectKey } from "@/lib/api"
+import { useProjects } from "@/lib/projects"
 import { hasWindowControls } from "@/lib/wailsRuntime"
 
-export type View = "list" | "live" | "detail" | "action-items" | "settings"
+export type View = "list" | "live" | "detail" | "action-items" | "settings" | "projects"
+
+/** How many recent projects the sidebar lists before "All projects". */
+const SIDEBAR_PROJECTS = 6
 
 const COLLAPSED_KEY = "catchm.sidebar.collapsed"
 
@@ -74,9 +80,86 @@ function NavButton({ icon: Icon, label, title, active, collapsed, disabled, onCl
   )
 }
 
+/** Recent projects under the main nav; just its icon when collapsed. */
+function ProjectsNav({
+  view,
+  activeProject,
+  collapsed,
+  onNavigate,
+  onOpenProject,
+}: {
+  view: View
+  activeProject: string | null
+  collapsed: boolean
+  onNavigate: (view: View) => void
+  onOpenProject: (name: string) => void
+}) {
+  const projects = useProjects()
+  const headingId = useId()
+  const activeKey = activeProject ? projectKey(activeProject) : null
+
+  if (collapsed) {
+    return (
+      <NavButton
+        icon={FolderOpen}
+        label="Projects"
+        collapsed
+        active={view === "projects" || activeKey !== null}
+        onClick={() => onNavigate("projects")}
+      />
+    )
+  }
+
+  const recent = (projects ?? []).slice(0, SIDEBAR_PROJECTS)
+  return (
+    <div role="group" aria-labelledby={headingId} className="mt-4 grid gap-0.5">
+      <h2 id={headingId} className="flex items-center gap-2 px-2.5 pb-1 text-xs font-medium text-muted-foreground">
+        <FolderOpen aria-hidden="true" className="size-3.5" />
+        Projects
+      </h2>
+      {recent.map((p) => {
+        const active = view === "list" && activeKey === projectKey(p.name)
+        return (
+          <button
+            key={p.name}
+            type="button"
+            onClick={() => onOpenProject(p.name)}
+            aria-current={active ? "page" : undefined}
+            title={p.name}
+            className={cn(
+              "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+            )}
+          >
+            <span className="grid size-4 shrink-0 place-items-center">
+              <ProjectDot name={p.name} />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-left">{p.name}</span>
+          </button>
+        )
+      })}
+      <button
+        type="button"
+        onClick={() => onNavigate("projects")}
+        aria-current={view === "projects" ? "page" : undefined}
+        className={cn(
+          "flex h-8 w-full cursor-pointer items-center rounded-md px-2.5 pl-9 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          view === "projects" ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+        )}
+      >
+        All projects
+      </button>
+    </div>
+  )
+}
+
 interface AppSidebarProps {
   view: View
   onNavigate: (view: View) => void
+  /** The project the meetings list is filtered to, if any. */
+  activeProject: string | null
+  /** Open the meetings list filtered to a project. */
+  onOpenProject: (name: string) => void
   /** Title of the in-progress meeting; null when nothing is recording. */
   liveTitle: string | null
   onStartMeeting: () => void
@@ -85,7 +168,16 @@ interface AppSidebarProps {
   onImportRecording: () => void
 }
 
-export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startButtonRef, onImportRecording }: AppSidebarProps) {
+export function AppSidebar({
+  view,
+  onNavigate,
+  activeProject,
+  onOpenProject,
+  liveTitle,
+  onStartMeeting,
+  startButtonRef,
+  onImportRecording,
+}: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
@@ -142,8 +234,14 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
         </Button>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Main">
-        <NavButton icon={ListVideo} label="Meetings" collapsed={collapsed} active={view === "list" || view === "detail"} onClick={() => onNavigate("list")} />
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label="Main">
+        <NavButton
+          icon={ListVideo}
+          label="Meetings"
+          collapsed={collapsed}
+          active={(view === "list" && !activeProject) || view === "detail"}
+          onClick={() => onNavigate("list")}
+        />
         <NavButton
           icon={Radio}
           label={liveTitle ?? "Live"}
@@ -157,6 +255,13 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
           {liveTitle && <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-primary" aria-hidden="true" />}
         </NavButton>
         <NavButton icon={CheckSquare} label="Action items" collapsed={collapsed} active={view === "action-items"} onClick={() => onNavigate("action-items")} />
+        <ProjectsNav
+          view={view}
+          activeProject={activeProject}
+          collapsed={collapsed}
+          onNavigate={onNavigate}
+          onOpenProject={onOpenProject}
+        />
       </nav>
 
       <div className="border-t border-border p-3">

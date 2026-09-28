@@ -5,9 +5,10 @@ import { useMemo, useSyncExternalStore } from "react"
  * same URLs work under `catchm serve` and the Wails asset server, with no
  * Go SPA fallback and no router dependency.
  *
- *   #/meetings
+ *   #/meetings[?project=<name>]
  *   #/meetings/{id}[?tab=mindmap|flows|transcript]
  *   #/live/{id}
+ *   #/projects
  *   #/action-items
  *   #/settings/{section}
  *
@@ -26,7 +27,9 @@ export function meetingTab(value: string | null | undefined): MeetingTab {
 }
 
 export type Route =
-  | { name: "meetings" }
+  // project: filter the list to one project (display name as given).
+  | { name: "meetings"; project?: string | null }
+  | { name: "projects" }
   | { name: "meeting"; id: string; tab: MeetingTab }
   | { name: "live"; id: string }
   | { name: "action-items" }
@@ -58,10 +61,16 @@ export function parseRoute(hash: string): Route {
   const id = arg === undefined ? null : decode(arg)
 
   switch (head) {
-    case "meetings":
-      if (arg === undefined) return MEETINGS
+    case "meetings": {
+      if (arg === undefined) {
+        const project = params.get("project")?.trim()
+        return project ? { name: "meetings", project } : MEETINGS
+      }
       if (!id) return MEETINGS
       return { name: "meeting", id, tab: meetingTab(params.get("tab")) }
+    }
+    case "projects":
+      return arg === undefined ? { name: "projects" } : MEETINGS
     case "live":
       return id ? { name: "live", id } : MEETINGS
     case "action-items":
@@ -77,7 +86,9 @@ export function parseRoute(hash: string): Route {
 export function formatRoute(route: Route): string {
   switch (route.name) {
     case "meetings":
-      return "#/meetings"
+      return route.project ? `#/meetings?project=${encodeURIComponent(route.project)}` : "#/meetings"
+    case "projects":
+      return "#/projects"
     case "meeting":
       // Overview is the default tab, so it stays out of the URL.
       return `#/meetings/${encodeURIComponent(route.id)}${route.tab === "overview" ? "" : `?tab=${route.tab}`}`

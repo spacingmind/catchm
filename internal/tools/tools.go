@@ -19,7 +19,10 @@ type ActionItemRef struct {
 	meeting.ActionItem
 	MeetingID    string `json:"meeting_id"`
 	MeetingTitle string `json:"meeting_title"`
-	Index        int    `json:"index"`
+	// MeetingProject is the meeting's project display name ("" = none),
+	// so cross-meeting views can filter by project.
+	MeetingProject string `json:"meeting_project,omitempty"`
+	Index          int    `json:"index"`
 }
 
 // Surface is the tool surface over a meeting store.
@@ -57,12 +60,14 @@ func (s *Surface) ListActionItems() ([]ActionItemRef, error) {
 	}
 	var out []ActionItemRef
 	for _, m := range ms {
+		project := meeting.ProjectOf(m.Tags)
 		for i, a := range m.ActionItems {
 			out = append(out, ActionItemRef{
-				ActionItem:   a,
-				MeetingID:    m.ID,
-				MeetingTitle: m.Title,
-				Index:        i,
+				ActionItem:     a,
+				MeetingID:      m.ID,
+				MeetingTitle:   m.Title,
+				MeetingProject: project,
+				Index:          i,
 			})
 		}
 	}

@@ -3,6 +3,7 @@ import { CheckSquare } from "lucide-react"
 import { cn } from "cn"
 
 import { FilterChip } from "@/components/FilterChip"
+import { ProjectBadge, ProjectDot } from "@/components/Projects"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,8 +11,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SegmentedControl } from "@/components/settings/pieces"
-import { getMeeting, listActionItems, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
+import { getMeeting, listActionItems, projectKey, updateActionItemStatus, type ActionItemRef, type Meeting } from "@/lib/api"
 import { formatDay, parseLocalDate } from "@/lib/format"
+import { findProject, useProjects } from "@/lib/projects"
 
 const done = (status: string | undefined) => status === "done"
 
@@ -46,7 +48,10 @@ function isOverdue(item: ActionItemRef): boolean {
   return Number.isFinite(t) && t < startOfToday()
 }
 
-type FilterState = { owner: string | null; meeting: string | null }
+/** project is a matching key (projectKey), not a display name. */
+type FilterState = { owner: string | null; meeting: string | null; project: string | null }
+
+const NO_FILTER: FilterState = { owner: null, meeting: null, project: null }
 
 interface ActionItemsProps {
   onOpenMeeting: (meeting: Meeting) => void
@@ -57,11 +62,15 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
   const [error, setError] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [view, setView] = useState<"grouped" | "by-due">("grouped")
-  const [filter, setFilter] = useState<FilterState>({ owner: null, meeting: null })
+  const [filter, setFilter] = useState<FilterState>(NO_FILTER)
   // Per-row toggle failures, keyed by itemKey, shown next to that row.
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
   const ownerLabelId = useId()
   const meetingLabelId = useId()
+  const projectLabelId = useId()
+  // Show each project with its most-used spelling, as elsewhere.
+  const knownProjects = useProjects()
+  const projectName = (name: string) => findProject(knownProjects, name)?.name ?? name
 
   useEffect(() => {
     listActionItems()
@@ -132,11 +141,23 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
     return [...s].sort()
   }, [items])
 
+  // One entry per project (case-insensitive), first spelling seen.
+  const projects = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const it of items ?? []) {
+      if (it.meeting_project && !m.has(projectKey(it.meeting_project))) {
+        m.set(projectKey(it.meeting_project), it.meeting_project)
+      }
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [items])
+
   const { byMeeting, byDue, closed, openCount, visibleCount } = useMemo(() => {
     const visible = (items ?? []).filter(
       (it) =>
         (!filter.owner || it.owner === filter.owner) &&
-        (!filter.meeting || it.meeting_title === filter.meeting),
+        (!filter.meeting || it.meeting_title === filter.meeting) &&
+        (!filter.project || projectKey(it.meeting_project ?? "") === filter.project),
     )
     const open = visible.filter((it) => !done(it.status))
     const closed = visible.filter((it) => done(it.status))
@@ -222,6 +243,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
             >
               {item.meeting_title}
             </button>
+            {item.meeting_project && <ProjectBadge name={projectName(item.meeting_project)} />}
             {item.owner && <Badge variant="outline">{item.owner}</Badge>}
             {item.due && <span className={overdue ? "text-destructive" : undefined}>due {formatDay(item.due)}</span>}
             {overdue && <Badge variant="destructive">Overdue</Badge>}
@@ -234,8 +256,8 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
     )
   }
 
-  const filtersActive = filter.owner !== null || filter.meeting !== null
-  const clearFilters = () => setFilter({ owner: null, meeting: null })
+  const filtersActive = filter.owner !== null || filter.meeting !== null || filter.project !== null
+  const clearFilters = () => setFilter(NO_FILTER)
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -269,6 +291,28 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
                 </Button>
               )}
             </div>
+            {projects.length > 0 && (
+              <div role="group" aria-labelledby={projectLabelId} className="flex flex-wrap items-center gap-2">
+                <span id={projectLabelId} className="text-xs font-medium text-muted-foreground">
+                  Project
+                </span>
+                {projects.map(([key, spelling]) => {
+                  const name = projectName(spelling)
+                  return (
+                    <FilterChip
+                      key={key}
+                      pressed={filter.project === key}
+                      onPressedChange={(on) => setFilter((f) => ({ ...f, project: on ? key : null }))}
+                      className="max-w-64 sm:max-w-80"
+                      title={name}
+                    >
+                      <ProjectDot name={name} />
+                      <span className="min-w-0 truncate">{name}</span>
+                    </FilterChip>
+                  )
+                })}
+              </div>
+            )}
             {owners.length > 0 && (
               <div role="group" aria-labelledby={ownerLabelId} className="flex flex-wrap items-center gap-2">
                 <span id={ownerLabelId} className="text-xs font-medium text-muted-foreground">

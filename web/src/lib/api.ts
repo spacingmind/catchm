@@ -89,6 +89,8 @@ export interface StartMeetingRequest {
   /** When true, lang and translate_to are the two conversation languages. */
   two_way?: boolean
   tags?: string[]
+  /** Project display name, added as the meeting's `project:` tag. */
+  project?: string
   /** M19 §4: "mic" | "system" | "both". Ignored by pre-M19 backends. */
   source?: AudioSource
 }
@@ -670,6 +672,8 @@ export interface ImportRecordingOptions {
   translate_to?: string
   two_way?: boolean
   engine?: RefineEngine
+  /** Project display name, added as the meeting's `project:` tag. */
+  project?: string
 }
 
 /**
@@ -721,6 +725,7 @@ export function importRecording(
     if (opts.translate_to) form.append("translate_to", opts.translate_to)
     if (opts.two_way !== undefined) form.append("two_way", String(opts.two_way))
     if (opts.engine) form.append("engine", opts.engine)
+    if (opts.project) form.append("project", opts.project)
     form.append("file", file)
     xhr.send(form)
   })
@@ -731,12 +736,83 @@ export function importRecording(
 export interface ActionItemRef extends ActionItem {
   meeting_id: string
   meeting_title: string
+  /** The meeting's project display name; absent when it has none. */
+  meeting_project?: string
   index: number
 }
 
 /** GET /api/action-items — every meeting's action items in one flat list. */
 export async function listActionItems(): Promise<ActionItemRef[]> {
   return (await apiFetch<ActionItemRef[] | null>("/api/action-items")) ?? []
+}
+
+/**
+ * Projects (docs/plans/active/projects.md): a project is the tag
+ * `project:<Display Name>` in a meeting's tags, at most one per meeting.
+ * These mirror internal/meeting's ProjectOf / WithProject.
+ */
+export const PROJECT_TAG_PREFIX = "project:"
+
+/** Longest project name the server accepts, in characters. */
+export const MAX_PROJECT_NAME = 80
+
+/** Trim and collapse inner whitespace; case is kept (it's the display name). */
+export function normalizeProject(name: string): string {
+  return name.trim().split(/\s+/).filter(Boolean).join(" ")
+}
+
+/** Matching key: projects compare case-insensitively after normalizing. */
+export function projectKey(name: string): string {
+  return normalizeProject(name).toLowerCase()
+}
+
+/** True for a `project:` tag (prefix matched case-insensitively). */
+export function isProjectTag(tag: string): boolean {
+  return tag.trim().slice(0, PROJECT_TAG_PREFIX.length).toLowerCase() === PROJECT_TAG_PREFIX
+}
+
+/** The meeting's project display name, or "" when it has none. */
+export function projectOf(tags: readonly string[] | undefined): string {
+  for (const t of tags ?? []) {
+    if (!isProjectTag(t)) continue
+    const name = normalizeProject(t.trim().slice(PROJECT_TAG_PREFIX.length))
+    if (name) return name
+  }
+  return ""
+}
+
+/** tags with any project tag replaced by `name` (put first), or removed
+ *  when name is empty. The other tags keep their order. */
+export function withProject(tags: readonly string[] | undefined, name: string): string[] {
+  const n = normalizeProject(name)
+  const rest = (tags ?? []).filter((t) => !isProjectTag(t))
+  return n ? [PROJECT_TAG_PREFIX + n, ...rest] : rest
+}
+
+/** The tags that aren't the project tag. */
+export function plainTags(tags: readonly string[] | undefined): string[] {
+  return (tags ?? []).filter((t) => !isProjectTag(t))
+}
+
+/** GET /api/projects entry — derived from meetings' project tags. */
+export interface Project {
+  name: string
+  meetings: number
+  last_meeting_at: string
+}
+
+/** GET /api/projects — most recent meeting first. */
+export async function listProjects(): Promise<Project[]> {
+  return (await apiFetch<Project[] | null>("/api/projects")) ?? []
+}
+
+/** POST /api/projects/rename — moves every meeting in `from` to `to`
+ *  (merging when `to` exists already). Resolves to how many moved. */
+export function renameProject(from: string, to: string): Promise<{ renamed: number }> {
+  return apiFetch("/api/projects/rename", {
+    method: "POST",
+    body: JSON.stringify({ from, to }),
+  })
 }
 
 /** PATCH /api/meetings/{id}/action-items/{index} — resolves to the updated meeting. */

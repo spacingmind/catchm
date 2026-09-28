@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 
 import { AppSidebar, type View } from "@/components/AppSidebar"
 import { LiveMeeting } from "@/components/LiveMeeting"
-import { MeetingList } from "@/components/MeetingList"
+import { AllProjects, MeetingList } from "@/components/MeetingList"
 import { ImportRecordingDialog } from "@/components/ImportRecordingDialog"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
 import { StatusMessage } from "@/components/StatusMessage"
@@ -64,6 +64,7 @@ function App() {
   const hash = useHash()
   const route = useMemo(() => parseRoute(hash), [hash])
   const view = viewOf(route)
+  const activeProject = route.name === "meetings" ? (route.project ?? null) : null
   const routeId = route.name === "meeting" || route.name === "live" ? route.id : null
   // The routed meeting, once known. Set directly when we already hold a
   // fresh copy (a list row, the start response, a toast fetch), fetched
@@ -248,6 +249,8 @@ function App() {
     navigate({ name: "live", id: live.id })
   }, [live])
 
+  const openProject = useCallback((name: string) => navigate({ name: "meetings", project: name }), [])
+
   const startMeeting = useCallback(() => setStartOpen(true), [])
   const importRecording = useCallback(() => setImportOpen(true), [])
   // No section (Ctrl/⌘, and the sidebar item): Settings picks its
@@ -317,8 +320,11 @@ function App() {
             if (v === "live") openLive()
             else if (v === "settings") openSettings()
             else if (v === "action-items") navigate({ name: "action-items" })
+            else if (v === "projects") navigate({ name: "projects" })
             else navigate(MEETINGS)
           }}
+          activeProject={activeProject}
+          onOpenProject={openProject}
           liveTitle={live?.title ?? null}
           onStartMeeting={startMeeting}
           startButtonRef={startBtnRef}
@@ -362,11 +368,14 @@ function App() {
         )}
         {!showCompactShell && view === "list" && (
           <MeetingList
+            project={activeProject}
+            onOpenProject={openProject}
             onOpenMeeting={openMeeting}
             onStartMeeting={startMeeting}
             onImportRecording={importRecording}
           />
         )}
+        {!showCompactShell && view === "projects" && <AllProjects onOpenProject={openProject} />}
         {/* A routed meeting still being fetched (reload, deep link). Its
             own slot, so LiveMeeting's position below never shifts. */}
         {!showCompactShell && routeId !== null && current === null && <MeetingDetailSkeleton />}

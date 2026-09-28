@@ -17,6 +17,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/summarize"
+	"github.com/spacingmind/catchm/internal/tools"
 	"github.com/spacingmind/catchm/internal/translate"
 )
 
@@ -254,7 +255,7 @@ var importAllowedExts = map[string]bool{
 // handleImportMeeting turns an uploaded audio file into an ended,
 // imported meeting and re-transcribes it with the selected engine.
 // Multipart fields: file (required), plus optional title, lang,
-// translate_to, two_way, engine. The upload streams straight to disk.
+// translate_to, two_way, engine, project. The upload streams straight to disk.
 func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, importMaxBodyBytes)
 	mr, err := r.MultipartReader()
@@ -263,7 +264,7 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var fileExt, title, lang, translateTo, engineName, importFileName string
+	var fileExt, title, lang, translateTo, engineName, importFileName, project string
 	var twoWay bool
 	var tmpPath, dstDir string
 	defer func() {
@@ -352,6 +353,8 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 				twoWay = v == "true" || v == "1"
 			case "engine":
 				engineName = v
+			case "project":
+				project = v
 			}
 		}
 	}
@@ -365,6 +368,15 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 	if twoWay && (lang == "" || translateTo == "") {
 		httpError(w, http.StatusBadRequest, "two_way requires both lang and translate_to (language A and B)")
 		return
+	}
+	var tags []string
+	if meeting.NormalizeProject(project) != "" {
+		p, err := tools.ValidProjectName(project)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		tags = meeting.WithProject(nil, p)
 	}
 
 	// Resolve the engine before creating the meeting, so a bad request
@@ -406,6 +418,7 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 		Lang:        lang,
 		TranslateTo: translateTo,
 		TwoWay:      twoWay,
+		Tags:        tags,
 	})
 	if err != nil {
 		respondErr(w, err)

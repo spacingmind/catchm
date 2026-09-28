@@ -8,6 +8,7 @@ import { FlowsTab } from "@/components/insights/FlowsTab"
 import { MindMapTab } from "@/components/insights/MindMapTab"
 import { useFindFlows } from "@/components/insights/useFindFlows"
 import { CloudConsentDialog } from "@/components/settings/SettingsSummaries"
+import { MeetingOrganize } from "@/components/MeetingOrganize"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -660,15 +661,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             </Button>
           </div>
           <p className="text-sm text-muted-foreground">{formatDateRange(meeting.started_at, meeting.ended_at)}</p>
-          {meeting.tags && meeting.tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {meeting.tags.map((t) => (
-                <Badge key={t} variant="secondary" className="max-w-full">
-                  <span className="min-w-0 truncate">{t}</span>
-                </Badge>
-              ))}
-            </div>
-          )}
+          <MeetingOrganize meeting={meeting} onSaved={setMeeting} />
         </div>
         {showImprove && (
           <div className="mb-4 flex flex-wrap items-center gap-3">

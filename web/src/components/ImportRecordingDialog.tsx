@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react"
 import { Loader2, Upload } from "lucide-react"
 
+import { ProjectSelectField } from "@/components/Projects"
 import { SegmentedControl } from "@/components/settings/pieces"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Button } from "@/components/ui/button"
@@ -22,6 +23,7 @@ import { ApiError, getConfig, importRecording, type Meeting } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import { ENGINE_LABEL } from "@/lib/labels"
 import { LANGUAGES } from "@/lib/languages"
+import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Radix Select can't hold an item with value ""; stands in for "unset". */
 const UNSET_LANG = "__unset__"
@@ -100,11 +102,16 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
   const [error, setError] = useState<string | null>(null)
   const [failedMeetingId, setFailedMeetingId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const projects = useProjects()
+  // Defaults to the last used project (if it still exists).
+  const [projectChoice, setProjectChoice] = useState<ProjectChoice>(() => ({ name: readLastProject(), isNew: false }))
+  const [projectError, setProjectError] = useState<string | null>(null)
 
   // Key state and a fresh form each time the dialog opens.
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    void refreshProjects()
     getConfig()
       .then((c) => {
         if (!cancelled) setSonioxKeySet(c.soniox_api_key_set)
@@ -132,6 +139,8 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
     setFailedMeetingId(null)
     setProgress(null)
     setUploadDone(false)
+    setProjectChoice({ name: readLastProject(), isNew: false })
+    setProjectError(null)
   }
 
   useEffect(() => {
@@ -165,6 +174,13 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (submitting || !file) return
+    const project = choiceProject(projectChoice, projects)
+    if (projectChoice.isNew && !project) {
+      setProjectError("Type a name for the new project, or choose No project.")
+      document.getElementById("import-project-name")?.focus()
+      return
+    }
+    setProjectError(null)
     setSubmitting(true)
     setError(null)
     setFailedMeetingId(null)
@@ -179,12 +195,15 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
           translate_to: translateTo || undefined,
           two_way: twoWay || undefined,
           engine: activeEngine,
+          project: project || undefined,
         },
         (fraction) => {
           setProgress(Math.round(fraction * 100))
           if (fraction >= 1) setUploadDone(true)
         },
       )
+      writeLastProject(project)
+      void refreshProjects()
       onImported(m)
       onOpenChange(false)
     } catch (err) {
@@ -259,6 +278,17 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
               placeholder={file ? titleFromFile(file.name) : "Weekly sync…"}
             />
           </div>
+
+          <ProjectSelectField
+            id="import-project"
+            value={projectChoice}
+            onChange={(c) => {
+              setProjectChoice(c)
+              setProjectError(null)
+            }}
+            projects={projects}
+            error={projectError}
+          />
 
           <div role="group" aria-labelledby="import-translation-label" className="grid gap-1.5">
             <div className="flex items-center justify-between">
