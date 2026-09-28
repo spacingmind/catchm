@@ -277,3 +277,35 @@ Still to do before moving this plan to `completed/`:
   `wrangler deploy`. The `OPENCODE_ZEN_API_KEY` secret is already set.
 - the RAM and disk readers on real Windows and macOS. Cross-compiling
   isn't possible here because of the cgo audio and systray dependencies.
+
+## Windows desktop test (2026-09-28, native Wails build, temp CATCHM_HOME)
+
+- **RAM/disk readers:** the Windows readers report 31.7 GB RAM and
+  29.6 GB free, matching what Windows itself reports (31.7 GiB RAM,
+  29.7 GiB free). The models dir resolves to `C:\Users\ADMIN\.ollama\models`.
+  `go test ./internal/sysinfo ./cmd/catchm-desktop` and `go vet` pass
+  natively.
+- **Desktop UI:** the build runs. Checked: Get started card, Start →
+  "Start anyway", and the live view with Computer audio available.
+  Mini window resizes to 480x260 and is topmost.
+
+Fixed in this pass:
+- **Mini window stayed pinned (pre-existing):** after leaving the Mini
+  window the full window stayed always-on-top. The focus re-assert fired
+  during exit's awaited move. Now a synchronous `pinnedRef` guards it.
+- **Tiny window after minimizing (pre-existing):** a window minimized
+  and reopened from the tray showed only its title bar.
+  `saveIfChanged` saved the minimized icon rect (160x39) as the restored
+  bounds. It now skips saving while minimized, and restore ignores saved
+  bounds under 400x300, so existing bad state files heal themselves.
+  Checked by reproducing it: minimize → hide to tray → reopen now
+  restores 1180x760.
+- **Whisper failure invisible in the live view:** Whisper always reports
+  `streaming`, so the pill said "Transcription on" with no server
+  running. For Whisper meetings the live status row now polls
+  `/api/stt/status` every 10s and shows "Transcription not working", the
+  reason and "Open settings". This covers the non-tech-ux follow-up in
+  the full view; the Mini window doesn't show it yet.
+
+Not covered: pressing keys into the shortcut recorder. That needs real
+keyboard focus on the user's desktop.

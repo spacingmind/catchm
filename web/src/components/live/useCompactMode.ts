@@ -35,6 +35,11 @@ interface SavedWindowState {
 export function useCompactMode() {
   const [compact, setCompact] = useState(false)
   const savedRef = useRef<SavedWindowState | null>(null)
+  // Whether the window should be always-on-top right now. A ref, updated
+  // synchronously: exit() clears it before its awaited resize/move, whose
+  // webview focus events would otherwise re-assert always-on-top (compact
+  // stays true until exit() finishes) and leave the full window pinned.
+  const pinnedRef = useRef(false)
   const available = hasWindowControls()
 
   const enter = useCallback(async () => {
@@ -43,6 +48,7 @@ export function useCompactMode() {
     savedRef.current = { w: size.w, h: size.h, x: pos.x, y: pos.y }
     windowSetMinSize(0, 0)
     windowSetSize(COMPACT_WIDTH, COMPACT_HEIGHT)
+    pinnedRef.current = true
     windowSetAlwaysOnTop(true)
     notifyCompactMode(true)
     setCompact(true)
@@ -50,6 +56,7 @@ export function useCompactMode() {
 
   const exit = useCallback(async () => {
     if (!available || !compact) return
+    pinnedRef.current = false
     windowSetAlwaysOnTop(false)
     const saved = savedRef.current
     if (saved) {
@@ -86,7 +93,9 @@ export function useCompactMode() {
   // OS focus, or the page becoming visible again.
   useEffect(() => {
     if (!compact) return
-    const reassert = () => windowSetAlwaysOnTop(true)
+    const reassert = () => {
+      if (pinnedRef.current) windowSetAlwaysOnTop(true)
+    }
     const onVisibility = () => {
       if (document.visibilityState === "visible") reassert()
     }

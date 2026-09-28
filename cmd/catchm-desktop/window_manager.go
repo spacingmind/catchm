@@ -109,7 +109,13 @@ func (t *windowStateTracker) restore(ctx context.Context) {
 	t.mu.Lock()
 	normal, maximized := t.last.Normal, t.last.Maximized
 	t.mu.Unlock()
-	if normal == nil {
+	if !usableSavedBounds(normal) {
+		// Nothing saved, or a bogus rect (e.g. saved while minimized by a
+		// build without that guard): keep the default size, but still
+		// honour a saved maximized state.
+		if maximized {
+			runtime.WindowMaximise(ctx)
+		}
 		return
 	}
 	monitors, _ := enumMonitors() // nil on error/non-Windows: Clamp no-ops
@@ -119,6 +125,18 @@ func (t *windowStateTracker) restore(ctx context.Context) {
 	if maximized {
 		runtime.WindowMaximise(ctx)
 	}
+}
+
+// Below this, saved bounds can't be a real restored main window (the
+// default is 1180x760; compact mode never saves). Guards restore against
+// state files written while minimized.
+const (
+	minRestoreW = 400
+	minRestoreH = 300
+)
+
+func usableSavedBounds(r *winbounds.Rect) bool {
+	return r != nil && r.W >= minRestoreW && r.H >= minRestoreH
 }
 
 // setAbsolutePosition places the window at the exact absolute (x, y)
@@ -144,7 +162,9 @@ func setAbsolutePosition(ctx context.Context, x, y int) {
 // saveIfChanged samples the current bounds and persists them only if
 // they differ from the last save (or the last restore, at startup).
 func (t *windowStateTracker) saveIfChanged(ctx context.Context) {
-	if compactActive.Load() {
+	// Minimized: Wails reports the taskbar icon's rect (~160x39), which
+	// must never become the "restored" bounds the next launch opens at.
+	if compactActive.Load() || runtime.WindowIsMinimised(ctx) {
 		return
 	}
 	maximized := runtime.WindowIsMaximised(ctx)

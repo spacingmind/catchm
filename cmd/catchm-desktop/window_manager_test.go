@@ -112,3 +112,21 @@ func TestWindowStateTickSurvivesTeardownPanic(t *testing.T) {
 		t.Fatal("tick did not return")
 	}
 }
+
+func TestUsableSavedBounds(t *testing.T) {
+	cases := []struct {
+		name string
+		r    *winbounds.Rect
+		want bool
+	}{
+		{"nil", nil, false},
+		{"minimized icon rect", &winbounds.Rect{X: 1200, Y: 694, W: 160, H: 39}, false},
+		{"default window", &winbounds.Rect{X: 100, Y: 100, W: 1180, H: 760}, true},
+		{"minimum", &winbounds.Rect{W: minRestoreW, H: minRestoreH}, true},
+	}
+	for _, c := range cases {
+		if got := usableSavedBounds(c.r); got != c.want {
+			t.Errorf("%s: usableSavedBounds = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
