@@ -32,16 +32,10 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 	if err != nil {
 		return err
 	}
-	if m.EndedAt == nil {
-		return ErrMeetingActive
-	}
-	audioPath := filepath.Join(store.Root(), id, "audio.wav")
-	if _, err := os.Stat(audioPath); err != nil {
-		if os.IsNotExist(err) {
-			return ErrNoAudio
-		}
+	if err := checkRefinable(store, m); err != nil {
 		return err
 	}
+	audioPath := filepath.Join(store.Root(), id, "audio.wav")
 
 	us, err := engine.TranscribeFile(ctx, audioPath, stt.Options{Lang: m.Lang, TranslateTo: m.TranslateTo})
 	if err != nil {
@@ -59,4 +53,28 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 		}
 	}
 	return store.WriteBatchTranscript(id, us)
+}
+
+// CheckRefinable reports whether meeting id can be refined now: it
+// exists (meeting.ErrNotFound), has ended (ErrMeetingActive) and has an
+// audio.wav (ErrNoAudio). Refine runs the same check.
+func CheckRefinable(store *meeting.Store, id string) error {
+	m, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	return checkRefinable(store, m)
+}
+
+func checkRefinable(store *meeting.Store, m *meeting.Meeting) error {
+	if m.EndedAt == nil {
+		return ErrMeetingActive
+	}
+	if _, err := os.Stat(filepath.Join(store.Root(), m.ID, "audio.wav")); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNoAudio
+		}
+		return err
+	}
+	return nil
 }

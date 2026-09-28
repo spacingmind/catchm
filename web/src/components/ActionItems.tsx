@@ -70,7 +70,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
         setError(null)
       })
       .catch((err: unknown) =>
-        setError(`Couldn’t load action items: ${errorText(err)}. Check that CatchM is running, then retry.`),
+        setError(`Couldn’t load action items: ${errorText(err)}. Try again, or restart CatchM if it keeps failing.`),
       )
   }, [loadAttempt])
 
@@ -162,7 +162,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       </StatusMessage>
       {error && items === null && (
         <Button size="sm" variant="outline" onClick={retryLoad}>
-          Retry
+          Try again
         </Button>
       )}
     </div>
@@ -245,9 +245,9 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
 
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
-          <p className="text-lg font-medium">Nothing to catch up on.</p>
+          <p className="text-lg font-medium">No action items yet.</p>
           <p className="mt-1 text-sm text-pretty text-muted-foreground">
-            Action items appear when a meeting ends and the agent extracts follow-ups from the transcript.
+            Action items appear after you create a summary for a meeting. Open a meeting and choose “Create summary &amp; action items”.
           </p>
         </div>
       ) : (

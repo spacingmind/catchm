@@ -121,7 +121,7 @@ export function SettingsSystem() {
     void autostartSave
       .run(
         () => setAutostart(enabled),
-        "Couldn’t change launch at login. Try again, or restart CatchM if it keeps failing.",
+        "Couldn’t change this setting. Try again, or restart CatchM if it keeps failing.",
       )
       .then((ok) => {
         if (!ok) setAutostartState(!enabled)
@@ -190,13 +190,13 @@ export function SettingsSystem() {
 
   return (
     <div>
-      <SettingsSection title="Launch at login" description="Opens hidden to the tray on sign-in.">
+      <SettingsSection title="Start automatically" description="CatchM starts in the background when you sign in to your computer.">
         {autostart === undefined ? (
           loadingPref
         ) : (
           <CheckboxRow
             id="autostart-toggle"
-            label="Launch CatchM at login"
+            label="Start CatchM when you sign in"
             checked={autostart}
             onCheckedChange={handleAutostart}
           />
@@ -206,14 +206,14 @@ export function SettingsSystem() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Notifications" description="Toasts for events while CatchM’s window is hidden.">
+      <SettingsSection title="Notifications" description="Pop-up notifications while CatchM’s window is hidden.">
         {notifications === undefined ? (
           loadingPref
         ) : (
           <CheckboxRow
             id="notifications-toggle"
             label="Show notifications"
-            description="Capture failing, a meeting ending, or a cloud sync conflict."
+            description="For example, when recording stops working, a meeting ends, or cloud sync needs your attention."
             checked={notifications}
             onCheckedChange={handleNotifications}
           />

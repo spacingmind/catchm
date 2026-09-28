@@ -239,8 +239,8 @@ function App() {
 
   const startMeeting = useCallback(() => setStartOpen(true), [])
   // No section (Ctrl/⌘, and the sidebar item): Settings picks its
-  // default, or stays on the section already open. Only the
-  // capture_error banner's "Open settings" names one.
+  // default, or stays on the section already open. Live's "Open
+  // settings" buttons (capture_error banner, engine error) name one.
   const openSettings = useCallback((section?: SettingsSection) => {
     if (!section && parseRoute(window.location.hash).name === "settings") return
     navigate({ name: "settings", section: section ?? null })
@@ -357,11 +357,8 @@ function App() {
           <LiveMeeting
             meeting={current}
             captureError={captureError}
-            onOpenSettings={
-              captureError
-                ? () => openSettings(captureErrorSection(captureErrorKind ?? "engine"))
-                : undefined
-            }
+            captureErrorSettings={captureError ? captureErrorSection(captureErrorKind ?? "engine") : undefined}
+            onOpenSettings={openSettings}
             onCompactChange={setLiveCompact}
             onEnded={(m) => {
               setLive(null)
@@ -397,7 +394,7 @@ function App() {
       </main>
 
       {!showCompactShell && (
-        <StartMeetingPopover open={startOpen} onOpenChange={setStartOpen} onStarted={handleStarted} anchor={startBtnRef} />
+        <StartMeetingPopover open={startOpen} onOpenChange={setStartOpen} onStarted={handleStarted} anchor={startBtnRef} onOpenSettings={openSettings} />
       )}
     </div>
   )

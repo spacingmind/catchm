@@ -7,7 +7,6 @@ require (
 	github.com/gen2brain/malgo v0.11.26
 	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
 	github.com/gorilla/websocket v1.5.3
-	github.com/spacingmind/claude-agent-sdk-go v0.3.2
 	github.com/wailsapp/wails/v2 v2.16.0
 	golang.design/x/hotkey v0.6.1
 	golang.org/x/crypto v0.53.0

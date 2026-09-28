@@ -43,7 +43,9 @@ task desktop:build   # wails build
 - `internal/tools` — meeting tool surface (web UI + MCP consumers).
 - `internal/capture`, `internal/stt`, `internal/translate` — audio and
   engine layers (later milestones).
-- `internal/agent` — enrichment jobs via claude-agent-sdk-go.
+- `internal/summarize` — meeting summaries, decisions and action items
+  via one structured-output LLM call: local Ollama (default), CatchM
+  Cloud, or any OpenAI-compatible server.
 - `internal/server` — HTTP API + embedded web UI.
 - `docs/plans/` — spec-driven plans.
 - `refs/` — read-only reference clones (gitignored; see AGENTS.md).

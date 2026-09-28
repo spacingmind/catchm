@@ -1,8 +1,9 @@
-import { useId, type ReactNode } from "react"
+import { useId, type MouseEvent, type ReactNode } from "react"
 import { cn } from "cn"
 
 import { StatusMessage } from "@/components/StatusMessage"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { browserOpenURL } from "@/lib/wailsRuntime"
 
 // The id helpers live beside SettingRow on purpose (Phase 2 imports them
 // from here); only-export-components is just about Fast Refresh, and
@@ -28,7 +29,7 @@ export function SettingsSection({
   className,
 }: {
   title: string
-  description?: string
+  description?: ReactNode
   children: ReactNode
   className?: string
 }) {
@@ -92,6 +93,28 @@ export function SettingRow({
   )
 }
 
+/** Hands the link to the system browser inside the Wails window
+ *  (see browserOpenURL); a plain browser follows the <a> normally. */
+function openExternal(e: MouseEvent<HTMLAnchorElement>) {
+  if (browserOpenURL(e.currentTarget.href)) e.preventDefault()
+}
+
+/** An inline link to a website, for setup help inside row descriptions. */
+export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      onClick={openExternal}
+      className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+    >
+      {children}
+      <span className="sr-only"> (opens in your browser)</span>
+    </a>
+  )
+}
+
 export type SaveState = "idle" | "saving" | "saved" | "error"
 
 /**
@@ -116,7 +139,7 @@ export function SaveStatus({
         : state === "saved"
           ? "Saved"
           : state === "error"
-            ? error || "Couldn’t save. Check that CatchM is still running, then try again."
+            ? error || "Couldn’t save. Try again, or restart CatchM if it keeps failing."
             : null}
     </StatusMessage>
   )

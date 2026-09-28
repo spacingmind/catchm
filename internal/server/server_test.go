@@ -18,6 +18,7 @@ import (
 	"github.com/spacingmind/catchm/internal/config"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
+	"github.com/spacingmind/catchm/internal/summarize"
 	"github.com/spacingmind/catchm/internal/tools"
 	"github.com/spacingmind/catchm/internal/translate"
 )
@@ -459,13 +460,7 @@ func TestRefineEndpoint(t *testing.T) {
 	whisper := fakeWhisperBatchServer(t)
 	defer whisper.Close()
 	s.cfg.WhisperURL = whisper.URL
-	s.enrichFinal = func(_ context.Context, store *meeting.Store, id string) error {
-		return store.UpdateDoc(id, func(mm *meeting.Meeting) error {
-			mm.Refined = true
-			mm.Summary = "fake enrichment"
-			return nil
-		})
-	}
+	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Extraction{Summary: "fake enrichment"}})
 
 	w = do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", "")
 	if w.Code != http.StatusOK {
@@ -499,7 +494,7 @@ func TestHandleRefineOnlyConstructsTranslatorWhenRequested(t *testing.T) {
 	whisper := fakeWhisperBatchServer(t)
 	defer whisper.Close()
 	s.cfg.WhisperURL = whisper.URL
-	s.enrichFinal = func(_ context.Context, _ *meeting.Store, _ string) error { return nil }
+	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Extraction{Summary: "ok"}})
 
 	refine := func(translateTo string) {
 		m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{TranslateTo: translateTo})
@@ -600,6 +595,61 @@ func TestTranslateStatusEndpoint(t *testing.T) {
 	}
 	if v.LiveModel.Installed || v.BatchModel.Installed {
 		t.Fatalf("expected both installed = false when unreachable, got live=%v batch=%v", v.LiveModel.Installed, v.BatchModel.Installed)
+	}
+}
+
+func TestSttStatusEndpoint(t *testing.T) {
+	s, _ := newTestServer(t)
+	whisper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // any response means reachable
+	}))
+	s.cfg.Engine = "soniox"
+	s.cfg.WhisperURL = whisper.URL
+	s.cfg.Soniox.APIKey = "sk-test"
+
+	type engineStatus struct {
+		Ready  bool    `json:"ready"`
+		Reason *string `json:"reason"`
+	}
+	var v struct {
+		DefaultEngine string       `json:"default_engine"`
+		Whisper       engineStatus `json:"whisper"`
+		Soniox        engineStatus `json:"soniox"`
+	}
+
+	w := do(t, s, "GET", "/api/stt/status", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	decode(t, w, &v)
+	if v.DefaultEngine != "soniox" {
+		t.Fatalf("default_engine = %q, want soniox", v.DefaultEngine)
+	}
+	if !v.Whisper.Ready || v.Whisper.Reason != nil {
+		t.Fatalf("whisper = %+v, want ready with no reason", v.Whisper)
+	}
+	if !v.Soniox.Ready || v.Soniox.Reason != nil {
+		t.Fatalf("soniox = %+v, want ready with no reason", v.Soniox)
+	}
+
+	whisper.Close()
+	s.cfg.Engine = "whisper"
+	s.cfg.Soniox.APIKey = ""
+	v.Whisper, v.Soniox = engineStatus{}, engineStatus{}
+
+	w = do(t, s, "GET", "/api/stt/status", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("down: status = %d, want 200", w.Code)
+	}
+	decode(t, w, &v)
+	if v.DefaultEngine != "whisper" {
+		t.Fatalf("default_engine = %q, want whisper", v.DefaultEngine)
+	}
+	if v.Whisper.Ready || v.Whisper.Reason == nil || !strings.Contains(*v.Whisper.Reason, whisper.URL) {
+		t.Fatalf("whisper = %+v, want not ready with a reason naming %s", v.Whisper, whisper.URL)
+	}
+	if v.Soniox.Ready || v.Soniox.Reason == nil || *v.Soniox.Reason == "" {
+		t.Fatalf("soniox = %+v, want not ready with a reason", v.Soniox)
 	}
 }
 

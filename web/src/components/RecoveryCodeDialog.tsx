@@ -58,9 +58,9 @@ export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onA
         <DialogHeader>
           <DialogTitle>Save your recovery code</DialogTitle>
           <DialogDescription>
-            This code is shown only once. Without it or a trusted device, encrypted synced meetings may not be
-            recoverable — because CatchM cannot read them either. Write it down or store it in a password manager
-            now.
+            If you ever forget your password, this code is the only way back into your synced meetings. CatchM
+            can’t reset it for you, because only you can unlock your meetings. You’ll see this code only once, so
+            write it down or save it in a password manager now.
           </DialogDescription>
         </DialogHeader>
         <p

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
 import { StatusMessage } from "@/components/StatusMessage"
-import { descId, SaveStatus, SettingRow, SettingsSection } from "@/components/settings/pieces"
+import { descId, ExternalLink, SaveStatus, SettingRow, SettingsSection } from "@/components/settings/pieces"
 import { useConfigSave } from "@/components/settings/useConfigSave"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,7 +33,12 @@ const idlePullState: PullState = { running: false, percent: null, statusText: nu
 
 const PERCENT_RE = /(\d+)%/
 
-const TARGET_LABEL: Record<TranslateTarget, string> = { live: "Live model", batch: "Batch model" }
+const TARGET_LABEL: Record<TranslateTarget, string> = {
+  live: "Model during meetings",
+  batch: "Model after meetings",
+}
+
+const OLLAMA_DOWNLOAD = "https://ollama.com/download"
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -125,7 +130,7 @@ export function SettingsTranslation() {
   const commitHost = () => {
     const v = host.trim()
     if (!isAbsoluteUrl(v, ["http", "https"])) {
-      setHostError("Enter an absolute http:// or https:// URL, like http://127.0.0.1:11434.")
+      setHostError("Enter a full address that starts with http:// or https://, like http://127.0.0.1:11434.")
       return
     }
     setHostError(null)
@@ -165,16 +170,22 @@ export function SettingsTranslation() {
             return
           }
           if (!event.status) return
+          // Ollama's own status lines ("pulling manifest", "verifying
+          // sha256 digest") mean nothing to most people: show plain
+          // progress instead.
           const match = PERCENT_RE.exec(event.status)
-          setPulls((prev) => ({
-            ...prev,
-            [target]: {
-              running: true,
-              percent: match ? Number(match[1]) : prev[target].percent,
-              statusText: event.status ?? prev[target].statusText,
-              error: null,
-            },
-          }))
+          setPulls((prev) => {
+            const percent = match ? Number(match[1]) : prev[target].percent
+            return {
+              ...prev,
+              [target]: {
+                running: true,
+                percent,
+                statusText: match ? `Downloading… ${percent}%` : percent !== null ? "Finishing…" : "Preparing…",
+                error: null,
+              },
+            }
+          })
         },
         controller.signal,
       )
@@ -186,7 +197,7 @@ export function SettingsTranslation() {
       if (controller.signal.aborted) {
         setPulls((prev) => ({
           ...prev,
-          [target]: { running: false, percent: null, statusText: "Pull cancelled.", error: null },
+          [target]: { running: false, percent: null, statusText: "Download cancelled.", error: null },
         }))
       } else {
         setPulls((prev) => ({ ...prev, [target]: { ...prev[target], running: false, error: errorMessage(err) } }))
@@ -224,10 +235,10 @@ export function SettingsTranslation() {
 
   if (loadError) {
     return (
-      <SettingsSection title="Translation" description="Ollama settings for live and batch translation.">
+      <SettingsSection title="Translation" description="Translate meetings into another language.">
         <div className="grid justify-items-start gap-3">
           <StatusMessage tone="error">
-            Couldn’t load translation settings: {loadError}. Check that CatchM is still running, then try again.
+            Couldn’t load translation settings: {loadError}. Try again, or restart CatchM if it keeps failing.
           </StatusMessage>
           <Button size="sm" variant="outline" onClick={retryLoad}>
             Try again
@@ -253,12 +264,18 @@ export function SettingsTranslation() {
     <div>
       <SettingsSection
         title="Translation"
-        description="Ollama translates meetings — live while recording, in batch when refining. Changes save when you leave a field."
+        description={
+          <>
+            Translation runs on this computer with Ollama, a free app. Install it from{" "}
+            <ExternalLink href={OLLAMA_DOWNLOAD}>ollama.com</ExternalLink>, then download the models below. Changes
+            save when you leave a field.
+          </>
+        }
       >
         <SettingRow
-          label="Ollama host"
+          label="Ollama address"
           htmlFor="translate-host"
-          description="Where your Ollama server listens."
+          description="Where CatchM finds Ollama. Keep this address unless you changed Ollama’s settings."
           control={
             <div className="grid w-96 justify-items-end gap-1">
               <Input
@@ -284,9 +301,9 @@ export function SettingsTranslation() {
           }
         />
         <SettingRow
-          label="Live model"
+          label={TARGET_LABEL.live}
           htmlFor="translate-live-model"
-          description="Small and fast; used while a meeting is recording."
+          description="Small and fast. Translates what people say while the meeting is recording."
           control={
             <div className="grid w-72 justify-items-end gap-1">
               <Input
@@ -306,9 +323,9 @@ export function SettingsTranslation() {
           }
         />
         <SettingRow
-          label="Batch model"
+          label={TARGET_LABEL.batch}
           htmlFor="translate-batch-model"
-          description="Higher quality; used when refining a finished meeting."
+          description="Bigger and more accurate. Used by “Create summary & action items” to translate the whole recording after the meeting."
           control={
             <div className="grid w-72 justify-items-end gap-1">
               <Input
@@ -329,11 +346,11 @@ export function SettingsTranslation() {
         />
       </SettingsSection>
 
-      <SettingsSection title="Status" description="Checked against the configured host.">
+      <SettingsSection title="Status" description="Whether Ollama is running and the models are downloaded.">
         <div className={statusError ? "mb-4 flex flex-wrap items-center justify-between gap-2" : undefined}>
           <StatusMessage tone="error" className="min-w-0 break-words">
             {statusError &&
-              `Couldn’t check Ollama: ${statusError}. Check that CatchM is still running, then check again.`}
+              `Couldn’t check Ollama: ${statusError}. Try again, or restart CatchM if it keeps failing.`}
           </StatusMessage>
           {statusError && (
             <Button size="sm" variant="outline" onClick={refreshStatus} disabled={checking}>
@@ -343,7 +360,17 @@ export function SettingsTranslation() {
         </div>
         <SettingRow
           label="Ollama"
-          description="Server reachability."
+          id="translate-status-ollama"
+          description={
+            status && !status.ollama_reachable ? (
+              <>
+                Open the Ollama app. If it isn’t installed yet,{" "}
+                <ExternalLink href={OLLAMA_DOWNLOAD}>download it from ollama.com</ExternalLink>.
+              </>
+            ) : (
+              "Must be running for translation to work."
+            )
+          }
           control={
             status ? (
               <Badge
@@ -352,7 +379,7 @@ export function SettingsTranslation() {
                   status.ollama_reachable ? "border-transparent bg-primary/15 text-primary" : undefined
                 }
               >
-                {status.ollama_reachable ? "Reachable" : "Unreachable"}
+                {status.ollama_reachable ? "Running" : "Not running"}
               </Badge>
             ) : (
               <Badge variant="outline" className="motion-safe:animate-pulse">
@@ -384,7 +411,7 @@ export function SettingsTranslation() {
                 <div className="grid w-72 justify-items-end gap-2">
                   {model ? (
                     <Badge variant={model.installed ? "secondary" : "outline"}>
-                      {model.installed ? "Installed" : "Not installed"}
+                      {model.installed ? "Downloaded" : "Not downloaded"}
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="motion-safe:animate-pulse">
@@ -400,7 +427,7 @@ export function SettingsTranslation() {
                           onClick={() => cancelPull(target)}
                           aria-describedby={descId(rowId)}
                         >
-                          Cancel pull
+                          Cancel download
                         </Button>
                       ) : (
                         <Button
@@ -408,7 +435,7 @@ export function SettingsTranslation() {
                           onClick={() => void handlePull(target)}
                           aria-describedby={descId(rowId)}
                         >
-                          Pull {label.toLowerCase()}
+                          Download model
                         </Button>
                       )}
                       {pull.running && pull.percent !== null && (
@@ -417,7 +444,7 @@ export function SettingsTranslation() {
                       <StatusMessage className="text-xs break-words">{pull.statusText}</StatusMessage>
                       <StatusMessage tone="error" className="text-xs break-words">
                         {pull.error &&
-                          `${pull.error}. Check that Ollama is running and the model name is correct, then pull again.`}
+                          `${pull.error}. Check that Ollama is running and the model name is correct, then download again.`}
                       </StatusMessage>
                     </div>
                   )}
@@ -428,7 +455,7 @@ export function SettingsTranslation() {
         })}
       </SettingsSection>
 
-      <SettingsSection title="Try it out" description="Translate a snippet to check the setup end to end.">
+      <SettingsSection title="Try it out" description="Translate a short sentence to check that everything works.">
         <form noValidate onSubmit={(e) => void handleTest(e)} className="grid gap-3">
           <SettingRow
             label="Text"
@@ -493,7 +520,7 @@ export function SettingsTranslation() {
             htmlFor="test-target"
             control={
               <Select value={testTarget} onValueChange={(v) => setTestTarget(v as TranslateTarget)}>
-                <SelectTrigger id="test-target" className="w-44">
+                <SelectTrigger id="test-target" className="w-52">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

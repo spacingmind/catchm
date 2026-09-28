@@ -4,6 +4,7 @@ import { SegmentedControl, SettingRow, SettingsSection, SaveStatus, descId, labe
 import { useSaveStatus } from "@/components/settings/useConfigSave"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getAudioSources, getDevices, type AudioSources, type Device } from "@/lib/api"
+import { SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
 import {
   effectiveSource,
   readDevicePref,
@@ -56,7 +57,7 @@ export function SettingsRecording() {
   const systemReason =
     sources?.system?.supported === false && sources.system.reason
       ? `${sources.system.reason.replace(/[.\s]+$/, "")}.`
-      : "System audio needs a newer version of CatchM. Update CatchM to use it."
+      : `${SOURCE_LABEL.system} needs a newer version of CatchM. Update CatchM to use it.`
 
   const effective = effectiveSource(source, sources)
   const storedUnavailable = effective !== source
@@ -84,15 +85,15 @@ export function SettingsRecording() {
     <div>
       <SettingsSection
         title="Recording"
-        description="Defaults used when you start a meeting. Stored on this device."
+        description="Defaults used when you start a meeting. Saved on this computer."
       >
         <SettingRow
           label="Audio source"
           id="recording-source"
           description={
             storedUnavailable
-              ? "Your saved choice isn’t available right now, so meetings start with Microphone."
-              : "What to capture while recording."
+              ? `Your saved choice isn’t available right now, so meetings start with ${SOURCE_LABEL.mic}.`
+              : SOURCE_HINT
           }
           control={
             <SegmentedControl
@@ -102,16 +103,16 @@ export function SettingsRecording() {
               value={source}
               onChange={handleSource}
               options={[
-                { value: "mic", label: "Microphone" },
+                { value: "mic", label: SOURCE_LABEL.mic },
                 {
                   value: "system",
-                  label: "System audio",
+                  label: SOURCE_LABEL.system,
                   disabled: !systemAvailable,
                   reason: systemReason,
                 },
                 {
                   value: "both",
-                  label: "Both",
+                  label: SOURCE_LABEL.both,
                   disabled: !systemAvailable,
                   reason: systemReason,
                 },
@@ -129,7 +130,7 @@ export function SettingsRecording() {
                 ? "No microphone found. Connect one, or check that CatchM is allowed to use the microphone, then reopen this page."
                 : staleDevice
                   ? "Your saved microphone isn’t connected. Reconnect it, or pick another."
-                  : "Used for the microphone input."
+                  : "The microphone CatchM listens to."
           }
           control={
             <Select value={device || DEFAULT_DEVICE} onValueChange={handleDevice} disabled={deviceList.length === 0}>
@@ -137,8 +138,8 @@ export function SettingsRecording() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={DEFAULT_DEVICE}>Default device</SelectItem>
-                {staleDevice && <SelectItem value={device}>Unavailable device</SelectItem>}
+                <SelectItem value={DEFAULT_DEVICE}>Default microphone</SelectItem>
+                {staleDevice && <SelectItem value={device}>Disconnected microphone</SelectItem>}
                 {deviceList.map((d) => (
                   <SelectItem key={d.ID} value={d.ID}>
                     {d.Name}

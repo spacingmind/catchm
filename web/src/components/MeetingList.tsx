@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Mic, Search } from "lucide-react"
 
 import logo from "@/assets/logo.png"
 import { FilterChip } from "@/components/FilterChip"
+import { GetStarted } from "@/components/GetStarted"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,6 +35,7 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
   const [listError, setListError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [activeTag, setActiveTag] = useState<string | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(() => {
     listMeetings()
@@ -96,9 +98,9 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
     meetings !== null && !listEmpty && filtered && !searching && !searchError && visibleMeetings.length === 0
 
   const error = searchError
-    ? `Search failed: ${searchError}. Check that CatchM is running, then retry.`
+    ? `Search failed: ${searchError}. Try again, or restart CatchM if it keeps failing.`
     : listError
-      ? `Couldn’t load meetings: ${listError}. Check that CatchM is running, then retry.`
+      ? `Couldn’t load meetings: ${listError}. Try again, or restart CatchM if it keeps failing.`
       : null
   const retry = () => {
     if (searchError) {
@@ -119,9 +121,13 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
         <h1 className="text-2xl font-semibold text-balance">Meetings</h1>
       </div>
 
+      {/* Hiding the card removes the focused Hide button; search is next. */}
+      <GetStarted onHide={() => searchRef.current?.focus()} />
+
       <div className="relative mb-4">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          ref={searchRef}
           type="search"
           name="q"
           {...noAutofill}
@@ -153,7 +159,7 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
         </StatusMessage>
         {error && (
           <Button size="sm" variant="outline" onClick={retry}>
-            Retry
+            Try again
           </Button>
         )}
       </div>
@@ -182,7 +188,7 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
       ) : listEmpty ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
           <img src={logo} alt="" width={64} height={64} className="mx-auto mb-4 size-16 rounded-xl" />
-          <p className="text-lg font-medium">Your burrow is quiet.</p>
+          <p className="text-lg font-medium">No meetings yet.</p>
           <p className="mt-1 text-sm text-pretty text-muted-foreground">
             Start a meeting to capture the conversation, decisions, and follow-ups in one place.
           </p>
@@ -199,7 +205,7 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
       ) : noMatches ? (
         <div className="grid justify-items-center gap-3 py-8 text-center">
           <p role="status" className="text-sm text-muted-foreground">
-            No matches in the stash.
+            {trimmedQuery ? "No meetings match your search." : "No meetings have this tag."}
           </p>
           <Button size="sm" variant="outline" onClick={clearFilters}>
             Clear filters
@@ -249,19 +255,19 @@ function MeetingRow({ meeting: m, onOpen }: { meeting: Meeting; onOpen: (m: Meet
           </div>
           <CardDescription>
             {m.ended_at ? formatDateRange(m.started_at, m.ended_at) : `Started ${formatDateTime(m.started_at)}`}
-            {m.engine && (
-              <>
-                {" · "}
-                <span translate="no">{m.engine}</span>
-              </>
-            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1.5">
           {preview && <p className="truncate text-sm text-muted-foreground">{preview}</p>}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
-            <span>{pluralize(m.decisions?.length ?? 0, "decision")}</span>
-            <span>{pluralize(m.action_items?.length ?? 0, "action item")}</span>
+            {m.ended_at && !m.refined ? (
+              <span>No summary yet</span>
+            ) : (
+              <>
+                <span>{pluralize(m.decisions?.length ?? 0, "decision")}</span>
+                <span>{pluralize(m.action_items?.length ?? 0, "action item")}</span>
+              </>
+            )}
             {(m.tags ?? []).map((t) => (
               <Badge key={t} variant="secondary">
                 {t}
