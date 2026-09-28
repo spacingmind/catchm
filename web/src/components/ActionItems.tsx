@@ -306,7 +306,10 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
                       className="max-w-64 sm:max-w-80"
                       title={name}
                     >
-                      <ProjectDot name={name} />
+                      <ProjectDot
+                        name={name}
+                        className={filter.project === key ? "ring-1 ring-primary-foreground/60" : undefined}
+                      />
                       <span className="min-w-0 truncate">{name}</span>
                     </FilterChip>
                   )

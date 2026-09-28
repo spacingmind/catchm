@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
-import { Folder, FolderOpen, Mic, Pencil, Search, X } from "lucide-react"
+import { Folder, FolderOpen, ListVideo, Mic, Pencil, Search, X } from "lucide-react"
 
 import logo from "@/assets/logo.png"
 import { FilterChip } from "@/components/FilterChip"
@@ -214,7 +214,9 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-balance">Meetings</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold text-balance">
+          <ListVideo aria-hidden="true" className="size-6" /> Meetings
+        </h1>
       </div>
 
       {/* Hiding the card removes the focused Hide button; search is next. */}
@@ -237,8 +239,8 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
 
       {projectFilter && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">Project</span>
-          <span className="inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-primary bg-primary pr-1 pl-3 text-sm text-primary-foreground">
+          <span className="text-xs font-medium text-muted-foreground">Project</span>
+          <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary pr-0.5 pl-2.5 text-[0.8rem] font-medium text-primary-foreground">
             <Folder aria-hidden="true" className="size-3.5 shrink-0" />
             <ProjectDot name={projectFilter} className="ring-1 ring-primary-foreground/60" />
             <span className="min-w-0 truncate">{projectFilter}</span>
@@ -247,9 +249,9 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
               onClick={() => navigate(MEETINGS)}
               aria-label={`Clear project filter “${projectFilter}”`}
               title="Show all meetings"
-              className="grid size-6 cursor-pointer place-items-center rounded-full hover:bg-primary-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="grid size-5 cursor-pointer place-items-center rounded-full hover:bg-primary-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
-              <X aria-hidden="true" className="size-3.5" />
+              <X aria-hidden="true" className="size-3" />
             </button>
           </span>
           <Button size="sm" variant="ghost" onClick={() => setRenaming(projectFilter)}>
@@ -274,7 +276,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
 
       {!project && meetings !== null && meetings.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span id={groupLabelId} className="text-sm text-muted-foreground">
+          <span id={groupLabelId} className="text-xs font-medium text-muted-foreground">
             Group by
           </span>
           <SegmentedControl

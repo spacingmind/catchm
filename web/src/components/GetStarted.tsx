@@ -146,9 +146,9 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
     <>
       <StatusMessage className="sr-only">{visible ? announcement : null}</StatusMessage>
       {visible && (
-        <Card className="mb-6 border-primary/40">
+        <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-lg">
+            <CardTitle className="text-lg font-semibold">
               <h2>Finish setting up CatchM</h2>
             </CardTitle>
             <CardDescription className="text-pretty">

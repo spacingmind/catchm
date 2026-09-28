@@ -10,7 +10,7 @@ export function SourceLink({ onClick }: { onClick: () => void }) {
     <Button
       variant="link"
       size="xs"
-      className="-my-1 px-1 text-muted-foreground"
+      className="-my-1 px-1 text-muted-foreground hover:text-foreground"
       aria-label="Source: show where this was said in the transcript"
       onClick={onClick}
     >
@@ -50,14 +50,14 @@ export function EvidenceBar({
 }) {
   const back = TAB_NAMES[from]
   return (
-    <div className="sticky top-0 z-10 mb-4 grid gap-1 rounded-lg border border-border bg-background/95 px-3 py-2 backdrop-blur">
+    <div className="sticky top-0 z-10 mb-4 grid gap-2 rounded-xl border border-border bg-card/95 px-4 py-3 backdrop-blur">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm font-medium">{total > 1 ? `Source ${index + 1} of ${total}` : "Source"}</p>
         {total > 1 && (
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
-              size="icon-xs"
+              size="icon-sm"
               aria-label="Previous source"
               disabled={index === 0}
               onClick={() => onStep(-1)}
@@ -66,7 +66,7 @@ export function EvidenceBar({
             </Button>
             <Button
               variant="outline"
-              size="icon-xs"
+              size="icon-sm"
               aria-label="Next source"
               disabled={index === total - 1}
               onClick={() => onStep(1)}
@@ -77,11 +77,11 @@ export function EvidenceBar({
         )}
         <div className="ml-auto flex items-center gap-1">
           {back && (
-            <Button variant="ghost" size="xs" onClick={onBack}>
+            <Button variant="ghost" size="sm" onClick={onBack}>
               <span aria-hidden="true">←</span> Back to {back}
             </Button>
           )}
-          <Button variant="ghost" size="icon-xs" aria-label="Close source" onClick={onClose}>
+          <Button variant="ghost" size="icon-sm" aria-label="Close source" onClick={onClose}>
             <X aria-hidden="true" />
           </Button>
         </div>

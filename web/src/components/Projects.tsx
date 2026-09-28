@@ -315,18 +315,19 @@ export function ProjectPicker({
                 onClick={() => pick(opt)}
                 onMouseMove={() => setActive(i)}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                  "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-sm",
                   i === activeIndex && "bg-accent text-accent-foreground",
                   (opt.kind === "none" || opt.kind === "new") && "text-muted-foreground",
                 )}
               >
-                {opt.kind === "project" ? (
-                  <ProjectDot name={opt.name} />
-                ) : opt.kind === "none" ? (
-                  <span aria-hidden="true" className="size-2 shrink-0" />
-                ) : (
-                  <Plus aria-hidden="true" className="size-3.5 shrink-0" />
-                )}
+                {/* One size-4 slot (the menu icon size), so every label lines up. */}
+                <span className="grid size-4 shrink-0 place-items-center">
+                  {opt.kind === "project" ? (
+                    <ProjectDot name={opt.name} />
+                  ) : opt.kind === "none" ? null : (
+                    <Plus aria-hidden="true" className="size-4" />
+                  )}
+                </span>
                 <span className="min-w-0 flex-1 truncate">{opt.label}</span>
                 {selected && <Check aria-hidden="true" className="size-4 shrink-0" />}
               </li>

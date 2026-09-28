@@ -193,11 +193,11 @@ function FlowCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">
-          <h3 className="flex items-center gap-2 break-words">
+        <CardTitle className="text-lg font-semibold">
+          <h2 className="flex items-center gap-2 break-words">
             <RouteIcon aria-hidden="true" className="size-4 shrink-0" />
             {flow.name}
-          </h3>
+          </h2>
         </CardTitle>
         <CardDescription id={descId} className="grid gap-0.5 text-pretty">
           {actor && <span>Who: {actor}</span>}

@@ -23,6 +23,10 @@ implementing; move to `docs/plans/completed/` when validated.
 (data model, store layout, tool surface, wire protocol) and isn't already
 decided, STOP and present the choice to the user.
 
+**(e) UI consistency.** UI changes follow [docs/ui-conventions.md](docs/ui-conventions.md)
+(type scale, control sizes, spacing, patterns). Match peers; reuse the
+shared primitives rather than one-off styles.
+
 ## refs/
 
 Read-only clones for pattern lookup (gitignored):

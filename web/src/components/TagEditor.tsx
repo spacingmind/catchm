@@ -106,7 +106,7 @@ export function TagEditor({
       <p id={`${baseId}-hint`} className="sr-only">
         Press Enter to add the tag.
       </p>
-      <StatusMessage id={`${baseId}-problem`} tone="error" className="text-xs">
+      <StatusMessage id={`${baseId}-problem`} tone="error">
         {problem}
       </StatusMessage>
     </div>

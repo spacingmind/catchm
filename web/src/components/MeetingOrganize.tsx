@@ -70,7 +70,7 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
   return (
     <div className="mt-3 grid gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span id={projectLabelId} className="w-14 shrink-0 text-sm text-muted-foreground">
+        <span id={projectLabelId} className="w-14 shrink-0 text-xs font-medium text-muted-foreground">
           Project
         </span>
         <ProjectPicker
@@ -82,7 +82,7 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
         />
       </div>
       <div className="flex flex-wrap items-start gap-2">
-        <span id={tagsLabelId} className="w-14 shrink-0 pt-1 text-sm text-muted-foreground">
+        <span id={tagsLabelId} className="w-14 shrink-0 pt-1.5 text-xs font-medium text-muted-foreground">
           Tags
         </span>
         <div className="min-w-0 flex-1">
@@ -95,7 +95,7 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
           />
         </div>
       </div>
-      <StatusMessage tone={status?.tone ?? "muted"} className="text-xs">
+      <StatusMessage tone={status?.tone ?? "muted"}>
         {saving ? "Saving…" : status?.text}
       </StatusMessage>
     </div>
