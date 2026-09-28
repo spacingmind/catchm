@@ -495,3 +495,37 @@ func TestImportWhisperProbeIsBounded(t *testing.T) {
 		t.Fatalf("import took %v; the Whisper probe isn't bounded", d)
 	}
 }
+
+// Improve with Soniox (summarize "if_ready") must still re-transcribe
+// when summaries aren't set up, reporting why the summary was skipped.
+func TestRefineIfReadySkipsUnreadySummary(t *testing.T) {
+	s, store := newTestServer(t)
+	m := refinableMeeting(t, s, store)
+	s.newSummarizer = func(*config.Config, summarize.CloudAuth) (summarize.Summarizer, error) {
+		return nil, &summarize.Error{Kind: summarize.KindNotReady, Message: "Ollama isn't running."}
+	}
+	s.cfg.Soniox.APIKey = "sk-test"
+	names := stubBatchEngineFor(s, []meeting.Utterance{{Text: "better text"}})
+
+	w := do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", `{"engine":"soniox","summarize":"if_ready"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	var v struct {
+		RefinedWith    string `json:"refined_with"`
+		SummarySkipped string `json:"summary_skipped"`
+	}
+	decode(t, w, &v)
+	if v.RefinedWith != "soniox" || v.SummarySkipped != "Ollama isn't running." || len(*names) != 1 {
+		t.Fatalf("got %+v, engines built %v", v, *names)
+	}
+	if us, err := store.ReadBatchTranscript(m.ID); err != nil || len(us) != 1 || us[0].Text != "better text" {
+		t.Fatalf("batch transcript = %+v (%v)", us, err)
+	}
+
+	// Without if_ready, refine stays strict.
+	w = do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", `{"engine":"soniox"}`)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("strict refine status = %d, want 503", w.Code)
+	}
+}

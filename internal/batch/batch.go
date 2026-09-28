@@ -68,6 +68,10 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 		// time.Time value; shift them into the meeting's absolute
 		// wall-clock time before persisting.
 		us[i].At = m.StartedAt.Add(us[i].At.Sub(time.Time{}))
+		if us[i].End != nil {
+			end := m.StartedAt.Add(us[i].End.Sub(time.Time{}))
+			us[i].End = &end
+		}
 		if translator != nil && m.TranslateTo != "" && us[i].Translated == "" {
 			if t, err := translator.Translate(ctx, us[i].Text, m.TranslateTo); err == nil {
 				us[i].Translated = t

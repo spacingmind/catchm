@@ -174,6 +174,8 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const [improveOpen, setImproveOpen] = useState(false)
   const [improving, setImproving] = useState(false)
   const [improveError, setImproveError] = useState<string | null>(null)
+  // Why "Improve with Soniox" left the summary as it was (summaries not set up).
+  const [improveSkipped, setImproveSkipped] = useState<string | null>(null)
 
   // An ended meeting without a summary leads with "Create summary", so
   // check first whether summaries are set up; if not, the card offers the
@@ -355,7 +357,10 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     setImproving(true)
     setImproveError(null)
     try {
-      const m = await refineMeeting(meetingId, { engine: "soniox" })
+      // if_ready: a better transcript must not wait on summaries being
+      // set up; the server says why when it skipped the summary.
+      const m = await refineMeeting(meetingId, { engine: "soniox", summarize: "if_ready" })
+      setImproveSkipped(m.summary_skipped ?? null)
       setMeeting(m)
       setImproveOpen(false)
     } catch (err) {
@@ -561,7 +566,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       </div>
       <StatusMessage className="sr-only">{summaryAnnouncement}</StatusMessage>
       {meeting.refined_with === "soniox" && (
-        <StatusMessage className="mb-4">Transcript improved with Soniox.</StatusMessage>
+        <StatusMessage className="mb-4">
+          {improveSkipped
+            ? `Transcript improved with Soniox. The summary wasn’t rewritten: ${improveSkipped}`
+            : "Transcript improved with Soniox."}
+        </StatusMessage>
       )}
       {refined && (
         <StatusMessage className="mb-4">

@@ -478,11 +478,21 @@ export function endMeeting(id: string): Promise<{ status: string }> {
  */
 export type RefineEngine = "auto" | "soniox" | "whisper" | "none"
 
-export async function refineMeeting(id: string, opts?: { engine?: RefineEngine }): Promise<Meeting> {
+/** Refine's answer: the meeting, plus — in summarize "if_ready" mode —
+ *  why the summary wasn't rewritten, when it wasn't. */
+export type RefineResult = Meeting & { summary_skipped?: string }
+
+export async function refineMeeting(
+  id: string,
+  opts?: { engine?: RefineEngine; summarize?: "always" | "if_ready" },
+): Promise<RefineResult> {
+  const body: Record<string, string> = {}
+  if (opts?.engine) body.engine = opts.engine
+  if (opts?.summarize) body.summarize = opts.summarize
   try {
-    return await apiFetch<Meeting>(`/api/meetings/${encodeURIComponent(id)}/refine`, {
+    return await apiFetch<RefineResult>(`/api/meetings/${encodeURIComponent(id)}/refine`, {
       method: "POST",
-      body: opts?.engine ? JSON.stringify({ engine: opts.engine }) : undefined,
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
     })
   } catch (err) {
     const kind = err instanceof ApiError ? err.body?.kind : undefined

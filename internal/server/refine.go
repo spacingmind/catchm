@@ -130,6 +130,10 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
 		Engine string `json:"engine"`
+		// Summarize "if_ready" (Improve with Soniox) re-transcribes even
+		// when summaries aren't set up, skipping the summary with a
+		// reason instead of failing; "" / "always" keeps refine strict.
+		Summarize string `json:"summarize"`
 	}
 	if r.Body != nil {
 		// An empty body means auto; ignore EOF from a truly empty body.
@@ -140,6 +144,26 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpError(w, http.StatusBadRequest, `engine must be "auto", "soniox", "whisper" or "none"`)
 		return
+	}
+	if req.Summarize != "" && req.Summarize != "always" && req.Summarize != "if_ready" {
+		httpError(w, http.StatusBadRequest, `summarize must be "always" or "if_ready"`)
+		return
+	}
+	ifReady := req.Summarize == "if_ready"
+	// skipped is the plain reason the summary didn't run in if_ready
+	// mode; the transcript is still improved.
+	var skipped string
+	skip := func(err error) bool {
+		if !ifReady {
+			return false
+		}
+		var se *summarize.Error
+		if errors.As(err, &se) && se.Message != "" {
+			skipped = se.Message
+		} else {
+			skipped = err.Error()
+		}
+		return true
 	}
 	m, err := s.surface.GetMeeting(id)
 	if err != nil {
@@ -166,19 +190,21 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	auth := s.cloudAuth()
 	sum, err := s.newSummarizer(&cfg, auth)
-	if err != nil {
+	if err != nil && !skip(err) {
 		respondSummaryErr(w, err)
 		return
 	}
 	// Then the status endpoint's probes (Ollama up with the model, cloud
 	// quota left), so a summary that can't run fails before minutes of
 	// batch transcription. An unreachable quota endpoint doesn't block.
-	readyCtx, cancel := context.WithTimeout(r.Context(), refineReadyTimeout)
-	st := summaryReadiness(readyCtx, &cfg, auth, false)
-	cancel()
-	if err := st.err(); err != nil {
-		respondSummaryErr(w, err)
-		return
+	if skipped == "" {
+		readyCtx, cancel := context.WithTimeout(r.Context(), refineReadyTimeout)
+		st := summaryReadiness(readyCtx, &cfg, auth, false)
+		cancel()
+		if err := st.err(); err != nil && !skip(err) {
+			respondSummaryErr(w, err)
+			return
+		}
 	}
 	engineName, engine, ok := s.engineForMeeting(w, r, m, req.Engine)
 	if !ok {
@@ -197,12 +223,22 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := summarize.SummarizeMeeting(r.Context(), s.surface.Store(), id, sum); err != nil {
-		respondSummaryErr(w, err)
-		return
+	if skipped == "" {
+		if err := summarize.SummarizeMeeting(r.Context(), s.surface.Store(), id, sum); err != nil && !skip(err) {
+			respondSummaryErr(w, err)
+			return
+		}
 	}
 	m, err = s.surface.GetMeeting(id)
-	respond(w, m, err)
+	if err != nil || skipped == "" {
+		respond(w, m, err)
+		return
+	}
+	// The meeting JSON plus why the summary wasn't rewritten.
+	writeJSON(w, http.StatusOK, struct {
+		*meeting.Meeting
+		SummarySkipped string `json:"summary_skipped"`
+	}{m, skipped})
 }
 
 // importMaxBodyBytes caps POST /api/meetings/import at 1 GiB. A var so
@@ -417,7 +453,11 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 		// reflect the recording's length, not a zero-length meeting.
 		var end *time.Time
 		if us, rerr := s.surface.Store().ReadBatchTranscript(m.ID); rerr == nil && len(us) > 0 {
-			t := us[len(us)-1].At
+			last := us[len(us)-1]
+			t := last.At
+			if last.End != nil {
+				t = *last.End
+			}
 			end = &t
 		}
 		if err := s.surface.Store().UpdateDoc(m.ID, func(mm *meeting.Meeting) error {

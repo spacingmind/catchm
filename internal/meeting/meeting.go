@@ -17,13 +17,16 @@ import (
 // Utterance is one segment of transcribed (and optionally translated)
 // speech, appended to the live transcript as it is produced.
 type Utterance struct {
-	Seq        int64       `json:"seq"`
-	At         time.Time   `json:"at"`
-	Speaker    string      `json:"speaker,omitempty"`
-	Text       string      `json:"text"`
-	Translated string      `json:"translated,omitempty"`
-	Lang       string      `json:"lang,omitempty"`
-	Extra      interface{} `json:"extra,omitempty"`
+	Seq        int64     `json:"seq"`
+	At         time.Time `json:"at"`
+	Speaker    string    `json:"speaker,omitempty"`
+	Text       string    `json:"text"`
+	Translated string    `json:"translated,omitempty"`
+	Lang       string    `json:"lang,omitempty"`
+	// End is when the utterance stopped, for engines that report it
+	// (Soniox async); nil when unknown. Same clock as At.
+	End   *time.Time  `json:"end,omitempty"`
+	Extra interface{} `json:"extra,omitempty"`
 }
 
 // ActionItem is a task extracted from a meeting.
