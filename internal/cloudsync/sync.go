@@ -18,7 +18,17 @@ const (
 	docFile        = "meeting.md"
 	transcriptFile = "utterances.jsonl"
 	batchFile      = "utterances.v2.jsonl"
+	analysisFile   = meeting.AnalysisFile
 )
+
+// syncAnalysis gates bundling analysis.json. Clients before the
+// meeting-insights release reject any bundle with a file they don't
+// know and abort the whole sync, so the rollout is two-step: this
+// release only *reads* analysis.json (and skips unknown files instead
+// of failing); a later release flips this on once those readers are
+// out. While it's off, a pulled bundle never carries the sidecar, so a
+// local one is kept, not deleted.
+const syncAnalysis = false
 
 // stateFileName is the sync manifest, stored next to config.yaml under
 // CATCHM_HOME. It holds only versions and content checksums — no
@@ -211,6 +221,7 @@ func adoptRemote(store *meeting.Store, client *Client, sessionToken string, mast
 		{docFile, fmt.Sprintf("conflict-%d.md", ts)},
 		{transcriptFile, fmt.Sprintf("conflict-%d.jsonl", ts)},
 		{batchFile, fmt.Sprintf("conflict-%d.v2.jsonl", ts)},
+		{analysisFile, fmt.Sprintf("conflict-%d.analysis.json", ts)},
 	} {
 		if data, err := os.ReadFile(filepath.Join(dir, pair[0])); err == nil {
 			if err := os.WriteFile(filepath.Join(dir, pair[1]), data, 0o600); err != nil {
@@ -239,10 +250,22 @@ func materializeMeeting(store *meeting.Store, id string, files map[string][]byte
 		return err
 	}
 	for _, name := range sortedFileNames(files) {
-		if name != docFile && name != transcriptFile && name != batchFile {
-			return fmt.Errorf("cloudsync: unexpected file %q in bundle", name)
+		if name != docFile && name != transcriptFile && name != batchFile && name != analysisFile {
+			// A file from a newer client: skip it rather than fail the
+			// sync (that failure is what the two-step rollout above
+			// avoids for the next addition). Never written, so a hostile
+			// name can't escape the meeting dir.
+			continue
 		}
 		if err := os.WriteFile(filepath.Join(dir, name), files[name], 0o600); err != nil {
+			return err
+		}
+	}
+	// analysis.json is derived from the summary in meeting.md: a local
+	// one the remote bundle lacks is stale (and would diverge the
+	// content checksum), so it goes.
+	if _, ok := files[analysisFile]; syncAnalysis && !ok {
+		if err := os.Remove(filepath.Join(dir, analysisFile)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
@@ -259,8 +282,8 @@ func validMeetingID(id string) bool {
 // readMeetingFiles loads the files a sync bundles for one meeting:
 // meeting.md always; utterances.jsonl always (a meeting started but
 // never spoken into has no transcript file yet — bundled as empty
-// content so the bundle shape stays stable); utterances.v2.jsonl when
-// it exists. A missing meeting.md is an error — the store's List only
+// content so the bundle shape stays stable); utterances.v2.jsonl and
+// analysis.json when they exist. A missing meeting.md is an error — the store's List only
 // returns meetings whose doc parses, so a doc that vanished between
 // List and read is a genuine anomaly, not a normal state.
 func readMeetingFiles(root, id string) (map[string][]byte, error) {
@@ -271,14 +294,18 @@ func readMeetingFiles(root, id string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files[docFile] = data
-	for _, name := range []string{transcriptFile, batchFile} {
+	names := []string{transcriptFile, batchFile}
+	if syncAnalysis {
+		names = append(names, analysisFile)
+	}
+	for _, name := range names {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if os.IsNotExist(err) {
 			if name == transcriptFile {
 				files[transcriptFile] = []byte{}
 				continue
 			}
-			continue // v2 transcript is optional
+			continue // the v2 transcript and analysis are optional
 		}
 		if err != nil {
 			return nil, err

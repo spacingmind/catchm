@@ -37,12 +37,14 @@ type OpenAI struct {
 	format int
 }
 
-func (o *OpenAI) Summarize(ctx context.Context, in Input) (Extraction, error) {
+func (o *OpenAI) Summarize(ctx context.Context, in Input) (Analysis, error) {
 	if o.BaseURL == "" || o.Model == "" {
-		return Extraction{}, notReady("Add your Cloudflare Account ID and API token in Settings → Summaries.", nil)
+		return Analysis{}, notReady("Add your Cloudflare Account ID and API token in Settings → Summaries.", nil)
 	}
 	return runLLM(ctx, o, openaiBudgetTokens, in)
 }
+
+func (o *OpenAI) describe() (string, string) { return ProviderOpenAI, o.Model }
 
 type openaiMessage struct {
 	Role    string `json:"role"`
@@ -64,7 +66,7 @@ func responseFormat(level int) any {
 			"json_schema": map[string]any{
 				"name":   "meeting_extraction",
 				"strict": true,
-				"schema": schema,
+				"schema": strictSchema,
 			},
 		}
 	case formatJSONObject:

@@ -9,69 +9,136 @@ import (
 	"unicode/utf8"
 )
 
-// schema is the Extraction JSON schema sent as Ollama's format and
-// OpenAI's json_schema. Every property is required and extra ones are
-// forbidden, as OpenAI's strict mode demands; "" stands for "not stated".
-var schema = map[string]any{
-	"type": "object",
-	"properties": map[string]any{
-		"summary":      map[string]any{"type": "string"},
-		"participants": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		"decisions": map[string]any{"type": "array", "items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"text":  map[string]any{"type": "string"},
-				"scope": map[string]any{"type": "string"},
-			},
-			"required":             []string{"text", "scope"},
-			"additionalProperties": false,
-		}},
-		"action_items": map[string]any{"type": "array", "items": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"text":  map[string]any{"type": "string"},
-				"owner": map[string]any{"type": "string"},
-				"due":   map[string]any{"type": "string"},
-			},
-			"required":             []string{"text", "owner", "due"},
-			"additionalProperties": false,
-		}},
-	},
-	"required":             []string{"summary", "participants", "decisions", "action_items"},
-	"additionalProperties": false,
+// field is one property of an ordered JSON object.
+type field struct {
+	name  string
+	value any
 }
 
+// ordered is a JSON object that keeps its keys in declaration order.
+// Ollama's grammar emits properties in schema order, so the schema lists
+// what the model should write first (ids and text before evidence).
+type ordered []field
+
+func (o ordered) MarshalJSON() ([]byte, error) {
+	buf := []byte{'{'}
+	for i, f := range o {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		k, err := json.Marshal(f.name)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(f.value)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(append(append(buf, k...), ':'), v...)
+	}
+	return append(buf, '}'), nil
+}
+
+// analysisSchema is the reply's JSON schema: flat arrays of flat
+// objects. Strict (OpenAI's json_schema strict mode) requires every
+// property; otherwise only the fields the analysis can't do without are
+// required, which keeps small models' grammar light. Either way extra
+// properties are forbidden and "" stands for "not stated".
+func analysisSchema(strict bool) ordered {
+	str := ordered{{"type", "string"}}
+	seqs := ordered{{"type", "array"}, {"items", ordered{{"type", "integer"}}}}
+	obj := func(props ordered, required ...string) ordered {
+		if strict {
+			required = required[:0]
+			for _, p := range props {
+				required = append(required, p.name)
+			}
+		}
+		return ordered{{"type", "object"}, {"properties", props}, {"required", required}, {"additionalProperties", false}}
+	}
+	list := func(item ordered) ordered { return ordered{{"type", "array"}, {"items", item}} }
+	kinds := []string{"project", "product", "org", "tool", "term", "place"}
+	return obj(ordered{
+		{"summary", str},
+		{"people", list(obj(ordered{
+			{"name", str}, {"key", str}, {"speaker", str},
+			{"aliases", ordered{{"type", "array"}, {"items", str}}},
+		}, "name", "key"))},
+		{"topics", list(obj(ordered{
+			{"id", str}, {"title", str}, {"key", str}, {"evidence", seqs},
+		}, "id", "title", "key", "evidence"))},
+		{"decisions", list(obj(ordered{
+			{"id", str}, {"text", str}, {"scope", str}, {"topic", str}, {"evidence", seqs},
+		}, "id", "text", "topic", "evidence"))},
+		{"actions", list(obj(ordered{
+			{"id", str}, {"text", str}, {"owner", str}, {"due", str}, {"due_text", str},
+			{"topic", str}, {"evidence", seqs},
+		}, "id", "text", "owner", "due", "topic", "evidence"))},
+		{"entities", list(obj(ordered{
+			{"name", str}, {"kind", ordered{{"type", "string"}, {"enum", kinds}}}, {"key", str},
+			{"evidence", seqs},
+		}, "name", "kind", "key"))},
+	}, "summary", "people", "topics", "decisions", "actions", "entities")
+}
+
+var (
+	// schema is Ollama's format.
+	schema = analysisSchema(false)
+	// strictSchema is OpenAI's json_schema (strict mode).
+	strictSchema = analysisSchema(true)
+)
+
 const shapeInstructions = `Respond with ONLY a JSON object — no markdown fences, no prose outside
-the JSON — with exactly these keys:
+the JSON — with these keys:
 
 {
   "summary": "2-3 sentence summary of the meeting",
-  "participants": ["speaker names mentioned in the transcript"],
-  "decisions": [{"text": "what was decided", "scope": "optional context, or \"\""}],
-  "action_items": [{"text": "task", "owner": "name if stated, or \"\"", "due": "YYYY-MM-DD if an exact date is stated, or \"\""}]
+  "people": [{"name": "name as said", "key": "person:english-slug", "speaker": "their transcript speaker label, or \"\"", "aliases": ["other names used for them"]}],
+  "topics": [{"id": "t1", "title": "short topic title", "key": "topic:english-slug", "evidence": [3, 7]}],
+  "decisions": [{"id": "d1", "text": "what was decided", "scope": "optional context, or \"\"", "topic": "t1", "evidence": [8]}],
+  "actions": [{"id": "a1", "text": "task", "owner": "the owner's person key, or \"\"", "due": "YYYY-MM-DD if an exact date is stated, or \"\"", "due_text": "the deadline as said (e.g. \"next Friday\"), or \"\"", "topic": "t1", "evidence": [9]}],
+  "entities": [{"name": "name as said", "kind": "project|product|org|tool|term|place", "key": "project:english-slug", "evidence": [4]}]
 }
 
-Use [] for empty arrays and "" for unknown values. Only include decisions
-and action items the transcript actually states; never invent them.`
+Rules:
+- people: the speakers, and anyone who owns an action item.
+- topics: the main things discussed (1-8). Every decision and action
+  names the id of its topic in "topic", or "" when none fits.
+- Keys are lowercase canonical ENGLISH slugs with a type prefix (person:,
+  topic:, project:, product:, org:, tool:, term:, place:), even when the
+  meeting is not in English: "topic:pricing-page", "person:long". Use the
+  same key for the same thing every time.
+- The summary, titles, texts and names stay in the meeting's language.
+- Only include decisions and action items the transcript actually
+  states; never invent them. Never invent an owner or a date: use ""
+  when none is stated.
+- Use [] for empty arrays and "" for unknown values.`
 
 const extractSystem = `You read meeting transcripts and extract their structure as JSON.
+Each transcript line starts with its line number in brackets, e.g.
+"[12] Speaker 1: ...". "evidence" lists the numbers of the lines that
+state the item; use only numbers that appear in the transcript.
 
 ` + shapeInstructions
 
-const mergeSystem = `You combine partial extractions of ONE meeting, each taken from a
-consecutive part of its transcript, into a single extraction as JSON.
-Write one summary for the whole meeting. Merge duplicate participants,
-decisions and action items (the same point worded differently counts as a
-duplicate), keeping the most specific owner, due date and scope.
+const mergeSystem = `You combine partial analyses of ONE meeting, each taken from a
+consecutive part of its transcript, into a single analysis as JSON.
+Write one summary for the whole meeting. Merge topics, people and
+entities that are the same thing (the same key, or the same thing worded
+differently), and point each decision and action at its merged topic's
+id. Merge duplicate decisions and action items (the same point worded
+differently counts as a duplicate), keeping the most specific owner, due
+date and scope, and the union of their evidence. "evidence" numbers are
+transcript line numbers: keep them as given, never add new ones.
 
 ` + shapeInstructions
 
 // languageLine tells the model which language to write in.
 func languageLine(lang string) string {
 	if lang == "" {
-		return "Write the summary, decisions and action items in the transcript's language."
+		return "Write the summary, titles, decisions and action items in the transcript's language; keys stay English."
 	}
-	return fmt.Sprintf("The meeting language is %q. Write the summary, decisions and action items in that language.", lang)
+	return fmt.Sprintf("The meeting language is %q. Write the summary, titles, decisions and action items in that language; keys stay English.", lang)
 }
 
 func extractUser(in Input, part, parts int) string {
@@ -86,7 +153,7 @@ func extractUser(in Input, part, parts int) string {
 }
 
 func mergeUser(in Input, partsJSON []byte) string {
-	return fmt.Sprintf("Meeting title: %s\n%s\n\nPartial extractions, in transcript order:\n%s",
+	return fmt.Sprintf("Meeting title: %s\n%s\n\nPartial analyses, in transcript order:\n%s",
 		in.Title, languageLine(in.Language), partsJSON)
 }
 
@@ -98,50 +165,63 @@ type completer interface {
 
 // promptOverheadTokens reserves room in each chunk for the system
 // prompt, title and instructions around the transcript.
-const promptOverheadTokens = 800
+const promptOverheadTokens = 1500
 
 // runLLM summarizes in through c: one call when the transcript fits
 // budgetTokens, else one call per chunk followed by a merge pass.
-func runLLM(ctx context.Context, c completer, budgetTokens int, in Input) (Extraction, error) {
+func runLLM(ctx context.Context, c completer, budgetTokens int, in Input) (Analysis, error) {
 	chunks := splitTokens(in.Transcript, budgetTokens-promptOverheadTokens)
-	parts := make([]Extraction, 0, len(chunks))
+	parts := make([]Analysis, 0, len(chunks))
 	for i, chunk := range chunks {
 		part := in
 		part.Transcript = chunk
 		user := extractUser(part, i+1, len(chunks))
-		ex, err := withRetry(func() (string, error) { return c.complete(ctx, extractSystem, user) })
+		a, err := withRetry(func() (string, error) { return c.complete(ctx, extractSystem, user) }, parseReply)
 		if err != nil {
-			return Extraction{}, err
+			return Analysis{}, err
 		}
-		parts = append(parts, ex)
+		parts = append(parts, a)
 	}
 	if len(parts) == 1 {
 		return parts[0], nil
 	}
-	return mergeLLM(ctx, c, budgetTokens, in, parts)
+	return mergeLLM(ctx, c, budgetTokens, in, renumber(parts))
 }
 
-// mergeLLM asks the model to merge the per-chunk extractions, falling
-// back to the deterministic merge when they are too big for one call or
-// the model's merge is unusable. Participants the model dropped are
-// restored, and the result is deduplicated either way.
-func mergeLLM(ctx context.Context, c completer, budgetTokens int, in Input, parts []Extraction) (Extraction, error) {
-	fallback := mergeExtractions(parts)
-	raw, err := json.MarshalIndent(parts, "", " ")
+// mergeLLM asks the model to merge the per-chunk analyses (whose ids are
+// already unique across parts), falling back to the deterministic merge
+// when they are too big for one call or the model's merge is unusable.
+// People and entities the model dropped are restored, the parts' issues
+// kept, and the result is deduplicated either way.
+func mergeLLM(ctx context.Context, c completer, budgetTokens int, in Input, parts []Analysis) (Analysis, error) {
+	fallback := mergeAnalyses(parts)
+	raw, err := json.MarshalIndent(partsForMerge(parts), "", " ")
 	if err != nil || estimateTokens(string(raw)) > budgetTokens-promptOverheadTokens {
 		return fallback, nil
 	}
 	user := mergeUser(in, raw)
-	ex, err := withRetry(func() (string, error) { return c.complete(ctx, mergeSystem, user) })
+	a, err := withRetry(func() (string, error) { return c.complete(ctx, mergeSystem, user) }, parseReply)
 	if err != nil {
 		var se *Error
 		if errors.As(err, &se) && se.Kind == KindFailed {
 			return fallback, nil
 		}
-		return Extraction{}, err
+		return Analysis{}, err
 	}
-	ex.Participants = append(ex.Participants, fallback.Participants...)
-	return dedupe(normalize(ex)), nil
+	a.Issues = append(fallback.Issues, a.Issues...)
+	return mergeAnalyses([]Analysis{a, {People: fallback.People, Entities: fallback.Entities}}), nil
+}
+
+// partsForMerge strips the fields a merge call doesn't need to see.
+func partsForMerge(parts []Analysis) []map[string]any {
+	out := make([]map[string]any, len(parts))
+	for i, p := range parts {
+		out[i] = map[string]any{
+			"summary": p.Summary, "people": p.People, "topics": p.Topics,
+			"decisions": p.Decisions, "actions": p.Actions, "entities": p.Entities,
+		}
+	}
+	return out
 }
 
 // runeCost weighs one rune; a string's cost is the sum over its runes,

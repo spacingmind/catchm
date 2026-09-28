@@ -460,7 +460,7 @@ func TestRefineEndpoint(t *testing.T) {
 	whisper := fakeWhisperBatchServer(t)
 	defer whisper.Close()
 	s.cfg.WhisperURL = whisper.URL
-	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Extraction{Summary: "fake enrichment"}})
+	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Analysis{Summary: "fake enrichment"}})
 
 	w = do(t, s, "POST", "/api/meetings/"+m.ID+"/refine", "")
 	if w.Code != http.StatusOK {
@@ -494,7 +494,7 @@ func TestHandleRefineOnlyConstructsTranslatorWhenRequested(t *testing.T) {
 	whisper := fakeWhisperBatchServer(t)
 	defer whisper.Close()
 	s.cfg.WhisperURL = whisper.URL
-	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Extraction{Summary: "ok"}})
+	stubSummarizer(t, s, &fakeSummarizer{ex: summarize.Analysis{Summary: "ok"}})
 
 	refine := func(translateTo string) {
 		m, err := store.Start("Standup", time.Now().UTC(), meeting.StartOptions{TranslateTo: translateTo})
