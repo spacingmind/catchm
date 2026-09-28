@@ -111,5 +111,6 @@
   "decisions": [
     "Raise the automatic refund approval limit from $50 to $100"
   ],
-  "actions": []
+  "actions": [],
+  "expect_flows": 1
 }

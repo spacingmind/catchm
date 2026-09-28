@@ -1,0 +1,70 @@
+/*
+ * React Flow themed with the app's tokens (index.css), so the graphs
+ * follow Light / Dark / System through the .dark class instead of React
+ * Flow's own colorMode. Imported only by the lazy graph views, so it
+ * lands in their CSS chunk, not the main one.
+ */
+@import "@xyflow/react/dist/style.css";
+
+/*
+ * Mind-map branch colours: one per topic, cycling. Used for edges, the
+ * topic card's edge strip and the leaf icons (non-text, ≥3:1 on the
+ * page and card surfaces in both themes); text stays --foreground.
+ */
+:root {
+  --branch-1: #B45309;
+  --branch-2: #0F766E;
+  --branch-3: #6D28D9;
+  --branch-4: #BE185D;
+  --branch-5: #1D4ED8;
+  --branch-6: #4D7C0F;
+}
+
+.dark {
+  --branch-1: #FBBF24;
+  --branch-2: #5EEAD4;
+  --branch-3: #C4B5FD;
+  --branch-4: #F9A8D4;
+  --branch-5: #93C5FD;
+  --branch-6: #BEF264;
+}
+
+.catchm-flow {
+  --xy-background-color: var(--background);
+  --xy-background-pattern-dots-color: var(--border);
+  --xy-edge-stroke: var(--input);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-label-background-color: var(--background);
+  --xy-edge-label-color: var(--muted-foreground);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--muted);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-color-hover: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: 0 0 0 1px var(--border);
+  --xy-attribution-background-color: transparent;
+  --xy-node-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-boxshadow-selected: none;
+}
+
+.catchm-flow .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.catchm-flow .react-flow__attribution a {
+  color: var(--muted-foreground);
+}
+
+/* React Flow's node wrapper takes the keyboard focus: draw the app's ring on it. */
+.catchm-flow .react-flow__node:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: calc(var(--radius) * 0.8);
+}
+
+/* The hidden connection points; nothing connects by hand here. */
+.catchm-flow .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}

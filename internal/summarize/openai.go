@@ -58,15 +58,15 @@ type openaiRequest struct {
 	ResponseFormat any             `json:"response_format,omitempty"`
 }
 
-func responseFormat(level int) any {
+func responseFormat(level int, f replyFormat) any {
 	switch level {
 	case formatJSONSchema:
 		return map[string]any{
 			"type": "json_schema",
 			"json_schema": map[string]any{
-				"name":   "meeting_extraction",
+				"name":   f.name,
 				"strict": true,
-				"schema": strictSchema,
+				"schema": f.strict,
 			},
 		}
 	case formatJSONObject:
@@ -76,9 +76,9 @@ func responseFormat(level int) any {
 	}
 }
 
-func (o *OpenAI) complete(ctx context.Context, system, user string) (string, error) {
+func (o *OpenAI) complete(ctx context.Context, f replyFormat, system, user string) (string, error) {
 	for {
-		status, raw, err := o.post(ctx, system, user, responseFormat(o.format))
+		status, raw, err := o.post(ctx, system, user, responseFormat(o.format, f))
 		if err != nil {
 			return "", err
 		}

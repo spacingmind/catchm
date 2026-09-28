@@ -88,7 +88,7 @@ func (c *Cloud) Summarize(ctx context.Context, in Input) (Analysis, error) {
 	for len(chunks) > 0 {
 		chunk := chunks[0]
 		body := cloudRequest{Title: in.Title, Transcript: chunk, Language: in.Language}
-		a, err := withRetry(func() (string, error) { return c.post(ctx, body) }, parseCloudReply)
+		a, err := withRetry(func() (string, error) { return c.post(ctx, body) }, parseCloudReply, errNoSummary)
 		var tl *errTooLarge
 		if errors.As(err, &tl) {
 			if tl.maxChars > 0 && tl.maxChars < costOf(chunk, runeUTF16) {

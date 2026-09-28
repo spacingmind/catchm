@@ -69,14 +69,14 @@ func ollamaNumCtx(system, user string) int {
 	return max(n, ollamaMinCtx)
 }
 
-func (o *Ollama) complete(ctx context.Context, system, user string) (string, error) {
+func (o *Ollama) complete(ctx context.Context, f replyFormat, system, user string) (string, error) {
 	body, err := json.Marshal(ollamaChatRequest{
 		Model: o.Model,
 		Messages: []ollamaMessage{
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-		Format:  schema,
+		Format:  f.schema,
 		Stream:  false,
 		Options: ollamaOptions{Temperature: 0, NumCtx: ollamaNumCtx(system, user)},
 	})

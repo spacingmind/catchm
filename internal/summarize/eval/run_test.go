@@ -101,3 +101,44 @@ func TestRunCancelled(t *testing.T) {
 		t.Fatalf("cancelled run = %+v", rs)
 	}
 }
+
+// flowsStub is a stubSummarizer with a flows pass that finds flows.
+type flowsStub struct {
+	stubSummarizer
+	flows []summarize.Flow
+	calls int
+}
+
+func (s *flowsStub) FindFlows(context.Context, summarize.Input, summarize.Analysis) ([]summarize.Flow, error) {
+	s.calls++
+	return s.flows, nil
+}
+
+// TestRunScoresFlows: gold files with expect_flows run the flows pass
+// and score whether the validated count matches; others don't run it.
+func TestRunScoresFlows(t *testing.T) {
+	zero, one := 0, 1
+	process, social, plain := standup(), standup(), standup()
+	process.Title, process.ExpectFlows = "process", &one
+	social.Title, social.ExpectFlows = "social", &zero
+	plain.Title = "plain"
+	sum := &flowsStub{
+		stubSummarizer: stubSummarizer{byTitle: map[string]func() (summarize.Analysis, error){
+			"process": func() (summarize.Analysis, error) { return perfectStandup(), nil },
+			"social":  func() (summarize.Analysis, error) { return perfectStandup(), nil },
+			"plain":   func() (summarize.Analysis, error) { return perfectStandup(), nil },
+		}},
+		flows: []summarize.Flow{
+			{Name: "Rollout", Steps: []summarize.FlowStep{{Text: "Flag on"}, {Text: "Ramp up"}}},
+			{Name: "Too short", Steps: []summarize.FlowStep{{Text: "Only step"}}}, // dropped by validation
+		},
+	}
+	rs := Run(context.Background(), sum, []NamedGold{{"process", process}, {"social", social}, {"plain", plain}}, nil)
+	want(t, "process flows_ok", rs[0].Report.FlowsOK, 1)
+	want(t, "social flows_ok", rs[1].Report.FlowsOK, 0)
+	wantNil(t, "plain flows_ok", rs[2].Report.FlowsOK)
+	if sum.calls != 2 {
+		t.Fatalf("flows calls = %d, want 2", sum.calls)
+	}
+	want(t, "mean flows_ok", NewOutput("ollama", "m", rs).Aggregate.FlowsOK, 0.5)
+}

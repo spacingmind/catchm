@@ -53,8 +53,10 @@ var itemAliases = map[string]map[string]string{
 		"deadline_text": "due_text", "topic_id": "topic"},
 	"people":   {"display_name": "name", "alias": "aliases", "speaker_label": "speaker"},
 	"entities": {"title": "name", "type": "kind", "category": "kind"},
-	"flows":    {"title": "name"},
-	"steps":    {"description": "text", "step": "text", "title": "text"},
+	"flows":    {"title": "name", "process": "name", "owner": "actor", "stages": "steps"},
+	"steps": {"description": "text", "step": "text", "title": "text", "name": "text",
+		"action": "text", "owner": "actor", "who": "actor", "next_steps": "next"},
+	"next": {"target": "to", "step": "to", "id": "to", "if": "condition", "when": "condition"},
 }
 
 // Field types other than string, by field name (at any depth).

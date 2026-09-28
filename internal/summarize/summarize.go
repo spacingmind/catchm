@@ -174,13 +174,22 @@ func LoadInput(store *meeting.Store, id string) (Input, error) {
 }
 
 func loadSource(store *meeting.Store, id string) (source, error) {
+	return loadSourceFrom(store, id, "")
+}
+
+// loadSourceFrom is loadSource, except that with want transcriptLive it
+// reads the live transcript even when there is a batch one (so a pass
+// over an analysis made from the live transcript cites the same seqs).
+func loadSourceFrom(store *meeting.Store, id, want string) (source, error) {
 	m, err := store.Get(id)
 	if err != nil {
 		return source{}, err
 	}
-	us, err := store.ReadBatchTranscript(id)
-	if err != nil {
-		return source{}, err
+	var us []meeting.Utterance
+	if want != transcriptLive {
+		if us, err = store.ReadBatchTranscript(id); err != nil {
+			return source{}, err
+		}
 	}
 	kind := transcriptV2
 	if len(us) == 0 {
@@ -232,7 +241,8 @@ var now = func() time.Time { return time.Now().UTC() }
 
 // SummarizeMeeting runs sum over the meeting's transcript, validates the
 // Analysis against the transcript's seqs, writes it to analysis.json,
-// then syncs the frontmatter from it, marking the meeting Refined so
+// keeping the flows of an earlier analysis.json, then syncs the
+// frontmatter from it, marking the meeting Refined so
 // callers can tell this final pass apart from a coarse live one. A
 // meeting with no transcript text is marked Refined without calling the
 // provider (and gets no analysis.json).
@@ -247,6 +257,12 @@ func SummarizeMeeting(ctx context.Context, store *meeting.Store, id string, sum 
 		if err != nil {
 			return err
 		}
+		// Flows come only from the on-demand flows pass: keep the earlier
+		// ones (Validate drops their evidence the new transcript lacks).
+		a.Flows = nil
+		if prev, err := loadAnalysis(store, id); err == nil {
+			a.Flows = prev.Flows
+		}
 		Validate(&a, src.seqs)
 		a.Version = AnalysisVersion
 		a.Generated = GeneratedInfo{
@@ -260,11 +276,7 @@ func SummarizeMeeting(ctx context.Context, store *meeting.Store, id string, sum 
 		if d, ok := sum.(describer); ok {
 			a.Generated.Provider, a.Generated.Model = d.describe()
 		}
-		raw, err := json.MarshalIndent(a, "", "  ")
-		if err != nil {
-			return err
-		}
-		if err := store.WriteAnalysis(id, append(raw, '\n')); err != nil {
+		if err := writeAnalysis(store, id, a); err != nil {
 			return err
 		}
 		ex = a.Extraction()
@@ -461,23 +473,28 @@ func liftExtraction(ex Extraction) Analysis {
 	return a
 }
 
+// errNoSummary is withRetry's user-facing message for summary calls.
+const errNoSummary = "The model didn't return a usable summary. Try again, or pick a different model."
+
 // withRetry calls call and parses its reply, retrying once when the
-// reply isn't usable. Provider errors from call are returned as-is
-// (they are already classified).
-func withRetry(call func() (string, error), parse func(string) (Analysis, error)) (Analysis, error) {
+// reply isn't usable; a second unusable reply is a summary_failed error
+// with message msg. Provider errors from call are returned as-is (they
+// are already classified).
+func withRetry[T any](call func() (string, error), parse func(string) (T, error), msg string) (T, error) {
+	var zero T
 	var lastErr error
 	for range 2 {
 		raw, err := call()
 		if err != nil {
-			return Analysis{}, err
+			return zero, err
 		}
-		a, err := parse(raw)
+		v, err := parse(raw)
 		if err == nil {
-			return a, nil
+			return v, nil
 		}
 		lastErr = err
 	}
-	return Analysis{}, failed("The model didn't return a usable summary. Try again, or pick a different model.", lastErr)
+	return zero, failed(msg, lastErr)
 }
 
 // renumber gives every topic, decision and action across parts a unique

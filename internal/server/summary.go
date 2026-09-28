@@ -225,8 +225,74 @@ func (s *Server) handleMeetingAnalysis(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError, "The meeting's analysis.json can't be read: "+err.Error())
 		return
 	}
+	writeAnalysis(w, a, m.Title)
+}
+
+// writeAnalysis answers 200 with an analysis and its derived mind map,
+// the body of GET /analysis and POST /flows.
+func writeAnalysis(w http.ResponseWriter, a summarize.Analysis, title string) {
 	writeJSON(w, http.StatusOK, struct {
 		Analysis summarize.Analysis `json:"analysis"`
 		MindMap  summarize.MindNode `json:"mindmap"`
-	}{a, summarize.BuildMindMap(a, m.Title)})
+	}{a, summarize.BuildMindMap(a, title)})
+}
+
+// flowsCloudUnsupported is POST /flows' answer for CatchM Cloud, whose
+// Worker has no flows pass yet.
+const flowsCloudUnsupported = "Finding flows isn't available with CatchM Cloud yet. Use On this computer or Your Cloudflare account."
+
+// handleFindFlows answers POST /api/meetings/{id}/flows: it runs the
+// on-demand flows pass over the meeting's transcript, stores the flows
+// in analysis.json and answers like GET /analysis. It needs an analysis
+// (409 otherwise) and a ready provider; errors are {error, kind} as for
+// refine.
+func (s *Server) handleFindFlows(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, err := s.surface.GetMeeting(id)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	noAnalysis := func() { httpError(w, http.StatusConflict, "Create a summary first.") }
+	if _, err := s.surface.Store().ReadAnalysis(id); errors.Is(err, meeting.ErrNoAnalysis) {
+		noAnalysis()
+		return
+	} else if err != nil {
+		respondErr(w, err)
+		return
+	}
+	s.mu.Lock()
+	cfg := *s.cfg
+	s.mu.Unlock()
+	if summarize.ProviderOf(&cfg) == summarize.ProviderCloud {
+		respondSummaryErr(w, &summarize.Error{Kind: summarize.KindNotReady, Message: flowsCloudUnsupported})
+		return
+	}
+	auth := s.cloudAuth()
+	readyCtx, cancel := context.WithTimeout(r.Context(), refineReadyTimeout)
+	st := summaryReadiness(readyCtx, &cfg, auth, false)
+	cancel()
+	if err := st.err(); err != nil {
+		respondSummaryErr(w, err)
+		return
+	}
+	sum, err := s.newSummarizer(&cfg, auth)
+	if err != nil {
+		respondSummaryErr(w, err)
+		return
+	}
+	ff, ok := sum.(summarize.FlowFinder)
+	if !ok {
+		respondSummaryErr(w, &summarize.Error{Kind: summarize.KindNotReady, Message: flowsCloudUnsupported})
+		return
+	}
+	a, err := summarize.FindMeetingFlows(r.Context(), s.surface.Store(), id, ff)
+	switch {
+	case errors.Is(err, meeting.ErrNoAnalysis):
+		noAnalysis()
+	case err != nil:
+		respondSummaryErr(w, err)
+	default:
+		writeAnalysis(w, a, m.Title)
+	}
 }

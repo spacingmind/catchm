@@ -101,6 +101,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/meetings/{id}", s.handleDeleteMeeting)
 	s.mux.HandleFunc("GET /api/meetings/{id}/transcript", s.handleTranscript)
 	s.mux.HandleFunc("GET /api/meetings/{id}/analysis", s.handleMeetingAnalysis)
+	s.mux.HandleFunc("POST /api/meetings/{id}/flows", s.handleFindFlows)
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
@@ -582,12 +583,46 @@ func (s *Server) handleTranscript(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		cursor = -1
 	}
-	us, next, err := s.surface.ReadLiveTranscript(r.PathValue("id"), cursor)
+	id := r.PathValue("id")
+	// source: "live" (default, cursor-paged for the Live view), "v2" (the
+	// batch transcript a refine wrote), or "best" (v2 when there is one,
+	// else live). Meeting pages pick the transcript an analysis's
+	// evidence seqs refer to (analysis.generated.transcript).
+	source := r.URL.Query().Get("source")
+	switch source {
+	case "", "live":
+		source = "live"
+	case "v2", "best":
+		batch, err := s.surface.ReadBatchTranscript(id)
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		if source == "v2" || len(batch) > 0 {
+			// The batch transcript is small and written whole: page it
+			// with the same cursor contract (seqs after cursor).
+			out := []meeting.Utterance{}
+			next := cursor
+			for _, u := range batch {
+				if u.Seq > cursor {
+					out = append(out, u)
+					next = u.Seq
+				}
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"utterances": out, "cursor": next, "source": "v2"})
+			return
+		}
+		source = "live"
+	default:
+		httpError(w, http.StatusBadRequest, `source must be "live", "v2" or "best"`)
+		return
+	}
+	us, next, err := s.surface.ReadLiveTranscript(id, cursor)
 	if err != nil {
 		respond(w, nil, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"utterances": us, "cursor": next})
+	writeJSON(w, http.StatusOK, map[string]any{"utterances": us, "cursor": next, "source": source})
 }
 
 func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {

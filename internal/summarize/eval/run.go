@@ -25,7 +25,8 @@ type Result struct {
 }
 
 // Run summarizes each gold transcript with sum, validates the analysis
-// against the gold seqs and scores it. A failing file is recorded in
+// against the gold seqs and scores it; for gold files with expect_flows
+// it also runs sum's flows pass, when sum has one. A failing file is recorded in
 // its Result and the run moves on. progress, when non-nil, is called
 // before each file.
 func Run(ctx context.Context, sum summarize.Summarizer, golds []NamedGold, progress func(name string)) []Result {
@@ -60,6 +61,16 @@ func runOne(ctx context.Context, sum summarize.Summarizer, ng NamedGold) Result 
 	}
 	res.Issues = len(summarize.Validate(&a, ng.Gold.Seqs()))
 	r := Score(ng.Gold, a)
+	if ff, ok := sum.(summarize.FlowFinder); ok && ng.Gold.ExpectFlows != nil {
+		hit := 0.0
+		flows, err := ff.FindFlows(ctx, Input(ng.Gold), a)
+		if err != nil {
+			res.Error = "flows: " + err.Error()
+		} else if flows, _ = summarize.ValidateFlows(flows, a.People, ng.Gold.Seqs()); len(flows) == *ng.Gold.ExpectFlows {
+			hit = 1
+		}
+		r.FlowsOK = &hit
+	}
 	res.Report = &r
 	return res
 }
@@ -117,7 +128,7 @@ func (o Output) WriteJSON(w io.Writer) error {
 func (o Output) WriteTable(w io.Writer) error {
 	fmt.Fprintf(w, "provider: %s  model: %s\n\n", o.Provider, o.Model)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "FILE\tLANG\tJSON\tDEC_R\tDEC_P\tACT_R\tACT_P\tOWNER\tDUE\tEVID\tUNSUP\tISSUES")
+	fmt.Fprintln(tw, "FILE\tLANG\tJSON\tDEC_R\tDEC_P\tACT_R\tACT_P\tOWNER\tDUE\tEVID\tFLOWS\tUNSUP\tISSUES")
 	for _, r := range o.Files {
 		if r.Report == nil {
 			fmt.Fprintf(tw, "%s\t%s\tnot evaluated\n", r.Name, r.Lang)
@@ -151,7 +162,7 @@ func row(r Report, unsupported string) string {
 		}
 		return fmt.Sprintf("%.2f", *v)
 	}
-	return fmt.Sprintf("%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t"+unsupported,
+	return fmt.Sprintf("%.2f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t"+unsupported,
 		r.JSONValid, m(r.DecisionRecall), m(r.DecisionPrecision), m(r.ActionRecall),
-		m(r.ActionPrecision), m(r.OwnerAccuracy), m(r.DueAccuracy), m(r.EvidenceValid), r.Unsupported)
+		m(r.ActionPrecision), m(r.OwnerAccuracy), m(r.DueAccuracy), m(r.EvidenceValid), m(r.FlowsOK), r.Unsupported)
 }

@@ -2,6 +2,11 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, t
 import { AudioLines, CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
+import { EvidenceBar, SourceLink } from "@/components/insights/Evidence"
+import { evidenceMatchesTranscript, prefersReducedMotion } from "@/components/insights/evidence"
+import { FlowsTab } from "@/components/insights/FlowsTab"
+import { MindMapTab } from "@/components/insights/MindMapTab"
+import { useFindFlows } from "@/components/insights/useFindFlows"
 import { CloudConsentDialog } from "@/components/settings/SettingsSummaries"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +31,7 @@ import {
   deleteMeeting,
   getConfig,
   getMeeting,
+  getMeetingAnalysis,
   getSummaryStatus,
   getTranscript,
   refineMeeting,
@@ -34,13 +40,15 @@ import {
   updateConfig,
   updateMeeting,
   type Meeting,
+  type MeetingAnalysis,
+  type TranscriptSource,
   type Utterance,
 } from "@/lib/api"
 import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { languageLabel } from "@/lib/languages"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
-import { navigate, useRoute, type MeetingTab } from "@/lib/route"
+import { meetingTab, navigate, useRoute, type MeetingTab } from "@/lib/route"
 
 interface MeetingDetailProps {
   meetingId: string
@@ -111,16 +119,42 @@ function refineErrorText(err: unknown): string {
 
 /** Load a whole (ended) transcript by walking the cursor until a page
  *  comes back empty. Capped so a broken backend can't loop forever. */
-async function loadFullTranscript(id: string): Promise<Utterance[]> {
+async function loadFullTranscript(
+  id: string,
+  source: TranscriptSource,
+): Promise<{ utterances: Utterance[]; source: "live" | "v2" }> {
   const all: Utterance[] = []
   let cursor = -1
+  let served: "live" | "v2" = source === "v2" ? "v2" : "live"
   for (let page = 0; page < 500; page++) {
-    const { utterances, cursor: next } = await getTranscript(id, cursor)
-    if (utterances.length === 0) break
-    all.push(...utterances)
-    cursor = next
+    const res = await getTranscript(id, cursor, source)
+    served = res.source
+    if (res.utterances.length === 0) break
+    all.push(...res.utterances)
+    cursor = res.cursor
   }
-  return all
+  return { utterances: all, source: served }
+}
+
+/** The analysis item's evidence for the frontmatter item at the same
+ *  index (the frontmatter is written from the analysis in index order),
+ *  or none when the two no longer line up. An action's frontmatter text
+ *  may carry " (due: …)" after the analysis text. */
+function evidenceAt(items: { text: string; evidence?: number[] }[] | undefined, i: number, text: string, count: number) {
+  if (!items || items.length !== count) return []
+  const item = items[i]
+  if (!item || !text.trim().startsWith(item.text.trim())) return []
+  return item.evidence ?? []
+}
+
+/** A jump to evidence lines in the Transcript tab. */
+interface EvidenceJump {
+  seqs: number[]
+  index: number
+  /** The tab the jump started from, for "Back to …". */
+  from: MeetingTab
+  /** Move focus to the line: on arrival, not on next/previous (focus stays on the arrows). */
+  focus: boolean
 }
 
 function groupBySpeaker(us: Utterance[]): { speaker?: string; items: Utterance[] }[] {
@@ -196,7 +230,48 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
 
   const [transcript, setTranscript] = useState<Utterance[] | null>(null)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
+  // The source the loaded transcript was requested as, so a later
+  // analysis (or a new summary) that points at the other transcript
+  // reloads it instead of jumping to the wrong lines.
+  const [transcriptFor, setTranscriptFor] = useState<TranscriptSource | null>(null)
   const groups = useMemo(() => (transcript ? groupBySpeaker(transcript) : []), [transcript])
+
+  // analysis.json and its mind map (docs/plans/active/meeting-insights.md):
+  // undefined while loading, null when the meeting has none yet (404).
+  // Loaded up front: Overview's "Source" links need it too. Bumping
+  // analysisVersion reloads it after a new summary.
+  const [analysis, setAnalysis] = useState<MeetingAnalysis | null | undefined>(undefined)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [analysisVersion, setAnalysisVersion] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    getMeetingAnalysis(meetingId)
+      .then((a) => {
+        if (cancelled) return
+        setAnalysis(a)
+        setAnalysisError(null)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        if (err instanceof ApiError && err.status === 404) {
+          setAnalysis(null)
+          setAnalysisError(null)
+        } else {
+          setAnalysisError(errorText(err))
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meetingId, analysisVersion])
+  const reloadAnalysis = () => {
+    setAnalysisError(null)
+    setAnalysisVersion((v) => v + 1)
+  }
+  const flowFinder = useFindFlows(meetingId, (a) => {
+    setAnalysis(a)
+    setAnalysisError(null)
+  })
 
   // Refresh on mount (initialMeeting may be a stale list row). No
   // loading flag: the parent remounts this per meeting (key={id}), so
@@ -238,9 +313,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const fetchTranscript = () => {
     if (loadingRef.current) return
     loadingRef.current = true
-    loadFullTranscript(meetingId)
-      .then((us) => {
-        if (!cancelledRef.current) setTranscript(us)
+    const want = wantedSource
+    loadFullTranscript(meetingId, want)
+      .then((res) => {
+        if (cancelledRef.current) return
+        setTranscript(res.utterances)
+        setTranscriptFor(want)
       })
       .catch((err: unknown) => {
         if (!cancelledRef.current) setTranscriptError(errorText(err))
@@ -275,8 +353,63 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const tab: MeetingTab = route.name === "meeting" ? route.tab : "overview"
   const setTab = (value: string) => {
     if (route.name !== "meeting") return
-    navigate({ ...route, tab: value === "transcript" ? "transcript" : "overview" }, { replace: true })
+    const next = meetingTab(value)
+    // Leaving the transcript ends a jump; coming back shows it plainly.
+    if (next !== "transcript") setJump(null)
+    navigate({ ...route, tab: next }, { replace: true })
   }
+
+  // Evidence jumps: a decision, action, mind-map leaf or flow step opens
+  // the Transcript tab at its first source line (utt-<seq>), centred and
+  // briefly highlighted, with next/previous when it has several.
+  const [jump, setJump] = useState<EvidenceJump | null>(null)
+  const jumpToEvidence = (seqs: number[]) => {
+    const sorted = [...new Set(seqs)].sort((a, b) => a - b)
+    if (sorted.length === 0) return
+    setJump({ seqs: sorted, index: 0, from: tab, focus: true })
+    setTab("transcript")
+  }
+  const jumpSeq = jump ? jump.seqs[jump.index] : null
+  const jumpMissing = jumpSeq !== null && transcript !== null && !transcript.some((u) => u.seq === jumpSeq)
+  useEffect(() => {
+    if (jumpSeq === null || tab !== "transcript" || !transcript) return
+    let el: HTMLElement | null = null
+    let timer = 0
+    // Next frame: Radix mounts the tab's content a render after the
+    // switch, so the row isn't in the DOM yet when this first runs.
+    const frame = window.requestAnimationFrame(() => {
+      el = document.getElementById(`utt-${jumpSeq}`)
+      if (!el) return
+      // On arrival, focus the line too (for keyboard and screen-reader
+      // users); next/previous leave focus on the arrows.
+      if (jump?.focus) el.focus({ preventScroll: true })
+      el.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" })
+      // A DOM attribute rather than state: it's a 2s flash React doesn't render.
+      el.dataset.highlight = "true"
+      const flashed = el
+      timer = window.setTimeout(() => delete flashed.dataset.highlight, 2000)
+    })
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+      if (el) delete el.dataset.highlight
+    }
+  }, [jump, jumpSeq, tab, transcript])
+  // Show the transcript the analysis's evidence seqs refer to; with no
+  // analysis, the best one (the refined v2 when there is one).
+  const wantedSource: TranscriptSource =
+    analysis?.analysis?.generated?.transcript === "v2"
+      ? "v2"
+      : analysis?.analysis?.generated?.transcript === "live"
+        ? "live"
+        : "best"
+  // A loaded transcript of the other source is replaced by refetching
+  // (async), not cleared here, so the effect never sets state itself.
+  const onSourceChanged = useEffectEvent(() => {
+    if (transcriptFor === null || transcriptFor === wantedSource) return
+    fetchTranscript()
+  })
+  useEffect(() => onSourceChanged(), [wantedSource])
   // Load on arrival too, not just on a tab click: the URL may open here.
   const onTabShown = useEffectEvent((shown: MeetingTab) => {
     if (shown === "transcript") loadTranscriptOnce()
@@ -336,6 +469,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     try {
       const m = await refineMeeting(meetingId)
       setMeeting(m)
+      reloadAnalysis()
     } catch (err) {
       // Nothing was sent yet: ask, and retry once the user agrees.
       if (err instanceof RefineError && err.kind === "consent_required") {
@@ -362,6 +496,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       const m = await refineMeeting(meetingId, { engine: "soniox", summarize: "if_ready" })
       setImproveSkipped(m.summary_skipped ?? null)
       setMeeting(m)
+      reloadAnalysis()
       setImproveOpen(false)
     } catch (err) {
       setImproveError(refineErrorText(err))
@@ -487,8 +622,20 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // nothing to switch to.
   const offerCloud = !usingCloud || cloudNeedsLogin || !cloud?.consent
 
+  // Evidence for Overview's "Source" links, when the Transcript tab shows
+  // the lines the analysis cites.
+  const insight = analysis?.analysis
+  const canJump = insight ? evidenceMatchesTranscript(insight) : false
+  const decisionEvidence = (i: number, text: string) =>
+    canJump ? evidenceAt(insight?.decisions, i, text, meeting.decisions?.length ?? 0) : []
+  const actionEvidence = (i: number, text: string) =>
+    canJump ? evidenceAt(insight?.actions, i, text, meeting.action_items?.length ?? 0) : []
+  const sourceLink = (evidence: number[]) =>
+    evidence.length > 0 && <SourceLink onClick={() => jumpToEvidence(evidence)} />
+
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
+    // The graphs get more room than the reading width text tabs keep.
+    <div className={`mx-auto px-6 py-8 ${tab === "mindmap" || tab === "flows" ? "max-w-6xl" : "max-w-3xl"}`}>
       <Button variant="ghost" onClick={onBack} className="mb-4">
         <span aria-hidden="true">←</span> Back to meetings
       </Button>
@@ -579,8 +726,10 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="mb-6 flex w-fit">
+        <TabsList className="mb-6 flex w-fit max-w-full overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="mindmap">Mind map</TabsTrigger>
+          <TabsTrigger value="flows">Flows</TabsTrigger>
           <TabsTrigger value="transcript">
             Transcript
             {meeting.refined_with === "soniox" && (
@@ -695,7 +844,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               <ul className="grid gap-2 text-base">
                 {meeting.decisions.map((d, i) => (
                   <li key={i} className="break-words">
-                    {d.text}
+                    {d.text} {sourceLink(decisionEvidence(i, d.text))}
                     {d.scope && <span className="block text-sm text-muted-foreground">{d.scope}</span>}
                   </li>
                 ))}
@@ -730,6 +879,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {a.owner && <Badge variant="outline">{a.owner}</Badge>}
                         {a.due && <span>due {formatDay(a.due)}</span>}
+                        {sourceLink(actionEvidence(i, a.text))}
                       </div>
                     </div>
                   </li>
@@ -779,7 +929,45 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           </Section>
         </TabsContent>
 
+        <TabsContent value="mindmap">
+          <MindMapTab
+            data={analysis}
+            error={analysisError}
+            onRetry={reloadAnalysis}
+            ended={Boolean(meeting.ended_at)}
+            refined={refined}
+            summaryAction={summaryButton}
+            onJump={jumpToEvidence}
+          />
+        </TabsContent>
+
+        <TabsContent value="flows">
+          <FlowsTab
+            data={analysis}
+            error={analysisError}
+            onRetry={reloadAnalysis}
+            ended={Boolean(meeting.ended_at)}
+            refined={refined}
+            summaryAction={summaryButton}
+            finder={flowFinder}
+            onJump={jumpToEvidence}
+          />
+        </TabsContent>
+
         <TabsContent value="transcript">
+          {jump && (
+            <EvidenceBar
+              index={jump.index}
+              total={jump.seqs.length}
+              missing={jumpMissing}
+              from={jump.from}
+              onStep={(delta) =>
+                setJump({ ...jump, index: Math.min(jump.seqs.length - 1, Math.max(0, jump.index + delta)), focus: false })
+              }
+              onBack={() => setTab(jump.from)}
+              onClose={() => setJump(null)}
+            />
+          )}
           {transcriptError ? (
             <div className="grid justify-items-start gap-3">
               <StatusMessage tone="error">
@@ -809,7 +997,13 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                   )}
                   <div className="grid gap-2">
                     {g.items.map((u) => (
-                      <div key={u.seq}>
+                      // utt-<seq>: the target of evidence jumps, flashed by data-highlight.
+                      <div
+                        key={u.seq}
+                        id={`utt-${u.seq}`}
+                        tabIndex={-1}
+                        className="-mx-2 rounded-md px-2 py-0.5 motion-safe:transition-colors motion-safe:duration-500 data-[highlight=true]:bg-primary/10 data-[highlight=true]:ring-2 data-[highlight=true]:ring-ring/60"
+                      >
                         <p className="break-words text-base">{u.text}</p>
                         {u.translated && (
                           <p className="break-words text-base text-muted-foreground">

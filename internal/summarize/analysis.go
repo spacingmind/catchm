@@ -102,13 +102,17 @@ type Flow struct {
 	Steps    []FlowStep `json:"steps"`
 }
 
-// FlowStep is one step of a Flow, in explicit Order.
+// FlowStep is one step of a Flow, in explicit Order (1..n once
+// validated). Actor, like Flow.Actor, is a Person key when it names a
+// listed person, else a role as plain text.
 type FlowStep struct {
-	ID    string     `json:"id"`
-	Order int        `json:"order"`
-	Text  string     `json:"text"`
-	Actor string     `json:"actor,omitempty"`
-	Next  []FlowNext `json:"next,omitempty"`
+	ID    string `json:"id"`
+	Order int    `json:"order"`
+	Text  string `json:"text"`
+	Actor string `json:"actor,omitempty"`
+	// Evidence cites the step's lines, where the model could tell.
+	Evidence []int64    `json:"evidence"`
+	Next     []FlowNext `json:"next,omitempty"`
 }
 
 // FlowNext is an edge to another step of the same flow, optionally
@@ -333,7 +337,8 @@ func validDate(s string) bool {
 //   - resolves topic references by id, key or title and person
 //     references by key, name, alias or speaker, dropping unknown ones
 //     (an unknown owner is kept as plain text);
-//   - keeps due only as a YYYY-MM-DD date, else moves it to due_text.
+//   - keeps due only as a YYYY-MM-DD date, else moves it to due_text;
+//   - validates flows as ValidateFlows does.
 //
 // Each fix is logged; the log is returned and appended to a.Issues.
 func Validate(a *Analysis, validSeqs map[int64]bool) []string {
@@ -347,7 +352,7 @@ func Validate(a *Analysis, validSeqs map[int64]bool) []string {
 	a.Topics = v.topics(a.Topics)
 	a.Decisions = v.decisions(a.Decisions)
 	a.Actions = v.actions(a.Actions, a.People)
-	a.Flows = v.flows(a.Flows)
+	a.Flows = v.flows(a.Flows, a.People)
 	if a.Issues == nil {
 		a.Issues = []string{}
 	}
@@ -735,30 +740,64 @@ func (v *validator) owner(where, owner string, who map[string]string) string {
 	return owner
 }
 
-func (v *validator) flows(in []Flow) []Flow {
+// ValidateFlows is Validate for flows alone, for the flows pass: it
+// trims every string and drops flows without a name and steps without
+// text; gives flows unique ids and steps ids unique within their flow;
+// sorts steps by their given order and renumbers them 1..n; resolves a
+// next edge given as a step's order number to that step's id and drops
+// edges to unknown steps, self-edges and duplicates; links a flow with
+// no edges left in step order; drops evidence seqs not in validSeqs,
+// filling a flow's empty evidence from its steps'; resolves actors
+// naming a person in people to their key; and drops flows left with
+// fewer than 2 steps. It returns the kept flows (never nil) and the
+// fixes it logged.
+func ValidateFlows(flows []Flow, people []Person, validSeqs map[int64]bool) ([]Flow, []string) {
+	v := &validator{seqs: validSeqs}
+	out := v.flows(flows, people)
+	if v.issues == nil {
+		return out, []string{}
+	}
+	return out, v.issues
+}
+
+func (v *validator) flows(in []Flow, people []Person) []Flow {
 	out := []Flow{}
 	taken := map[string]bool{}
+	who := personIndex(people)
 	for i, f := range in {
 		where := fmt.Sprintf("flows[%d]", i)
-		f.Name, f.Actor, f.Trigger = strings.TrimSpace(f.Name), strings.TrimSpace(f.Actor), strings.TrimSpace(f.Trigger)
+		f.Name, f.Trigger = strings.TrimSpace(f.Name), strings.TrimSpace(f.Trigger)
 		if f.Name == "" {
 			v.dropped("%s: empty name", where)
 			continue
 		}
-		f.ID = v.assignID(where, trimIDs(f.ID), "f", taken)
+		f.Actor = v.actor(where, f.Actor, who)
 		f.Evidence = v.evidence(where, f.Evidence)
-		f.Steps = v.steps(where, f.Steps)
+		f.Steps = v.steps(where, f.Steps, who)
+		if len(f.Steps) < minFlowSteps {
+			v.dropped("%s (%q): %d valid step(s), fewer than %d", where, f.Name, len(f.Steps), minFlowSteps)
+			continue
+		}
+		if len(f.Evidence) == 0 {
+			for _, s := range f.Steps {
+				f.Evidence = unionSeqs(f.Evidence, s.Evidence)
+			}
+			if len(f.Evidence) > 0 {
+				v.fixed("%s (%q) missing evidence, set from its steps'", where, f.Name)
+			}
+		}
+		f.ID = v.assignID(where, trimIDs(f.ID), "f", taken)
 		out = append(out, f)
 	}
 	return out
 }
 
-func (v *validator) steps(flow string, in []FlowStep) []FlowStep {
+func (v *validator) steps(flow string, in []FlowStep, who map[string]string) []FlowStep {
 	out := []FlowStep{}
 	taken := map[string]bool{}
 	for i, s := range in {
 		where := fmt.Sprintf("%s.steps[%d]", flow, i)
-		s.Text, s.Actor = strings.TrimSpace(s.Text), strings.TrimSpace(s.Actor)
+		s.Text = strings.TrimSpace(s.Text)
 		if s.Text == "" {
 			v.dropped("%s: empty text", where)
 			continue
@@ -768,19 +807,43 @@ func (v *validator) steps(flow string, in []FlowStep) []FlowStep {
 			s.Order = len(out) + 1
 			v.fixed("%s missing order, set to %d", where, s.Order)
 		}
+		s.Actor = v.actor(where, s.Actor, who)
+		s.Evidence = v.evidence(where, s.Evidence)
 		out = append(out, s)
 	}
+	// A next given as an order number ("2") means the step with that
+	// (given) order.
+	byOrder := map[string]string{}
+	for _, s := range out {
+		if k := strconv.Itoa(s.Order); byOrder[k] == "" {
+			byOrder[k] = s.ID
+		}
+	}
+	edges := 0
 	for i := range out {
+		where := fmt.Sprintf("%s.steps[%s]", flow, out[i].ID)
 		var next []FlowNext
+		seen := map[string]bool{}
 		for _, n := range out[i].Next {
+			orig := strings.TrimSpace(n.To)
 			n.To, n.Condition = trimIDs(n.To), strings.TrimSpace(n.Condition)
-			if !taken[n.To] || n.To == out[i].ID {
-				v.dropped("%s.steps[%s] next %q (unknown step)", flow, out[i].ID, n.To)
+			if id := byOrder[n.To]; !taken[n.To] && id != "" {
+				v.fixed("%s next %q resolved to %q", where, orig, id)
+				n.To = id
+			}
+			switch {
+			case !taken[n.To] || n.To == out[i].ID:
+				v.dropped("%s next %q (unknown step)", where, orig)
+				continue
+			case seen[n.To+"\x00"+n.Condition]:
+				v.dropped("%s next %q (duplicate edge)", where, orig)
 				continue
 			}
+			seen[n.To+"\x00"+n.Condition] = true
 			next = append(next, n)
 		}
 		out[i].Next = next
+		edges += len(next)
 	}
 	// Stable insertion sort by order: steps are few.
 	for i := 1; i < len(out); i++ {
@@ -788,5 +851,47 @@ func (v *validator) steps(flow string, in []FlowStep) []FlowStep {
 			out[j], out[j-1] = out[j-1], out[j]
 		}
 	}
+	renumbered := false
+	for i := range out {
+		if out[i].Order != i+1 {
+			out[i].Order, renumbered = i+1, true
+		}
+	}
+	if renumbered {
+		v.fixed("%s steps renumbered 1..%d in their given order", flow, len(out))
+	}
+	if edges == 0 && len(out) > 1 {
+		for i := range len(out) - 1 {
+			out[i].Next = []FlowNext{{To: out[i+1].ID}}
+		}
+		v.fixed("%s has no next edges, steps linked in order", flow)
+	}
 	return out
+}
+
+// actor resolves a flow's or step's actor to a person key when it names
+// a listed person (by key, name, alias or speaker label); any other
+// actor is kept as text, an unknown person key as its slug's words.
+func (v *validator) actor(where, actor string, who map[string]string) string {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return ""
+	}
+	if key, ok := who[nameKey(actor)]; ok {
+		if key != actor {
+			v.fixed("%s actor %q resolved to %q", where, actor, key)
+		}
+		return key
+	}
+	typ, body := splitKey(actor)
+	if typ != "person" {
+		return actor
+	}
+	if key, ok := who[body]; ok {
+		v.fixed("%s actor %q resolved to %q", where, actor, key)
+		return key
+	}
+	text := strings.ReplaceAll(body, "-", " ")
+	v.dropped("%s actor reference %q (not a listed person; kept as text %q)", where, actor, text)
+	return text
 }

@@ -358,3 +358,31 @@ Follow-ups:
   - Evidence refers to the transcript the analysis came from:
     `generated.transcript` is `v2` or `live`, and the Transcript tab
     shows that one.
+
+## P1 status (2026-09-28)
+
+**P1b (backend):**
+- The flows pass (`FindFlows`) for Ollama and OpenAI-compatible.
+  `ValidateFlows` renumbers steps, resolves or drops `next` edges, drops
+  bad seqs and flows with fewer than 2 steps, and links unlinked steps
+  in order.
+- `POST /api/meetings/{id}/flows`: 409 without a summary; not supported
+  on CatchM Cloud; it re-reads `analysis.json` before writing, so a
+  concurrent summary isn't lost.
+- Flows survive a re-summary.
+
+**P1a (UI):**
+- Mind map (d3-hierarchy + React Flow) and Flows (dagre) tabs,
+  lazy-loaded. The main bundle doesn't grow; the React Flow chunk is
+  about 57 kB gzipped.
+- Source links on Overview; a list view for screen readers.
+- Evidence jump: highlight, "1 of N", "Back to Mind map".
+
+**Integration fix:**
+- The Transcript tab could only show the live transcript, so for any
+  analysis made from the v2 transcript the jumps were disabled.
+- `GET /api/meetings/{id}/transcript?source=live|v2|best` now reports
+  what it served. MeetingDetail loads the transcript named by
+  `analysis.generated.transcript` (or "best" when there's no analysis)
+  and reloads if that changes.
+- Verified in the browser: a v2 analysis leaf jumps to its v2 line.
