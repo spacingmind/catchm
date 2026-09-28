@@ -111,12 +111,21 @@ function ProjectsNav({
   }
 
   const recent = (projects ?? []).slice(0, SIDEBAR_PROJECTS)
+  // Same row as the main nav (NavButton: h-9, text-sm, size-4 icon): the
+  // heading is itself the "All projects" link, and each project is a
+  // child row whose dot sits where a nav icon would, indented under it.
   return (
-    <div role="group" aria-labelledby={headingId} className="mt-4 grid gap-0.5">
-      <h2 id={headingId} className="flex items-center gap-2 px-2.5 pb-1 text-xs font-medium text-muted-foreground">
-        <FolderOpen aria-hidden="true" className="size-3.5" />
+    <div role="group" aria-labelledby={headingId} className="grid gap-1">
+      <span id={headingId} className="sr-only">
         Projects
-      </h2>
+      </span>
+      <NavButton
+        icon={FolderOpen}
+        label="Projects"
+        collapsed={false}
+        active={view === "projects"}
+        onClick={() => onNavigate("projects")}
+      />
       {recent.map((p) => {
         const active = view === "list" && activeKey === projectKey(p.name)
         return (
@@ -127,7 +136,7 @@ function ProjectsNav({
             aria-current={active ? "page" : undefined}
             title={p.name}
             className={cn(
-              "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md pr-2.5 pl-9 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -138,17 +147,6 @@ function ProjectsNav({
           </button>
         )
       })}
-      <button
-        type="button"
-        onClick={() => onNavigate("projects")}
-        aria-current={view === "projects" ? "page" : undefined}
-        className={cn(
-          "flex h-8 w-full cursor-pointer items-center rounded-md px-2.5 pl-9 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          view === "projects" ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-        )}
-      >
-        All projects
-      </button>
     </div>
   )
 }
