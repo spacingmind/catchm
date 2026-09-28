@@ -151,3 +151,16 @@ func TestWhisperEngineCapabilities(t *testing.T) {
 		t.Fatal("whisper engine should not claim translation support")
 	}
 }
+
+func TestWhisperReachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // any response counts
+	}))
+	if err := WhisperReachable(context.Background(), srv.URL); err != nil {
+		t.Fatalf("WhisperReachable(up) = %v, want nil", err)
+	}
+	srv.Close()
+	if err := WhisperReachable(context.Background(), srv.URL); err == nil {
+		t.Fatal("WhisperReachable(down) = nil, want error")
+	}
+}

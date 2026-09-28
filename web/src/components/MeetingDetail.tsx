@@ -1,10 +1,12 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { CheckSquare, GitBranch, Loader2, Pencil, Trash2 } from "lucide-react"
+import { CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
+import { CloudConsentDialog } from "@/components/settings/SettingsSummaries"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -18,18 +20,25 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useAnnounceChange, useStatusCheck } from "@/hooks/useStatusCheck"
 import {
+  ApiError,
   deleteMeeting,
   getMeeting,
+  getSummaryStatus,
   getTranscript,
   refineMeeting,
+  RefineError,
   updateActionItemStatus,
+  updateConfig,
   updateMeeting,
   type Meeting,
   type Utterance,
 } from "@/lib/api"
-import { formatDateRange, formatDay } from "@/lib/format"
+import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
+import { languageLabel } from "@/lib/languages"
+import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { navigate, useRoute, type MeetingTab } from "@/lib/route"
 
 interface MeetingDetailProps {
@@ -46,6 +55,41 @@ const done = (status: string | undefined) => status === "done"
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 /** Ends with exactly one period, so a next step can follow. */
 const sentence = (s: string) => `${s.replace(/[.\s]+$/, "")}.`
+
+/** CatchM Cloud's free daily summaries, when the quota endpoint doesn't say. */
+const CLOUD_DEFAULT_LIMIT = 5
+
+/** What "Create summary & action items" does, shown next to the button. */
+const SUMMARY_HELP =
+  "CatchM listens to the whole recording again for a more accurate transcript, then the AI writes the summary, decisions and action items. It takes a few minutes, so keep this page open."
+
+/** A refine failure in plain words, with what to do next. Summary
+ *  failures carry a `kind` (RefineError); the rest are the raw messages
+ *  handleRefine passes through: batch.Refine's sentinels and the Whisper
+ *  engine (the only network call before the summary). consent_required
+ *  never reaches here: handleRefine asks for consent instead. */
+function refineErrorText(err: unknown): string {
+  const raw = errorText(err)
+  if (err instanceof RefineError) {
+    switch (err.kind) {
+      case "summary_not_ready":
+        return `Summaries aren’t set up yet. ${sentence(raw)} Fix this in Settings → Summaries, then try again.`
+      case "quota_exceeded": {
+        const after = err.reset_at ? formatDateTime(err.reset_at) : "tomorrow"
+        return `Today’s free summaries are used up. Try again after ${after}, or switch to “On this computer” in Settings → Summaries.`
+      }
+      case "summary_failed":
+        return "CatchM couldn’t write the summary this time. Try again in a moment."
+    }
+  }
+  if (err instanceof ApiError && err.status === 404) return "This meeting no longer exists. Go back to your meetings."
+  if (/still active/i.test(raw)) return "This meeting is still recording. End it first, then create the summary."
+  if (/no audio/i.test(raw)) return "This meeting has no saved recording, so a summary can’t be created."
+  if (/whisper|inference|connection refused|dial tcp/i.test(raw)) {
+    return "Transcription on this computer (the Whisper server) isn’t responding. Check Settings → Transcription, then try again."
+  }
+  return `Couldn’t create the summary: ${sentence(raw)} Try again.`
+}
 
 /** Load a whole (ended) transcript by walking the cursor until a page
  *  comes back empty. Capped so a broken backend can't loop forever. */
@@ -89,6 +133,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // Page-level errors (load, refine, action-item toggle). Rename/delete
   // errors stay inside their dialogs, where the user is looking.
   const [error, setError] = useState<string | null>(null)
+  // The last refine failed because summaries aren't set up: offer a way there.
+  const [needsSetup, setNeedsSetup] = useState(false)
+  const [consentOpen, setConsentOpen] = useState(false)
+  // Set by the consent dialog's accept, so its close doesn't read as "declined".
+  const consentAccepted = useRef(false)
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameTitle, setRenameTitle] = useState("")
   const [renaming, setRenaming] = useState(false)
@@ -97,6 +146,28 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // "Use CatchM Cloud" from the not-set-up card: the consent dialog (which
+  // also selects the provider), or a direct save when consent was given.
+  const [cloudConsentOpen, setCloudConsentOpen] = useState(false)
+  const [cloudSaving, setCloudSaving] = useState(false)
+  const [cloudError, setCloudError] = useState<string | null>(null)
+
+  // An ended meeting without a summary leads with "Create summary", so
+  // check first whether summaries are set up; if not, the card offers the
+  // two ways to set them up instead of an error after the click. It
+  // re-checks on focus, e.g. after installing Ollama in another window.
+  const {
+    data: summaryStatus,
+    error: summaryStatusError,
+    refresh: refreshSummaryStatus,
+  } = useStatusCheck(getSummaryStatus, { enabled: Boolean(meeting?.ended_at) && !meeting?.refined })
+  const summaryAnnouncement = useAnnounceChange(
+    summaryStatus
+      ? summaryStatus.ready
+        ? "Summaries are set up. You can create the summary now."
+        : "Summaries aren’t set up yet."
+      : null,
+  )
 
   const [transcript, setTranscript] = useState<Utterance[] | null>(null)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
@@ -221,13 +292,49 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const handleRefine = async () => {
     setRefining(true)
     setError(null)
+    setNeedsSetup(false)
     try {
       const m = await refineMeeting(meetingId)
       setMeeting(m)
     } catch (err) {
-      setError(`Couldn’t refine the transcript: ${sentence(errorText(err))} Try again.`)
+      // Nothing was sent yet: ask, and retry once the user agrees.
+      if (err instanceof RefineError && err.kind === "consent_required") {
+        setConsentOpen(true)
+      } else {
+        setError(refineErrorText(err))
+        const setup = err instanceof RefineError && (err.kind === "summary_not_ready" || err.kind === "quota_exceeded")
+        setNeedsSetup(setup)
+        // The card should now show what's missing, not the old "ready".
+        if (setup) refreshSummaryStatus()
+      }
     } finally {
       setRefining(false)
+    }
+  }
+
+  // CatchM Cloud is chosen (and agreed to). Logged in: go ahead with the
+  // summary, like the consent_required retry. Logged out: the re-check
+  // turns the card's cloud option into "Open Cloud sync".
+  const afterCloudChosen = () => {
+    refreshSummaryStatus()
+    if (summaryStatus?.cloud?.logged_in !== false) void handleRefine()
+  }
+
+  const chooseCloud = async () => {
+    if (cloudSaving) return
+    setCloudError(null)
+    if (!summaryStatus?.cloud?.consent) {
+      setCloudConsentOpen(true)
+      return
+    }
+    setCloudSaving(true)
+    try {
+      await updateConfig({ summary: { provider: "catchm-cloud" } })
+      afterCloudChosen()
+    } catch (err) {
+      setCloudError(`Couldn’t switch to CatchM Cloud: ${sentence(errorText(err))} Try again.`)
+    } finally {
+      setCloudSaving(false)
     }
   }
 
@@ -285,6 +392,39 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     )
   }
 
+  const refined = Boolean(meeting.refined)
+  // Summaries are manual: ending a meeting doesn't create one, so an
+  // ended, unsummarized meeting leads with the call to action.
+  const showSummaryCta = !refined && Boolean(meeting.ended_at)
+  const findHint = meeting.ended_at
+    ? "Create a summary to find them."
+    : "End the meeting, then create a summary to find them."
+  const summaryButton = (
+    <Button onClick={handleRefine} disabled={refining} variant={refined ? "outline" : "default"}>
+      {refining ? (
+        <Loader2 aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+      ) : (
+        !refined && <Sparkles aria-hidden="true" />
+      )}
+      {refining ? "Creating summary…" : refined ? "Redo summary" : "Create summary & action items"}
+    </Button>
+  )
+
+  // Not set up (and not mid-summary): the card offers the two ways to set
+  // summaries up. A failed check falls back to the plain button.
+  const setupNeeded = summaryStatus != null && !summaryStatus.ready && !refining
+  // The first check is still running: hold the button's place, so the
+  // card doesn't swap from "Create" to "set up" under the pointer.
+  const checkingSetup = summaryStatus == null && summaryStatusError == null
+  const localGb = modelDownloadGb(summaryStatus?.ollama?.model)
+  const cloud = summaryStatus?.cloud
+  const usingCloud = summaryStatus?.provider === "catchm-cloud"
+  const cloudNeedsLogin = usingCloud && cloud?.logged_in === false
+  // CatchM Cloud chosen, agreed to and logged in, yet not ready (e.g.
+  // today's free summaries are used up): the reason says why, and there's
+  // nothing to switch to.
+  const offerCloud = !usingCloud || cloudNeedsLogin || !cloud?.consent
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
       <Button variant="ghost" onClick={onBack} className="mb-4">
@@ -295,9 +435,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         <div className="min-w-0">
           <div className="flex items-start gap-2">
             <h1 className="min-w-0 text-balance break-words text-2xl font-semibold">{meeting.title}</h1>
-            {meeting.refined && (
+            {refined && (
               <Badge variant="secondary" className="mt-1.5 shrink-0">
-                Refined
+                Summary ready
               </Badge>
             )}
             <Button
@@ -322,19 +462,33 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           )}
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleRefine} disabled={refining}>
-            {refining && <Loader2 aria-hidden="true" className="size-4 motion-safe:animate-spin" />}
-            {refining ? "Refining…" : "Refine transcript"}
-          </Button>
+          {refined && summaryButton}
           <Button variant="destructive" onClick={openDelete}>
             <Trash2 aria-hidden="true" /> Delete
           </Button>
         </div>
       </div>
 
-      <StatusMessage tone="error" className="mb-4">
-        {error}
-      </StatusMessage>
+      <div className={needsSetup && error ? "mb-4 flex flex-wrap items-center gap-3" : undefined}>
+        <StatusMessage tone="error" className={needsSetup && error ? "min-w-0 flex-1" : "mb-4"}>
+          {error}
+        </StatusMessage>
+        {needsSetup && error && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate({ name: "settings", section: "summaries" })}
+          >
+            Open settings
+          </Button>
+        )}
+      </div>
+      <StatusMessage className="sr-only">{summaryAnnouncement}</StatusMessage>
+      {refined && (
+        <StatusMessage className="mb-4">
+          {refining ? "Creating a new summary. This takes a few minutes, so keep this page open." : null}
+        </StatusMessage>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6 flex w-fit">
@@ -343,18 +497,118 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         </TabsList>
 
         <TabsContent value="overview">
+          {showSummaryCta &&
+            (setupNeeded ? (
+              <Card className="mb-8 border-primary/40">
+                <CardHeader>
+                  <CardTitle className="text-lg">
+                    <h2 className="flex items-center gap-2">
+                      <Sparkles aria-hidden="true" className="size-4" />
+                      Summaries aren’t set up yet
+                    </h2>
+                  </CardTitle>
+                  <CardDescription className="text-pretty">
+                    {summaryStatus.reason && `${sentence(summaryStatus.reason)} `}
+                    Choose how CatchM writes the summary, decisions and action items. You only do this once.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <ul className="grid gap-3 sm:grid-cols-2">
+                    <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-4">
+                      <div>
+                        <h3 className="flex items-center gap-2 text-sm font-medium">
+                          <HardDrive aria-hidden="true" className="size-4" />
+                          On this computer
+                        </h3>
+                        <p id="summary-setup-local-desc" className="mt-1 text-sm text-muted-foreground">
+                          Free and private. One-time download of{" "}
+                          {localGb != null ? `about ${formatGb(localGb)}` : "a few GB"}.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => navigate({ name: "settings", section: "summaries" })}
+                        aria-describedby="summary-setup-local-desc"
+                      >
+                        Set up on this computer
+                      </Button>
+                    </li>
+                    {offerCloud && (
+                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-4">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-medium">
+                            <Cloud aria-hidden="true" className="size-4" />
+                            CatchM Cloud
+                          </h3>
+                          <p id="summary-setup-cloud-desc" className="mt-1 text-sm text-muted-foreground">
+                            Free, {cloud?.limit ?? CLOUD_DEFAULT_LIMIT} per day, needs a CatchM account.
+                            {cloudNeedsLogin && " Log in or sign up on the Cloud sync page, then come back here."}
+                          </p>
+                        </div>
+                        {cloudNeedsLogin ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigate({ name: "settings", section: "cloud" })}
+                            aria-describedby="summary-setup-cloud-desc"
+                          >
+                            Open Cloud sync
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void chooseCloud()}
+                            disabled={cloudSaving}
+                            aria-describedby="summary-setup-cloud-desc"
+                          >
+                            {cloudSaving ? "Saving…" : "Use CatchM Cloud"}
+                          </Button>
+                        )}
+                      </li>
+                    )}
+                  </ul>
+                  <StatusMessage tone="error" className="break-words">
+                    {cloudError}
+                  </StatusMessage>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto justify-self-start px-0 text-muted-foreground"
+                    onClick={() => void handleRefine()}
+                  >
+                    Try anyway
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="mb-8 border-primary/40">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Sparkles aria-hidden="true" className="size-4" />
+                    Get a summary of this meeting
+                  </CardTitle>
+                  <CardDescription className="text-pretty">{SUMMARY_HELP}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {checkingSetup ? <Skeleton aria-hidden="true" className="h-8 w-60" /> : summaryButton}
+                </CardContent>
+              </Card>
+            ))}
           <Section title="Decisions" icon={<GitBranch aria-hidden="true" className="size-4" />}>
             {meeting.decisions && meeting.decisions.length > 0 ? (
               <ul className="grid gap-2 text-base">
                 {meeting.decisions.map((d, i) => (
                   <li key={i} className="break-words">
                     {d.text}
-                    {d.scope && <span className="ml-2 text-muted-foreground">({d.scope})</span>}
+                    {d.scope && <span className="block text-sm text-muted-foreground">{d.scope}</span>}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No decisions recorded.</p>
+              <p className="text-sm text-muted-foreground">
+                {refined ? "No decisions were found in this meeting." : `No decisions yet. ${findHint}`}
+              </p>
             )}
           </Section>
 
@@ -387,7 +641,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No loose ends.</p>
+              <p className="text-sm text-muted-foreground">
+                {refined
+                  ? "No action items were found in this meeting."
+                  : `No action items yet. ${findHint}`}
+              </p>
             )}
           </Section>
 
@@ -396,7 +654,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               <p className="break-words text-base">{meeting.summary}</p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No summary yet. Refine the transcript to generate one.
+                {refined ? "No summary was written for this meeting." : showSummaryCta
+                  ? "No summary yet. Create one with the button above."
+                  : "No summary yet. End the meeting, then create one."}
               </p>
             )}
           </Section>
@@ -405,7 +665,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             {meeting.participants && meeting.participants.length > 0 ? (
               <p className="break-words text-base">{meeting.participants.join(", ")}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">No participants recorded.</p>
+              <p className="text-sm text-muted-foreground">No participants found.</p>
             )}
           </Section>
 
@@ -459,8 +719,8 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                         {u.translated && (
                           <p className="break-words text-base text-muted-foreground">
                             {u.lang && (
-                              <span translate="no" className="mr-1 text-xs text-muted-foreground">
-                                <span aria-hidden="true">→</span> {u.lang}
+                              <span className="mr-1 text-xs text-muted-foreground">
+                                <span aria-hidden="true">→</span> {languageLabel(u.lang)}
                               </span>
                             )}
                             {u.translated}
@@ -520,6 +780,31 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           </form>
         </DialogContent>
       </Dialog>
+
+      <CloudConsentDialog
+        open={consentOpen}
+        onOpenChange={(open) => {
+          setConsentOpen(open)
+          if (!open && !consentAccepted.current) {
+            setError(
+              "No summary was created. CatchM Cloud needs your OK before it gets the transcript. To keep everything on this computer, switch to “On this computer” in Settings → Summaries.",
+            )
+            setNeedsSetup(true)
+          }
+          consentAccepted.current = false
+        }}
+        onAccepted={() => {
+          consentAccepted.current = true
+          void handleRefine()
+        }}
+      />
+
+      <CloudConsentDialog
+        open={cloudConsentOpen}
+        onOpenChange={setCloudConsentOpen}
+        onAccepted={afterCloudChosen}
+        select
+      />
 
       <ConfirmDialog
         open={deleteOpen}

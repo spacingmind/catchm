@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spacingmind/catchm/internal/agent"
 	"github.com/spacingmind/catchm/internal/batch"
 	"github.com/spacingmind/catchm/internal/capture"
 	"github.com/spacingmind/catchm/internal/cloudsync"
@@ -21,6 +20,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/pipeline"
 	"github.com/spacingmind/catchm/internal/stt"
+	"github.com/spacingmind/catchm/internal/summarize"
 	"github.com/spacingmind/catchm/internal/tools"
 	"github.com/spacingmind/catchm/internal/translate"
 )
@@ -35,7 +35,7 @@ type Server struct {
 	newSource      func(device string) (capture.Source, error)
 	newBatchEngine func(cfg *config.Config) (stt.BatchEngine, error)
 	newTranslator  func(cfg *config.Config, model string) (translate.Translator, error)
-	enrichFinal    func(ctx context.Context, store *meeting.Store, id string) error
+	newSummarizer  func(cfg *config.Config, cloud summarize.CloudAuth) (summarize.Summarizer, error)
 
 	mu        sync.Mutex
 	pipelines map[string]*pipeline.Pipeline
@@ -64,7 +64,7 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		newTranslator: func(cfg *config.Config, model string) (translate.Translator, error) {
 			return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
 		},
-		enrichFinal:    agent.EnrichMeetingFinal,
+		newSummarizer:  summarize.New,
 		pipelines:      map[string]*pipeline.Pipeline{},
 		newCloudClient: nil,
 	}
@@ -96,6 +96,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
 	s.mux.HandleFunc("POST /api/translate/pull", s.handleTranslatePull)
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
+	s.mux.HandleFunc("GET /api/stt/status", s.handleSttStatus)
+	s.mux.HandleFunc("GET /api/summary/status", s.handleSummaryStatus)
 
 	s.mux.HandleFunc("POST /api/cloud/signup", s.handleCloudSignup)
 	s.mux.HandleFunc("POST /api/cloud/login", s.handleCloudLogin)
@@ -687,27 +689,85 @@ func (s *Server) handleSetActionItemStatus(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	m, err := s.surface.GetMeeting(id)
+	if err != nil {
+		respondRefineErr(w, err)
+		return
+	}
+	// A meeting that can't be refined answers that first, before any
+	// summary readiness probe.
+	if err := batch.CheckRefinable(s.surface.Store(), id); err != nil {
+		respondRefineErr(w, err)
+		return
+	}
+	var translator translate.Translator
+	if m.TranslateTo != "" {
+		if t, err := s.newTranslator(s.cfg, s.cfg.Translate.BatchModel); err == nil {
+			translator = t
+		}
+	}
+	// Build the summarizer before the (slow) batch pass: its checks are
+	// config-only, so a missing cloud consent or provider setup answers
+	// at once, and nothing reaches the cloud without consent.
+	s.mu.Lock()
+	cfg := *s.cfg
+	s.mu.Unlock()
+	auth := s.cloudAuth()
+	sum, err := s.newSummarizer(&cfg, auth)
+	if err != nil {
+		respondSummaryErr(w, err)
+		return
+	}
+	// Then the status endpoint's probes (Ollama up with the model, cloud
+	// quota left), so a summary that can't run fails before minutes of
+	// batch transcription. An unreachable quota endpoint doesn't block.
+	readyCtx, cancel := context.WithTimeout(r.Context(), refineReadyTimeout)
+	st := summaryReadiness(readyCtx, &cfg, auth, false)
+	cancel()
+	if err := st.err(); err != nil {
+		respondSummaryErr(w, err)
+		return
+	}
 	engine, err := s.newBatchEngine(s.cfg)
 	if err != nil {
 		httpError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var translator translate.Translator
-	if m, err := s.surface.GetMeeting(id); err == nil && m.TranslateTo != "" {
-		if t, err := s.newTranslator(s.cfg, s.cfg.Translate.BatchModel); err == nil {
-			translator = t
-		}
-	}
 	if err := batch.Refine(r.Context(), s.surface.Store(), id, engine, translator); err != nil {
 		respondRefineErr(w, err)
 		return
 	}
-	if err := s.enrichFinal(r.Context(), s.surface.Store(), id); err != nil {
-		httpError(w, http.StatusInternalServerError, err.Error())
+	if err := summarize.SummarizeMeeting(r.Context(), s.surface.Store(), id, sum); err != nil {
+		respondSummaryErr(w, err)
 		return
 	}
-	m, err := s.surface.GetMeeting(id)
+	m, err = s.surface.GetMeeting(id)
 	respond(w, m, err)
+}
+
+// respondSummaryErr answers a classified summary failure as
+// {error, kind} (plus reset_at for quota_exceeded); anything else is a
+// plain store error.
+func respondSummaryErr(w http.ResponseWriter, err error) {
+	var se *summarize.Error
+	if !errors.As(err, &se) {
+		respondErr(w, err)
+		return
+	}
+	body := map[string]string{"error": se.Message, "kind": string(se.Kind)}
+	status := http.StatusBadGateway
+	switch se.Kind {
+	case summarize.KindConsentRequired:
+		status = http.StatusConflict
+	case summarize.KindQuotaExceeded:
+		status = http.StatusTooManyRequests
+		if se.ResetAt != "" {
+			body["reset_at"] = se.ResetAt
+		}
+	case summarize.KindNotReady:
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, body)
 }
 
 // translateStatusTimeout bounds how long a status check waits on an
@@ -715,14 +775,16 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 // hang for the default HTTP client timeout.
 const translateStatusTimeout = 5 * time.Second
 
-// resolveTranslateModel maps a "live"/"batch" target to the configured
-// model name.
+// resolveTranslateModel maps a "live"/"batch"/"summary" target to the
+// configured Ollama model name.
 func (s *Server) resolveTranslateModel(target string) (string, bool) {
 	switch target {
 	case "live":
 		return s.cfg.Translate.LiveModel, true
 	case "batch":
 		return s.cfg.Translate.BatchModel, true
+	case "summary":
+		return s.cfg.Summary.OllamaModel, true
 	default:
 		return "", false
 	}
@@ -762,7 +824,7 @@ func (s *Server) handleTranslatePull(w http.ResponseWriter, r *http.Request) {
 	}
 	model, ok := s.resolveTranslateModel(req.Target)
 	if !ok {
-		httpError(w, http.StatusBadRequest, `target must be "live" or "batch"`)
+		httpError(w, http.StatusBadRequest, `target must be "live", "batch" or "summary"`)
 		return
 	}
 
@@ -821,10 +883,55 @@ func (s *Server) handleTranslateTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"translated": translated})
 }
 
+// sttStatusTimeout bounds the Whisper reachability probe so the status
+// check answers quickly when nothing is listening.
+const sttStatusTimeout = 1500 * time.Millisecond
+
+// sttEngineStatus is one engine's readiness in GET /api/stt/status.
+// Reason is plain, user-facing text, set only when Ready is false.
+type sttEngineStatus struct {
+	Ready  bool   `json:"ready"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// handleSttStatus reports whether each transcription engine is ready
+// before a meeting starts. It always answers 200: an unreachable Whisper
+// server is a status, not a server error. Soniox is never dialled; a set
+// API key is the only check.
+func (s *Server) handleSttStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	cfg := *s.cfg
+	s.mu.Unlock()
+
+	defaultEngine := "whisper"
+	if cfg.Engine == "soniox" {
+		defaultEngine = "soniox"
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), sttStatusTimeout)
+	defer cancel()
+	whisper := sttEngineStatus{Ready: true}
+	if err := stt.WhisperReachable(ctx, cfg.WhisperURL); err != nil {
+		whisper = sttEngineStatus{Reason: fmt.Sprintf(
+			"The Whisper server at %s isn't responding. Start it, or switch to the cloud engine.", cfg.WhisperURL)}
+	}
+	soniox := sttEngineStatus{Ready: true}
+	if cfg.Soniox.APIKey == "" {
+		soniox = sttEngineStatus{Reason: "Add a Soniox API key in Settings → Transcription."}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"default_engine": defaultEngine,
+		"whisper":        whisper,
+		"soniox":         soniox,
+	})
+}
+
 // sanitizedConfig renders cfg in the JSON shape shared by GET and PUT
 // /api/config: the same field names as Config's YAML, except the Soniox
-// API key is replaced by a top-level soniox_api_key_set boolean so the
-// secret itself never appears in any response.
+// and summary OpenAI API keys are replaced by top-level
+// soniox_api_key_set / summary_openai_api_key_set booleans so the
+// secrets themselves never appear in any response.
 func sanitizedConfig(cfg *config.Config) map[string]any {
 	return map[string]any{
 		"engine":             cfg.Engine,
@@ -837,11 +944,22 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 			"live_model":  cfg.Translate.LiveModel,
 			"batch_model": cfg.Translate.BatchModel,
 		},
+		"summary": map[string]any{
+			"provider":     summarize.ProviderOf(cfg),
+			"ollama_model": cfg.Summary.OllamaModel,
+			"openai": map[string]any{
+				"base_url": cfg.Summary.OpenAI.BaseURL,
+				"model":    cfg.Summary.OpenAI.Model,
+			},
+			"cloud_consent": cfg.Summary.CloudConsent,
+		},
+		"summary_openai_api_key_set": cfg.Summary.OpenAI.APIKey != "",
 	}
 }
 
 // configRequestBody mirrors sanitizedConfig's shape plus the write-only
-// soniox_api_key field, which never appears in responses.
+// soniox_api_key and summary.openai.api_key fields, which never appear
+// in responses.
 type configRequestBody struct {
 	Engine     string `json:"engine"`
 	Lang       string `json:"lang"`
@@ -855,6 +973,18 @@ type configRequestBody struct {
 		LiveModel  string `json:"live_model"`
 		BatchModel string `json:"batch_model"`
 	} `json:"translate"`
+	Summary struct {
+		Provider    string `json:"provider"`
+		OllamaModel string `json:"ollama_model"`
+		OpenAI      struct {
+			BaseURL string `json:"base_url"`
+			Model   string `json:"model"`
+			APIKey  string `json:"api_key"`
+		} `json:"openai"`
+		// A pointer, unlike the strings: false (revoking consent) must
+		// be settable, and omitted must still mean "leave as-is".
+		CloudConsent *bool `json:"cloud_consent"`
+	} `json:"summary"`
 }
 
 // Config reads and writes are guarded by s.mu (the same mutex that
@@ -885,6 +1015,21 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, `engine must be "whisper" or "soniox"`)
 		return
 	}
+	switch req.Summary.Provider {
+	case "", summarize.ProviderOllama, summarize.ProviderCloud, summarize.ProviderOpenAI:
+	default:
+		httpError(w, http.StatusBadRequest, `summary.provider must be "ollama", "catchm-cloud" or "openai"`)
+		return
+	}
+	baseURL := req.Summary.OpenAI.BaseURL
+	if baseURL != "" {
+		normalized, err := validateSummaryBaseURL(baseURL)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "summary.openai.base_url: "+err.Error())
+			return
+		}
+		baseURL = normalized
+	}
 
 	s.mu.Lock()
 	updated := *s.cfg // shallow copy is enough: Config holds no reference types
@@ -900,6 +1045,19 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)
 	setIfNonEmpty(&updated.Translate.LiveModel, req.Translate.LiveModel)
 	setIfNonEmpty(&updated.Translate.BatchModel, req.Translate.BatchModel)
+	setIfNonEmpty(&updated.Summary.Provider, req.Summary.Provider)
+	setIfNonEmpty(&updated.Summary.OllamaModel, req.Summary.OllamaModel)
+	if baseURL != "" && baseURL != updated.Summary.OpenAI.BaseURL && req.Summary.OpenAI.APIKey == "" {
+		// A stored key belongs to the server it was entered for; never
+		// send it to a different one the user switched to.
+		updated.Summary.OpenAI.APIKey = ""
+	}
+	setIfNonEmpty(&updated.Summary.OpenAI.BaseURL, baseURL)
+	setIfNonEmpty(&updated.Summary.OpenAI.Model, req.Summary.OpenAI.Model)
+	setIfNonEmpty(&updated.Summary.OpenAI.APIKey, req.Summary.OpenAI.APIKey)
+	if req.Summary.CloudConsent != nil {
+		updated.Summary.CloudConsent = *req.Summary.CloudConsent
+	}
 
 	if err := config.Save(&updated); err != nil {
 		httpError(w, http.StatusInternalServerError, err.Error())

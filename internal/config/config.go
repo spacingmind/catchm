@@ -1,5 +1,5 @@
 // Package config loads CatchM's small YAML config file: STT engine
-// defaults and the Soniox API key.
+// defaults, the Soniox API key, and the summary provider settings.
 package config
 
 import (
@@ -34,6 +34,23 @@ type CloudConfig struct {
 	APIBaseURL string `yaml:"api_base_url"`
 }
 
+// SummaryConfig selects and configures the provider that writes meeting
+// summaries, decisions and action items (internal/summarize).
+type SummaryConfig struct {
+	Provider     string             `yaml:"provider"`     // "ollama" (default) | "catchm-cloud" | "openai"
+	OllamaModel  string             `yaml:"ollama_model"` // default "qwen3.5:9b"; host = translate.host
+	OpenAI       OpenAICompatConfig `yaml:"openai"`
+	CloudConsent bool               `yaml:"cloud_consent"`
+}
+
+// OpenAICompatConfig points the "openai" summary provider at any
+// OpenAI-compatible chat completions server.
+type OpenAICompatConfig struct {
+	BaseURL string `yaml:"base_url"` // e.g. https://openrouter.ai/api/v1
+	Model   string `yaml:"model"`
+	APIKey  string `yaml:"api_key"` // secret: never returned by GET
+}
+
 // Config is CatchM's on-disk configuration.
 type Config struct {
 	Engine     string          `yaml:"engine"`
@@ -42,6 +59,7 @@ type Config struct {
 	Soniox     SonioxConfig    `yaml:"soniox"`
 	Translate  TranslateConfig `yaml:"translate"`
 	Cloud      CloudConfig     `yaml:"cloud"`
+	Summary    SummaryConfig   `yaml:"summary"`
 }
 
 const (
@@ -51,6 +69,9 @@ const (
 	defaultOllamaHost = "http://127.0.0.1:11434"
 	defaultLiveModel  = "translategemma:4b"
 	defaultBatchModel = "translategemma:12b"
+
+	defaultSummaryProvider = "ollama"
+	defaultSummaryModel    = "qwen3.5:9b"
 
 	// defaultCloudURL is the deployed catchm-api Worker. Local dev
 	// against `wrangler dev` still works: log out and POST a
@@ -71,6 +92,10 @@ func defaults() *Config {
 			BatchModel: defaultBatchModel,
 		},
 		Cloud: CloudConfig{APIBaseURL: defaultCloudURL},
+		Summary: SummaryConfig{
+			Provider:    defaultSummaryProvider,
+			OllamaModel: defaultSummaryModel,
+		},
 	}
 }
 
@@ -111,7 +136,7 @@ func Load() (*Config, error) {
 
 // Save writes cfg as YAML to the path Path() resolves, creating the
 // parent directory (0o700) if needed. The file is written 0o600 because
-// it contains the Soniox API key.
+// it contains the Soniox and summary API keys.
 func Save(cfg *Config) error {
 	path, err := Path()
 	if err != nil {

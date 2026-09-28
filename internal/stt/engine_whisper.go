@@ -194,3 +194,21 @@ func (e *WhisperEngine) TranscribeFile(ctx context.Context, audioPath string, op
 	}
 	return us, nil
 }
+
+// WhisperReachable reports whether a whisper.cpp server answers at
+// baseURL. Any HTTP response counts, whatever its status: the point is
+// to tell "nothing is listening" apart from "something is", before a
+// meeting starts. The caller bounds the wait through ctx.
+func WhisperReachable(ctx context.Context, baseURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}

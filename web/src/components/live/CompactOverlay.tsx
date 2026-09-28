@@ -6,6 +6,8 @@ import { StatusMessage } from "@/components/StatusMessage"
 import { Button } from "@/components/ui/button"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
 import { getMeetingLevels, type AudioSource, type EngineLevelsStatus, type Utterance } from "@/lib/api"
+import { SOURCE_SHORT_LABEL } from "@/lib/labels"
+import { languageLabel } from "@/lib/languages"
 import type { TranscriptViewMode } from "@/lib/livePrefs"
 
 /** How many of the most recent utterances the compact strip keeps on
@@ -16,15 +18,13 @@ const VISIBLE_LINES = 4
  *  cadence than the full status row's ~5 Hz is enough. */
 const LEVEL_POLL_MS = 1000
 
-const SOURCE_LABEL: Record<AudioSource, string> = { mic: "Mic", system: "System", both: "Mic + system" }
-
 /** Short engine note for the strip; null while streaming (the normal
  *  case needs no words in a 480px window). */
 function engineNote(engine: EngineLevelsStatus | undefined): { text: string; error: boolean } | null {
   if (!engine || engine.state === "streaming") return null
   if (engine.state === "connecting") return { text: "Connecting…", error: false }
   if (engine.state === "reconnecting") return { text: "Reconnecting…", error: false }
-  if (engine.state === "error") return { text: engine.error ? `Transcription error: ${engine.error}` : "Transcription error", error: true }
+  if (engine.state === "error") return { text: engine.error ? `Transcription stopped: ${engine.error}` : "Transcription stopped", error: true }
   return null
 }
 
@@ -102,7 +102,7 @@ export function CompactOverlay({
         </span>
         <span className="shrink-0">
           <span className="sr-only">Source: </span>
-          {SOURCE_LABEL[audioSource]}
+          {SOURCE_SHORT_LABEL[audioSource]}
         </span>
         <div aria-hidden="true" className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted">
           <div
@@ -117,7 +117,7 @@ export function CompactOverlay({
         >
           {note?.text}
         </span>
-        <Button size="icon" variant="ghost" className="ml-auto shrink-0" aria-label="Exit compact mode" onClick={onExit}>
+        <Button size="icon" variant="ghost" className="ml-auto shrink-0" aria-label="Back to full window" title="Back to full window" onClick={onExit}>
           <X className="size-3.5" />
         </Button>
       </div>
@@ -129,7 +129,7 @@ export function CompactOverlay({
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize }}>
         <div role="log" aria-label="Latest transcript lines" className="grid gap-2">
           {lines.length === 0 ? (
-            <p className="text-muted-foreground">Waiting for the first utterance…</p>
+            <p className="text-muted-foreground">Waiting for someone to speak…</p>
           ) : (
             lines.map((u) => (
               <div key={u.seq} className="leading-snug">
@@ -141,8 +141,8 @@ export function CompactOverlay({
                     {u.translated && (
                       <p className="min-w-0 break-words text-muted-foreground">
                         {u.lang && (
-                          <span translate="no" className="mr-1 text-xs text-muted-foreground">
-                            <span aria-hidden="true">→</span> {u.lang}
+                          <span className="mr-1 text-xs text-muted-foreground">
+                            <span aria-hidden="true">→</span> {languageLabel(u.lang)}
                           </span>
                         )}
                         {u.translated}
@@ -155,8 +155,8 @@ export function CompactOverlay({
                     {u.translated && (
                       <p className="break-words text-muted-foreground">
                         {u.lang && (
-                          <span translate="no" className="mr-1 text-xs text-muted-foreground">
-                            <span aria-hidden="true">→</span> {u.lang}
+                          <span className="mr-1 text-xs text-muted-foreground">
+                            <span aria-hidden="true">→</span> {languageLabel(u.lang)}
                           </span>
                         )}
                         {u.translated}

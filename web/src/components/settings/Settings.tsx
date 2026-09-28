@@ -1,10 +1,22 @@
 import { useEffect, type ComponentType } from "react"
-import { Cloud, Keyboard, Languages, Mic, Monitor, Palette, Settings2, Speech, type LucideIcon } from "lucide-react"
+import {
+  Cloud,
+  Keyboard,
+  Languages,
+  Mic,
+  Monitor,
+  Palette,
+  Settings2,
+  Sparkles,
+  Speech,
+  type LucideIcon,
+} from "lucide-react"
 import { cn } from "cn"
 
 import { SettingsAppearance } from "@/components/settings/SettingsAppearance"
 import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
 import { SettingsShortcuts } from "@/components/settings/SettingsShortcuts"
+import { SettingsSummaries } from "@/components/settings/SettingsSummaries"
 import { SettingsSystem } from "@/components/settings/SettingsSystem"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
@@ -28,6 +40,7 @@ const ALL_SECTIONS = [
   { id: "recording", label: "Recording", icon: Mic, Page: SettingsRecording },
   { id: "transcription", label: "Transcription", icon: Speech, Page: SettingsTranscription },
   { id: "translation", label: "Translation", icon: Languages, Page: SettingsTranslation },
+  { id: "summaries", label: "Summaries", icon: Sparkles, Page: SettingsSummaries },
   { id: "cloud", label: "Cloud sync", icon: Cloud, Page: SettingsCloudSync },
   { id: "appearance", label: "Appearance", icon: Palette, Page: SettingsAppearance },
   // M22 §5: global shortcuts/launch-at-login/notifications only mean

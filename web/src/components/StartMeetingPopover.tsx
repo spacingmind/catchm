@@ -11,16 +11,21 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toggle } from "@/components/ui/toggle"
+import type { Section as SettingsSection } from "@/components/settings/Settings"
 import {
   getAudioSources,
   getConfig,
   getDevices,
+  getSttStatus,
+  getTranslateStatus,
   startMeeting,
   type AudioSources,
   type AudioSource,
   type Device,
   type StartMeetingResponse,
   type SttEngine,
+  type SttStatus,
+  type TranslateStatus,
 } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import {
@@ -31,7 +36,8 @@ import {
   readSourcePref,
   writeStartedDevice,
 } from "@/lib/recordPrefs"
-import { LANGUAGES } from "@/lib/languages"
+import { ENGINE_HINT, ENGINE_LABEL, SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
+import { LANGUAGES, languageLabel } from "@/lib/languages"
 
 /** Last-used start-flow values (non-secret UI prefs only). */
 const LAST_KEY = "catchm.prefs.startflow"
@@ -70,15 +76,15 @@ function defaultTitle(): string {
  *  (from) / "none" (to) mean on the wire; this stands in for it. */
 const UNSET_LANG = "__unset__"
 
-/** Why System/Both are disabled when an older (pre-M19) backend has no
- *  /api/audio/sources at all. */
-const OLD_BACKEND_REASON = "System audio needs a newer CatchM backend."
+/** Why Computer audio/Both are disabled when an older (pre-M19) backend
+ *  has no /api/audio/sources at all. */
+const OLD_BACKEND_REASON = "Update CatchM to use computer audio."
 /** When the backend says unsupported but gives no reason. */
-const SYSTEM_UNAVAILABLE_FALLBACK = "System audio isn’t available on this computer."
-
-function usableEngineLabel(e: SttEngine): string {
-  return e === "soniox" ? "Soniox" : "Whisper"
-}
+const SYSTEM_UNAVAILABLE_FALLBACK = "Computer audio can’t be recorded on this computer."
+/** When /api/stt/status says not ready but gives no reason. */
+const STT_NOT_READY_FALLBACK = "It isn’t set up yet."
+const TRANSLATE_NOT_READY =
+  "Translation needs Ollama running and its model downloaded — set it up in Settings → Translation."
 
 interface StartMeetingPopoverProps {
   open: boolean
@@ -86,9 +92,11 @@ interface StartMeetingPopoverProps {
   onStarted: (meeting: StartMeetingResponse) => void
   /** Sidebar Start button the popover anchors to. */
   anchor?: RefObject<HTMLButtonElement | null>
+  /** Jump to a Settings section (from the readiness warnings). */
+  onOpenSettings?: (section: SettingsSection) => void
 }
 
-export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: StartMeetingPopoverProps) {
+export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onOpenSettings }: StartMeetingPopoverProps) {
   const [last] = useState<StartPrefs>(readLast)
   const [title, setTitle] = useState("")
   const [source, setSource] = useState<AudioSource>("mic")
@@ -106,6 +114,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
   const [error, setError] = useState<string | null>(null)
   const [pairError, setPairError] = useState<string | null>(null)
   const [optionsOpen, setOptionsOpen] = useState(false)
+  // null = unknown (loading or the check failed): never blocks a start.
+  const [sttStatus, setSttStatus] = useState<SttStatus | null>(null)
+  const [translateStatus, setTranslateStatus] = useState<TranslateStatus | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const langRef = useRef<HTMLButtonElement | null>(null)
 
@@ -142,8 +153,15 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
         setSonioxKeySet(c.soniox_api_key_set)
       })
       .catch(() => undefined)
+    getSttStatus()
+      .then((st) => {
+        if (!cancelled) setSttStatus(st)
+      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
+      // Recheck on every open (the user may have just fixed it in Settings).
+      setSttStatus(null)
     }
   }, [open])
 
@@ -159,16 +177,58 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
   const usableEngines: { value: SttEngine; label: string }[] =
     sonioxKeySet === true
       ? [
-          { value: "whisper", label: "Whisper" },
-          { value: "soniox", label: "Soniox" },
+          { value: "whisper", label: ENGINE_LABEL.whisper },
+          { value: "soniox", label: ENGINE_LABEL.soniox },
         ]
       : []
   const activeEngine = usableEngines.length > 0 ? engine : configEngine
 
+  // Only an engine the status check positively reports as not ready
+  // blocks Start (and "Start anyway" still gets past it).
+  const engineStatus = sttStatus?.[activeEngine]
+  const sttBlocked = engineStatus?.ready === false
+  const sttWarning = sttBlocked
+    ? `Transcription isn’t ready. ${engineStatus.reason || STT_NOT_READY_FALLBACK}`
+    : null
+  const canSwitchToSoniox =
+    sttBlocked && activeEngine === "whisper" && usableEngines.length > 1 && sttStatus?.soniox.ready === true
+
+  // Ollama only runs when translation is requested and the engine can't
+  // translate itself (Soniox does, one-way and two-way; see
+  // internal/pipeline Start and internal/stt SupportsTranslation).
+  const needsOllama = (twoWay || translateTo !== "") && activeEngine !== "soniox"
+  useEffect(() => {
+    if (!open || !needsOllama) return
+    let cancelled = false
+    getTranslateStatus()
+      .then((st) => {
+        if (!cancelled) setTranslateStatus(st)
+      })
+      .catch(() => {
+        if (!cancelled) setTranslateStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, needsOllama])
+  const translateWarning =
+    needsOllama && translateStatus && (!translateStatus.ollama_reachable || !translateStatus.live_model.installed)
+      ? TRANSLATE_NOT_READY
+      : null
+
+  const openSettings = (section: SettingsSection) => {
+    onOpenChange(false)
+    onOpenSettings?.(section)
+  }
+
   const optionsSummary = [
-    translateTo ? `${lang || "auto"} → ${translateTo}` : lang || null,
+    translateTo
+      ? `${lang ? languageLabel(lang) : "Auto-detect"} ${twoWay ? "↔" : "→"} ${languageLabel(translateTo)}`
+      : lang
+        ? languageLabel(lang)
+        : null,
     twoWay ? "two-way" : null,
-    usableEngineLabel(activeEngine),
+    ENGINE_LABEL[activeEngine],
   ]
     .filter(Boolean)
     .join(" · ")
@@ -197,11 +257,18 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
     onOpenChange(next)
   }
 
-  const handleStart = async (e: FormEvent<HTMLFormElement>) => {
+  const handleStart = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    // Enter in the title field mustn't bypass a not-ready engine; that
+    // takes the explicit "Start anyway".
+    if (sttBlocked) return
+    void start()
+  }
+
+  const start = async () => {
     if (submitting) return
     if (twoWay && (!lang || !translateTo)) {
-      setPairError("Two-way translation needs both languages. Pick language A and language B.")
+      setPairError("Two-way translation needs both languages. Pick the first and second language.")
       // The language selects live inside Options, which unmounts its
       // content while collapsed: open it synchronously so there's a
       // trigger to focus.
@@ -255,7 +322,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
               {...noAutofill}
             />
             <p id="start-title-hint" className="text-xs text-muted-foreground">
-              Optional — generated from the date and time when left blank.
+              Optional. If left blank, it’s named after today’s date and time.
             </p>
           </div>
 
@@ -266,14 +333,23 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
             <SegmentedControl
               id="start-source"
               labelledBy="start-source-label"
+              describedBy="start-source-hint"
               value={source}
               onChange={setSource}
               options={[
-                { value: "mic", label: "Microphone" },
-                { value: "system", label: "System", disabled: !systemAvailable, reason: systemReason || undefined },
-                { value: "both", label: "Both", disabled: !systemAvailable, reason: systemReason || undefined },
+                { value: "mic", label: SOURCE_LABEL.mic },
+                {
+                  value: "system",
+                  label: SOURCE_LABEL.system,
+                  disabled: !systemAvailable,
+                  reason: systemReason || undefined,
+                },
+                { value: "both", label: SOURCE_LABEL.both, disabled: !systemAvailable, reason: systemReason || undefined },
               ]}
             />
+            <p id="start-source-hint" className="text-xs text-muted-foreground">
+              {SOURCE_HINT}
+            </p>
           </div>
 
           {source !== "system" && (
@@ -284,7 +360,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={DEFAULT_DEVICE_VALUE}>Default device</SelectItem>
+                  <SelectItem value={DEFAULT_DEVICE_VALUE}>Default microphone</SelectItem>
                   {devices.map((d) => (
                     <SelectItem key={d.ID} value={d.ID}>
                       {d.Name}
@@ -332,14 +408,14 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
                       id="start-lang"
                       ref={langRef}
                       className="w-40"
-                      aria-label={twoWay ? "Language A" : "From language"}
+                      aria-label={twoWay ? "First language" : "Spoken language"}
                       aria-invalid={pairError && !lang ? true : undefined}
                       aria-describedby={pairError ? "start-pair-error" : undefined}
                     >
-                      <SelectValue placeholder="Language A" />
+                      <SelectValue placeholder="First language" />
                     </SelectTrigger>
                     <SelectContent>
-                      {!twoWay && <SelectItem value={UNSET_LANG}>Auto-detect</SelectItem>}
+                      {!twoWay && <SelectItem value={UNSET_LANG}>Detect automatically</SelectItem>}
                       {LANGUAGES.map((l) => (
                         <SelectItem key={l.code} value={l.code}>
                           {l.label}
@@ -354,11 +430,11 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
                     <SelectTrigger
                       id="start-translate-to"
                       className="w-40"
-                      aria-label={twoWay ? "Language B" : "To language"}
+                      aria-label={twoWay ? "Second language" : "Translate into"}
                       aria-invalid={pairError && !translateTo ? true : undefined}
                       aria-describedby={pairError ? "start-pair-error" : undefined}
                     >
-                      <SelectValue placeholder="Language B" />
+                      <SelectValue placeholder="Second language" />
                     </SelectTrigger>
                     <SelectContent>
                       {!twoWay && <SelectItem value={UNSET_LANG}>No translation</SelectItem>}
@@ -372,8 +448,8 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
                 </div>
                 <p id="start-two-way-hint" className="text-xs text-muted-foreground">
                   {twoWay
-                    ? "Two-way: each language is translated into the other."
-                    : "Turn on two-way when the conversation switches between two languages."}
+                    ? "Whatever is said in one language is translated into the other."
+                    : "People speaking two languages? Turn on two-way to translate both ways."}
                 </p>
                 <StatusMessage id="start-pair-error" tone="error">
                   {pairError}
@@ -383,26 +459,79 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor }: S
               {usableEngines.length > 1 && (
                 <div className="grid gap-1.5">
                   <span id="start-engine-label" className="text-sm font-medium">
-                    Transcription engine
+                    Transcribe with
                   </span>
                   <SegmentedControl
                     id="start-engine"
                     labelledBy="start-engine-label"
+                    describedBy="start-engine-hint"
                     value={engine}
                     onChange={setEngine}
                     options={usableEngines}
                   />
+                  <p id="start-engine-hint" className="text-xs text-muted-foreground">
+                    {ENGINE_HINT[engine]}
+                  </p>
                 </div>
               )}
             </div>
           </Disclosure>
 
+          <div className="grid gap-1.5">
+            <StatusMessage id="start-stt-warning" tone="warning" className="break-words">
+              {sttWarning}
+            </StatusMessage>
+            {sttBlocked && (
+              <div className="flex flex-wrap gap-2">
+                {canSwitchToSoniox && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setEngine("soniox")}>
+                    Use {ENGINE_LABEL.soniox} instead
+                  </Button>
+                )}
+                {onOpenSettings && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => openSettings("transcription")}>
+                    Open settings
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-1.5">
+            <StatusMessage id="start-translate-warning" tone="warning" className="break-words">
+              {translateWarning}
+            </StatusMessage>
+            {translateWarning && onOpenSettings && (
+              <div className="flex">
+                <Button type="button" size="sm" variant="outline" onClick={() => openSettings("translation")}>
+                  Open translation settings
+                </Button>
+              </div>
+            )}
+          </div>
+
           <StatusMessage tone="error" className="break-words">
             {error}
           </StatusMessage>
 
-          <div className="flex justify-end">
-            <Button type="submit" disabled={submitting} aria-busy={submitting || undefined}>
+          <div className="flex justify-end gap-2">
+            {sttBlocked && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={submitting}
+                onClick={() => void start()}
+                aria-describedby="start-stt-warning"
+              >
+                Start anyway
+              </Button>
+            )}
+            <Button
+              type="submit"
+              disabled={submitting || sttBlocked}
+              aria-busy={submitting || undefined}
+              aria-describedby={sttBlocked ? "start-stt-warning" : undefined}
+            >
               {submitting && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
               {submitting ? "Starting…" : "Start meeting"}
             </Button>

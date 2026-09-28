@@ -24,6 +24,7 @@ import {
 import { formatDateTime } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { isAbsoluteUrl } from "@/lib/url"
+import { pluralize } from "@/lib/utils"
 
 const STATUS_POLL_MS = 30_000
 
@@ -230,7 +231,7 @@ export function SettingsCloudSync() {
         refresh()
       })
       .catch((err: unknown) =>
-        setLogoutError(`Couldn’t log out: ${errorMessage(err)}. Check that CatchM is still running, then try again.`),
+        setLogoutError(`Couldn’t log out: ${errorMessage(err)}. Try again, or restart CatchM if it keeps failing.`),
       )
       .finally(() => setLoggingOut(false))
   }
@@ -259,12 +260,12 @@ export function SettingsCloudSync() {
     const v = serverUrl.trim()
     setServerNote(null)
     if (!v) {
-      setServerError("Enter a server URL, like https://catchm-cloud.example.com.")
+      setServerError("Enter a server address, like https://catchm-cloud.example.com.")
       serverUrlRef.current?.focus()
       return
     }
     if (!isAbsoluteUrl(v, ["http", "https"])) {
-      setServerError("Enter an absolute https:// URL (plain http:// works only for localhost).")
+      setServerError("Enter a full address that starts with https:// (http:// works only for localhost).")
       serverUrlRef.current?.focus()
       return
     }
@@ -314,7 +315,7 @@ export function SettingsCloudSync() {
   const loadErrorBlock = loadError && (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
       <StatusMessage tone="error" className="min-w-0 break-words">
-        Couldn’t reach CatchM for your cloud status: {loadError}. Check that CatchM is still running, then try again.
+        Couldn’t load your cloud sync status: {loadError}. Try again, or restart CatchM if it keeps failing.
       </StatusMessage>
       <Button size="sm" variant="outline" onClick={refresh}>
         Try again
@@ -325,7 +326,7 @@ export function SettingsCloudSync() {
   if (status === null) {
     if (loadError) {
       return (
-        <SettingsSection title="Cloud sync" description="Encrypted sync of your meetings across devices.">
+        <SettingsSection title="Cloud sync" description="Keep your meetings in sync across your devices, privately.">
           {loadErrorBlock}
         </SettingsSection>
       )
@@ -349,7 +350,19 @@ export function SettingsCloudSync() {
     <div>
       <SettingsSection
         title="Cloud sync"
-        description="Your meetings stay on this device by default. Signing up only turns on encrypted sync across your devices — your meetings are encrypted before they ever leave this computer, and CatchM cannot read them."
+        description={
+          <>
+            Your meetings stay on this computer unless you sign up or log in. With an account, CatchM keeps them in
+            sync across your devices. They are locked with your password before they leave this computer, so no one
+            else can read them, not even CatchM.{" "}
+            <span className="mt-1 block">
+              One exception: if you make summaries with CatchM Cloud (in Settings → Summaries), that meeting’s
+              transcript is sent unencrypted to CatchM Cloud, which uses Cloudflare Workers AI (or a zero-retention
+              partner model when Cloudflare is busy) to write the summary. It isn’t stored, and your synced meetings
+              stay encrypted.
+            </span>
+          </>
+        }
       >
         {loadErrorBlock}
 
@@ -446,7 +459,7 @@ export function SettingsCloudSync() {
         {!loggedIn && mode === "forgot" && (
           <form noValidate onSubmit={(e) => void handleRecover(e)} className="grid gap-3">
             <p className="text-sm text-muted-foreground">
-              Setting a new password rotates your recovery code — the old code stops working once this succeeds.
+              Enter the recovery code you saved when you created your account. After you set a new password, you’ll get a new recovery code and the old one stops working.
             </p>
             <SettingRow
               label="Email"
@@ -578,18 +591,22 @@ export function SettingsCloudSync() {
               <StatusMessage tone="error" className="break-words">
                 {syncError && `Couldn’t sync: ${syncError}. Check your connection, then sync again.`}
               </StatusMessage>
-              <StatusMessage>
+              <StatusMessage className="tabular-nums">
                 {syncResult && (
                   <>
-                    Pushed <span className="tabular-nums">{syncResult.pushed?.length ?? 0}</span> · Pulled{" "}
-                    <span className="tabular-nums">{syncResult.pulled?.length ?? 0}</span> · Conflicted{" "}
-                    <span className="tabular-nums">{conflicted.length}</span>
+                    Uploaded {pluralize(syncResult.pushed?.length ?? 0, "meeting")} · Downloaded{" "}
+                    {pluralize(syncResult.pulled?.length ?? 0, "meeting")}
+                    {conflicted.length > 0 && ` · ${pluralize(conflicted.length, "meeting")} changed on two devices`}
                   </>
                 )}
               </StatusMessage>
               {conflicted.length > 0 && (
                 <div className="grid gap-1">
-                  <p>Conflicted meetings (local copies saved as conflict-* files):</p>
+                  <p>
+                    These meetings were changed on this computer and on another device. Both versions were kept:
+                    the meeting now shows the other device’s version, and the version from this computer is saved
+                    as a backup file in the meeting’s folder. The backup doesn’t appear in your meeting list.
+                  </p>
                   <ul className="grid gap-1">
                     {conflicted.map((id) => (
                       <li key={id}>
@@ -606,7 +623,7 @@ export function SettingsCloudSync() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Advanced" description="Self-hosting or pointing this install at a different server.">
+      <SettingsSection title="Advanced" description="Only change this if you run your own CatchM server.">
         <Disclosure label="Cloud server URL">
           <SettingRow
             label="Server"
@@ -614,10 +631,10 @@ export function SettingsCloudSync() {
             id="cloud-server-url"
             description={
               loggedIn
-                ? "Log out to change server — the session and sync manifest belong to one server."
+                ? "Log out first to change servers."
                 : accountStored
-                  ? "Changing servers clears the stored account — sign up or log in again afterwards."
-                  : "The CatchM cloud server this device signs up and syncs with."
+                  ? "Changing servers removes your account details from this computer. You’ll need to sign up or log in again afterwards."
+                  : "The CatchM server this computer signs up and syncs with."
             }
             control={
               loggedIn ? (
@@ -668,7 +685,7 @@ export function SettingsCloudSync() {
         description={
           <>
             CatchM will switch to <span translate="no" className="break-all">{serverUrl.trim()}</span> and forget
-            any account stored on this device for the current server. You’ll need to sign up or log in again on
+            the account details saved on this computer for the current server. You’ll need to sign up or log in again on
             the new server.
           </>
         }

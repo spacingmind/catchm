@@ -139,9 +139,26 @@ export interface TranslateStatus {
 
 export type TranslateTarget = "live" | "batch"
 
+/** Which Ollama model POST /api/translate/pull downloads: the live or
+ *  batch translation model, or the summary model (summary.ollama_model). */
+export type PullTarget = TranslateTarget | "summary"
+
+/** One engine's readiness; reason is user-facing and set only when not ready. */
+export interface SttEngineStatus {
+  ready: boolean
+  reason?: string
+}
+
+/** GET /api/stt/status response. */
+export interface SttStatus {
+  default_engine: SttEngine
+  whisper: SttEngineStatus
+  soniox: SttEngineStatus
+}
+
 /** Body for POST /api/translate/pull. */
 export interface PullTranslateModelRequest {
-  target: TranslateTarget
+  target: PullTarget
 }
 
 /** One decoded line of the NDJSON stream from POST /api/translate/pull. */
@@ -162,6 +179,53 @@ export interface TestTranslateResponse {
   translated: string
 }
 
+/** config.SummaryConfig's provider: local Ollama (default), CatchM Cloud
+ *  (transcript sent unencrypted, needs cloud_consent), or any
+ *  OpenAI-compatible server. */
+export type SummaryProvider = "ollama" | "catchm-cloud" | "openai"
+
+/** The summary block of GET/PUT /api/config responses. The OpenAI API
+ *  key is never included; see AppConfig.summary_openai_api_key_set. */
+export interface SummaryConfig {
+  provider: SummaryProvider
+  ollama_model: string
+  openai: { base_url: string; model: string }
+  cloud_consent: boolean
+}
+
+/** GET /api/summary/status response (always 200). ready/reason describe
+ *  the active provider; reason is user-facing text, present only when
+ *  not ready. The backend sends every provider block, but callers must
+ *  treat them as optional. The cloud quota fields are absent when
+ *  logged out or when catchm-api's quota endpoint can't be reached. */
+export interface SummaryStatus {
+  provider: SummaryProvider
+  ready: boolean
+  reason?: string
+  ollama?: { reachable: boolean; model: string; installed: boolean }
+  cloud?: {
+    logged_in: boolean
+    consent: boolean
+    remaining_today?: number
+    limit?: number
+    /** RFC3339 timestamp string. */
+    reset_at?: string
+  }
+  openai?: { configured: boolean }
+  /** Host facts for model recommendations, in GiB rounded to one
+   *  decimal. free_disk_gb is the volume holding Ollama's models. Each
+   *  field is omitted when it can't be read. */
+  system?: { total_ram_gb?: number; free_disk_gb?: number }
+}
+
+/** Classification of a summary failure on POST /api/meetings/{id}/refine
+ *  (internal/summarize.Kind). consent_required answers 409 and means
+ *  nothing was sent; quota_exceeded answers 429 with reset_at. */
+export type SummaryErrorKind =
+  | "summary_not_ready"
+  | "consent_required"
+  | "quota_exceeded"
+  | "summary_failed"
 
 /** Sanitized config shape shared by GET and PUT /api/config responses. */
 export interface AppConfig {
@@ -176,6 +240,9 @@ export interface AppConfig {
     live_model: string
     batch_model: string
   }
+  summary: SummaryConfig
+  /** True when an OpenAI-compatible API key is stored; the key itself is never sent. */
+  summary_openai_api_key_set: boolean
 }
 
 /**
@@ -199,15 +266,46 @@ export interface UpdateConfigRequest {
     live_model: string
     batch_model: string
   }
+  /**
+   * Partial like the rest: omitted/empty strings keep the stored value.
+   * openai.api_key is write-only; omitted/empty preserves the stored key,
+   * except that changing openai.base_url without a new key clears it (a
+   * key is never sent to a server it wasn't entered for).
+   * cloud_consent: false revokes consent.
+   */
+  summary?: {
+    provider?: SummaryProvider
+    ollama_model?: string
+    openai?: { base_url?: string; model?: string; api_key?: string }
+    cloud_consent?: boolean
+  }
 }
 
-/** Thrown by every client function below on a non-2xx response. */
+/** Thrown by every client function below on a non-2xx response. body is
+ *  the parsed JSON error body when there was one. */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  body?: Record<string, unknown>
+  constructor(message: string, status: number, body?: Record<string, unknown>) {
     super(message)
     this.name = "ApiError"
     this.status = status
+    this.body = body
+  }
+}
+
+/** Thrown by refineMeeting when the summary step failed: the error body
+ *  carries a kind (the transcription errors stay plain ApiErrors).
+ *  .message is the user-facing text. */
+export class RefineError extends ApiError {
+  kind: SummaryErrorKind
+  /** RFC3339 timestamp string; set for quota_exceeded. */
+  reset_at?: string
+  constructor(message: string, status: number, kind: SummaryErrorKind, resetAt?: string, body?: Record<string, unknown>) {
+    super(message, status, body)
+    this.name = "RefineError"
+    this.kind = kind
+    this.reset_at = resetAt
   }
 }
 
@@ -218,15 +316,19 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     let message = res.statusText || `request failed with status ${res.status}`
+    let errBody: Record<string, unknown> | undefined
     try {
       const body: unknown = await res.json()
-      if (body && typeof body === "object" && "error" in body && typeof (body as { error: unknown }).error === "string") {
-        message = (body as { error: string }).error
+      if (body && typeof body === "object") {
+        errBody = body as Record<string, unknown>
+        if (typeof errBody.error === "string") {
+          message = errBody.error
+        }
       }
     } catch {
       // Body wasn't JSON (or was empty) — fall back to statusText above.
     }
-    throw new ApiError(message, res.status)
+    throw new ApiError(message, res.status, errBody)
   }
   if (res.status === 204) {
     return undefined as T
@@ -362,11 +464,24 @@ export function endMeeting(id: string): Promise<{ status: string }> {
   })
 }
 
-/** POST /api/meetings/{id}/refine — synchronous, can take several seconds. */
-export function refineMeeting(id: string): Promise<Meeting> {
-  return apiFetch(`/api/meetings/${encodeURIComponent(id)}/refine`, {
-    method: "POST",
-  })
+/**
+ * POST /api/meetings/{id}/refine — synchronous, can take minutes (batch
+ * transcription, then the summary). Throws RefineError when the summary
+ * step failed (the body has a kind), else a plain ApiError.
+ */
+export async function refineMeeting(id: string): Promise<Meeting> {
+  try {
+    return await apiFetch<Meeting>(`/api/meetings/${encodeURIComponent(id)}/refine`, {
+      method: "POST",
+    })
+  } catch (err) {
+    const kind = err instanceof ApiError ? err.body?.kind : undefined
+    if (err instanceof ApiError && typeof kind === "string") {
+      const resetAt = typeof err.body?.reset_at === "string" ? err.body.reset_at : undefined
+      throw new RefineError(err.message, err.status, kind as SummaryErrorKind, resetAt, err.body)
+    }
+    throw err
+  }
 }
 
 /** internal/tools.ActionItemRef: an ActionItem flattened together with the
@@ -416,13 +531,23 @@ export function getTranslateStatus(): Promise<TranslateStatus> {
   return apiFetch("/api/translate/status")
 }
 
+/** GET /api/stt/status — whether each transcription engine is ready. */
+export function getSttStatus(): Promise<SttStatus> {
+  return apiFetch("/api/stt/status")
+}
+
+/** GET /api/summary/status — whether summaries can run with the chosen provider. */
+export function getSummaryStatus(): Promise<SummaryStatus> {
+  return apiFetch("/api/summary/status")
+}
+
 /**
  * POST /api/translate/pull — streams newline-delimited JSON progress events
  * ({"status": "..."} or a terminal {"error": "..."}) and calls onProgress
  * once per parsed line. Resolves once the stream ends.
  */
 export async function pullTranslateModel(
-  target: TranslateTarget,
+  target: PullTarget,
   onProgress: (event: PullProgressEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

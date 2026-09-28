@@ -13,7 +13,9 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
+import type { Section as SettingsSection } from "@/components/settings/Settings"
 import { addNote, endMeeting, getTranscript, type AudioSource, type Meeting, type Utterance } from "@/lib/api"
+import { languageLabel } from "@/lib/languages"
 import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
 import { readStartedDevice, writeStartedDevice } from "@/lib/recordPrefs"
 
@@ -76,8 +78,8 @@ const UtteranceRow = memo(function UtteranceRow({
       {viewMode !== "translation-only" && u.translated && (
         <p className="min-w-0 max-w-[72ch] break-words leading-[1.6] text-muted-foreground" style={{ fontSize }}>
           {u.lang && (
-            <span translate="no" className="mr-1 text-xs text-muted-foreground">
-              <span aria-hidden="true">→</span> {u.lang}
+            <span className="mr-1 text-xs text-muted-foreground">
+              <span aria-hidden="true">→</span> {languageLabel(u.lang)}
             </span>
           )}
           {u.translated}
@@ -143,15 +145,27 @@ interface LiveMeetingProps {
   /** M19 capture_error from the start response: the meeting exists but
    *  nothing is being recorded. Must stay visible, never a silent no-op. */
   captureError?: string | null
-  /** Opens settings so the user can fix the cause (e.g. missing API key). */
-  onOpenSettings?: () => void
+  /** Where the capture_error banner's "Open settings" goes (App picks
+   *  it from the error kind). */
+  captureErrorSettings?: SettingsSection
+  /** Opens settings at a section so the user can fix the cause (e.g. a
+   *  missing API key); used by the capture_error banner and the live
+   *  engine error. */
+  onOpenSettings?: (section?: SettingsSection) => void
   /** M21 §4: reports compact-overlay mode up to App, which hides the
    *  sidebar/shell while it's active — a 480x260 window has no room
    *  for both. */
   onCompactChange?: (compact: boolean) => void
 }
 
-export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, onCompactChange }: LiveMeetingProps) {
+export function LiveMeeting({
+  meeting,
+  onEnded,
+  captureError,
+  captureErrorSettings,
+  onOpenSettings,
+  onCompactChange,
+}: LiveMeetingProps) {
   // Tagged with the meeting it belongs to, so switching meetings shows
   // an empty transcript at once (derived below) without resetting state
   // from the poll effect.
@@ -350,7 +364,7 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
             <span className="font-medium">Not recording:</span> {captureError}
           </p>
           {onOpenSettings && (
-            <Button size="sm" variant="outline" onClick={onOpenSettings}>
+            <Button size="sm" variant="outline" onClick={() => onOpenSettings(captureErrorSettings)}>
               Open settings
             </Button>
           )}
@@ -360,9 +374,11 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
       <StatusRow
         meetingId={meeting.id}
         startedAt={meeting.started_at}
+        engine={meeting.engine}
         source={input.source}
         device={input.device}
         onSourceChange={handleSourceChange}
+        onOpenTranscriptionSettings={onOpenSettings && (() => onOpenSettings("transcription"))}
         compactAvailable={compactAvailable}
         onToggleCompact={toggleCompact}
       />
@@ -400,7 +416,7 @@ export function LiveMeeting({ meeting, onEnded, captureError, onOpenSettings, on
           <div role="log" aria-label="Transcript" className="grid gap-3 p-4">
             {groups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Waiting for the first utterance. Start talking to fill the transcript.
+                Waiting for someone to speak… What’s said will appear here.
               </p>
             ) : (
               groups.map((group, i) => (

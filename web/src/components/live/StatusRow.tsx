@@ -16,6 +16,7 @@ import {
   type EngineLevelsStatus,
   type MeetingLevels,
 } from "@/lib/api"
+import { SOURCE_LABEL, SOURCE_SHORT_LABEL } from "@/lib/labels"
 import { DEFAULT_DEVICE_VALUE, deviceSelectValue } from "@/lib/recordPrefs"
 
 /** GET /api/meetings/{id}/levels polling rate (M21 §1: "~5 Hz"). */
@@ -31,19 +32,36 @@ const NO_SIGNAL_AFTER_MS = 4000
 const DROPS_WARNING_HOLD_MS = 5000
 
 const SOURCE_OPTIONS: { value: AudioSource; label: string }[] = [
-  { value: "mic", label: "Mic" },
-  { value: "system", label: "System" },
-  { value: "both", label: "Both" },
+  { value: "mic", label: SOURCE_LABEL.mic },
+  { value: "system", label: SOURCE_LABEL.system },
+  { value: "both", label: SOURCE_LABEL.both },
 ]
 
 /** Shown when the backend says system audio is unsupported but gives no
  *  reason. */
-const SYSTEM_UNAVAILABLE_FALLBACK = "System audio isn’t available on this computer."
+const SYSTEM_UNAVAILABLE_FALLBACK = "Computer audio isn’t available on this computer."
 
-/** The compact-mode shortcut as the user would type it: ⌘ only on macOS
- *  (useCompactMode accepts either modifier). */
+/** Shortcuts as the user would type them: ⌘ only on macOS (the key
+ *  handlers accept either modifier). */
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+const MOD = IS_MAC ? "⌘" : "Ctrl+"
 const COMPACT_SHORTCUT = IS_MAC ? "⌘⇧L" : "Ctrl+Shift+L"
+
+/** The Ctrl/⌘+1/2/3 source shortcuts, as a hover hint on the source
+ *  control (SegmentedControl has no per-option tooltip). */
+const SOURCE_SHORTCUTS_HINT = `Shortcuts: ${MOD}1 ${SOURCE_LABEL.mic}, ${MOD}2 ${SOURCE_LABEL.system}, ${MOD}3 ${SOURCE_LABEL.both}`
+
+/** What to do about an engine error, per engine: the local Whisper
+ *  server and the Soniox cloud fail for different reasons. */
+function engineErrorHint(engine: string | undefined): string {
+  if (engine === "soniox") {
+    return "Check your internet connection and the Soniox API key in Settings → Transcription."
+  }
+  if (engine === "whisper") {
+    return "The Whisper server on this computer isn’t responding. Set it up, or switch to the cloud engine, in Settings → Transcription."
+  }
+  return "Check the transcription settings in Settings → Transcription."
+}
 
 /** A server message as a sentence, so a next step can follow it. */
 function sentence(msg: string): string {
@@ -65,11 +83,11 @@ function formatElapsed(startedAt: string): string {
  *  shown in full on its own line, not squeezed into the pill. */
 function engineLabel(engine: EngineLevelsStatus | undefined): { label: string; className: string } {
   if (!engine) {
-    return { label: "Transcription: unknown", className: "border-border text-muted-foreground" }
+    return { label: "Transcription: checking…", className: "border-border text-muted-foreground" }
   }
   switch (engine.state) {
     case "streaming":
-      return { label: "Transcription connected", className: "border-transparent bg-primary/15 text-primary" }
+      return { label: "Transcription on", className: "border-transparent bg-primary/15 text-primary" }
     case "connecting":
     case "reconnecting":
       return {
@@ -79,7 +97,7 @@ function engineLabel(engine: EngineLevelsStatus | undefined): { label: string; c
     case "error":
       return { label: "Transcription error", className: "border-transparent bg-destructive/10 text-destructive" }
     default:
-      return { label: `Transcription: ${engine.state}`, className: "border-border text-muted-foreground" }
+      return { label: "Transcription: checking…", className: "border-border text-muted-foreground" }
   }
 }
 
@@ -89,7 +107,7 @@ function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms:
   const fill = Math.min(1, Math.max(0, levels?.peak ?? 0))
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-      <span className="w-14 shrink-0">{label}</span>
+      <span className="w-16 shrink-0">{label}</span>
       <div aria-hidden="true" className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full origin-left rounded-full bg-primary motion-safe:transition-transform"
@@ -104,6 +122,8 @@ function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms:
 interface StatusRowProps {
   meetingId: string
   startedAt: string
+  /** The meeting's engine id ("whisper" / "soniox"), for the error hint. */
+  engine?: string
   /** Current input, owned by LiveMeeting so it survives this row
    *  unmounting (compact mode) and the compact strip can show it. */
   source: AudioSource
@@ -111,6 +131,8 @@ interface StatusRowProps {
   device: string
   /** Called after the server accepted a source or mic switch. */
   onSourceChange: (source: AudioSource, device: string) => void
+  /** Shown as an "Open settings" button next to an engine error. */
+  onOpenTranscriptionSettings?: () => void
   /** M21 §4: desktop-only compact overlay toggle. Omit both (or leave
    *  compactAvailable false) to render no button at all — a plain
    *  browser (catchm serve) never gets one, not just a disabled one. */
@@ -121,9 +143,11 @@ interface StatusRowProps {
 export function StatusRow({
   meetingId,
   startedAt,
+  engine: engineId,
   source,
   device,
   onSourceChange,
+  onOpenTranscriptionSettings,
   compactAvailable,
   onToggleCompact,
 }: StatusRowProps) {
@@ -203,6 +227,10 @@ export function StatusRow({
     }
 
     const start = () => {
+      // Already polling: a repeated "visible" event must not stack a
+      // second interval, which cleanup (holding only the last id)
+      // would leak past unmount.
+      if (id !== undefined) return
       poll()
       id = window.setInterval(poll, LEVELS_POLL_MS)
     }
@@ -283,16 +311,18 @@ export function StatusRow({
           {elapsed}
         </span>
 
-        <SegmentedControl
-          id="live-source"
-          label="Audio source"
-          value={shownSource}
-          onChange={(v) => void handleSourceChange(v)}
-          options={SOURCE_OPTIONS.map((o) => {
-            const disabled = (o.value === "system" || o.value === "both") && !systemAvailable
-            return { ...o, disabled, reason: disabled ? unavailableReason : undefined }
-          })}
-        />
+        <div title={SOURCE_SHORTCUTS_HINT}>
+          <SegmentedControl
+            id="live-source"
+            label="Audio source"
+            value={shownSource}
+            onChange={(v) => void handleSourceChange(v)}
+            options={SOURCE_OPTIONS.map((o) => {
+              const disabled = (o.value === "system" || o.value === "both") && !systemAvailable
+              return { ...o, disabled, reason: disabled ? unavailableReason : undefined }
+            })}
+          />
+        </div>
 
         {shownSource !== "system" && devices.length > 0 && (
           <Select
@@ -303,7 +333,7 @@ export function StatusRow({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={DEFAULT_DEVICE_VALUE}>Default device</SelectItem>
+              <SelectItem value={DEFAULT_DEVICE_VALUE}>Default microphone</SelectItem>
               {devices.map((d) => (
                 <SelectItem key={d.ID} value={d.ID}>
                   {d.Name}
@@ -329,18 +359,25 @@ export function StatusRow({
             variant="outline"
             className="ml-auto"
             onClick={onToggleCompact}
-            title={`Compact mode (${COMPACT_SHORTCUT})`}
+            title={`Shrink to a small window that stays on top of other apps (${COMPACT_SHORTCUT})`}
             aria-keyshortcuts={IS_MAC ? "Meta+Shift+L" : "Control+Shift+L"}
           >
-            Compact
+            Mini window
           </Button>
         )}
       </div>
 
       {engineError && (
-        <p id="live-engine-error" className="break-words text-sm text-destructive">
-          Transcription error: {sentence(engineError)} Check your network and the transcription settings.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p id="live-engine-error" className="min-w-0 break-words text-sm text-destructive">
+            Transcription stopped working: {sentence(engineError)} {engineErrorHint(engineId)}
+          </p>
+          {onOpenTranscriptionSettings && (
+            <Button size="sm" variant="outline" onClick={onOpenTranscriptionSettings}>
+              Open settings
+            </Button>
+          )}
+        </div>
       )}
 
       <StatusMessage tone={switchError ? "error" : "muted"} className="break-words">
@@ -348,16 +385,16 @@ export function StatusRow({
       </StatusMessage>
 
       <div className="flex flex-wrap items-center gap-4">
-        {source !== "system" && <LevelMeter label="Mic" levels={levels?.mic} noSignal={micNoSignal} />}
-        {source !== "mic" && <LevelMeter label="System" levels={levels?.system} noSignal={sysNoSignal} />}
+        {source !== "system" && <LevelMeter label={SOURCE_SHORT_LABEL.mic} levels={levels?.mic} noSignal={micNoSignal} />}
+        {source !== "mic" && <LevelMeter label={SOURCE_SHORT_LABEL.system} levels={levels?.system} noSignal={sysNoSignal} />}
       </div>
 
       <StatusMessage tone="warning" className="flex items-center gap-1.5 text-xs font-medium">
         {dropsWarning && (
           <>
             <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
-            Audio is being dropped because the connection or this computer can’t keep up. Close other busy apps or
-            check your network.
+            Some audio is being lost because this computer or the connection can’t keep up. Close other busy apps or
+            check your internet connection.
           </>
         )}
       </StatusMessage>

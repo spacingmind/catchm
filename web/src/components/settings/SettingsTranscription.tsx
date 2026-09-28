@@ -4,6 +4,7 @@ import { Disclosure } from "@/components/Disclosure"
 import { StatusMessage } from "@/components/StatusMessage"
 import {
   descId,
+  ExternalLink,
   labelId,
   SaveStatus,
   SegmentedControl,
@@ -16,12 +17,13 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getConfig, type AppConfig, type SttEngine } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
+import { ENGINE_HINT, ENGINE_LABEL } from "@/lib/labels"
 import { isAbsoluteUrl } from "@/lib/url"
 
-const ENGINES: { value: SttEngine; label: string; hint: string }[] = [
-  { value: "whisper", label: "Whisper (local)", hint: "Runs on this device via your Whisper server." },
-  { value: "soniox", label: "Soniox (cloud)", hint: "Fast and accurate; needs an API key." },
-]
+const ENGINES: SttEngine[] = ["whisper", "soniox"]
+
+const WHISPER_SERVER_DOCS = "https://github.com/ggml-org/whisper.cpp/tree/master/examples/server"
+const SONIOX_SITE = "https://soniox.com"
 
 const KEY_ERROR_ID = "soniox-key-error"
 const WHISPER_URL_ERROR_ID = "stt-whisper-url-error"
@@ -103,7 +105,7 @@ export function SettingsTranscription() {
     if (ok) {
       closeKeyEditor()
     } else {
-      setKeyError("Couldn’t save the key. Check that CatchM is still running, then try again.")
+      setKeyError("Couldn’t save the key. Try again, or restart CatchM if it keeps failing.")
       keyInputRef.current?.focus()
     }
   }
@@ -111,7 +113,7 @@ export function SettingsTranscription() {
   const commitWhisperUrl = () => {
     const v = whisperUrl.trim()
     if (!isAbsoluteUrl(v, ["http", "https"])) {
-      setUrlErrors((e) => ({ ...e, whisper: "Enter an absolute http:// or https:// URL, like http://127.0.0.1:8080." }))
+      setUrlErrors((e) => ({ ...e, whisper: "Enter a full address that starts with http:// or https://, like http://127.0.0.1:8080." }))
       return
     }
     setUrlErrors((e) => ({ ...e, whisper: undefined }))
@@ -125,7 +127,7 @@ export function SettingsTranscription() {
     if (!isAbsoluteUrl(v, ["ws", "wss"])) {
       setUrlErrors((e) => ({
         ...e,
-        soniox: "Enter an absolute ws:// or wss:// URL, like wss://stt-rt.soniox.com/transcribe-websocket.",
+        soniox: "Enter a full address that starts with ws:// or wss://, like wss://stt-rt.soniox.com/transcribe-websocket.",
       }))
       return
     }
@@ -135,10 +137,10 @@ export function SettingsTranscription() {
 
   if (loadError) {
     return (
-      <SettingsSection title="Transcription" description="Speech-to-text engine and its settings.">
+      <SettingsSection title="Transcription" description="How CatchM turns speech into text.">
         <div className="grid justify-items-start gap-3">
           <StatusMessage tone="error">
-            Couldn’t load transcription settings: {loadError}. Check that CatchM is still running, then try again.
+            Couldn’t load transcription settings: {loadError}. Try again, or restart CatchM if it keeps failing.
           </StatusMessage>
           <Button size="sm" variant="outline" onClick={retryLoad}>
             Try again
@@ -163,18 +165,61 @@ export function SettingsTranscription() {
   const keySet = config.soniox_api_key_set
   const engine: SttEngine = config.engine === "soniox" ? "soniox" : "whisper"
 
+  // "On this computer" doesn't work until the user runs a Whisper
+  // server, so while it's the engine its address sits in the main
+  // section with a set-up link; otherwise it stays under Advanced.
+  const whisperRow = (
+    <SettingRow
+      label="Whisper server address"
+      htmlFor="stt-whisper-url"
+      description={
+        engine === "whisper" ? (
+          <>
+            “{ENGINE_LABEL.whisper}” needs the free whisper.cpp server running on this computer. Keep this address
+            unless you started the server on a different one.{" "}
+            <ExternalLink href={WHISPER_SERVER_DOCS}>How to set up the server</ExternalLink>
+          </>
+        ) : (
+          "Where CatchM finds the whisper.cpp server on this computer."
+        )
+      }
+      control={
+        <div className="grid w-96 justify-items-end gap-1">
+          <Input
+            id="stt-whisper-url"
+            name="whisper_url"
+            type="url"
+            {...noAutofill}
+            value={whisperUrl}
+            onChange={(e) => setWhisperUrl(e.target.value)}
+            onBlur={commitWhisperUrl}
+            placeholder="http://127.0.0.1:8080…"
+            aria-invalid={urlErrors.whisper ? true : undefined}
+            aria-describedby={
+              urlErrors.whisper ? `${descId("stt-whisper-url")} ${WHISPER_URL_ERROR_ID}` : descId("stt-whisper-url")
+            }
+            className="w-full"
+          />
+          <StatusMessage id={WHISPER_URL_ERROR_ID} tone="error" className="break-words">
+            {urlErrors.whisper}
+          </StatusMessage>
+        </div>
+      }
+    />
+  )
+
   return (
     <div>
       <SettingsSection
         title="Transcription"
-        description="Defaults for turning speech into text. Saved to your CatchM config."
+        description="How CatchM turns speech into text. Saved on this computer."
       >
         <SettingRow
           label="Engine"
           id="stt-engine"
           description={
             <>
-              Used as the default when starting a meeting. {ENGINES.find((e) => e.value === engine)?.hint}
+              Used when you start a meeting. {ENGINE_HINT[engine]}
             </>
           }
           control={
@@ -184,15 +229,21 @@ export function SettingsTranscription() {
               describedBy={descId("stt-engine")}
               value={engine}
               onChange={setEngine}
-              options={ENGINES.map((e) => ({ value: e.value, label: e.label }))}
+              options={ENGINES.map((e) => ({ value: e, label: ENGINE_LABEL[e] }))}
             />
           }
         />
+        {engine === "whisper" && whisperRow}
         <SettingRow
           label="Soniox API key"
           htmlFor={keyEditing ? "soniox-key" : undefined}
           id="soniox-key"
-          description="Stored locally on this device."
+          description={
+            <>
+              Only needed for “{ENGINE_LABEL.soniox}”. The key stays on this computer.{" "}
+              <ExternalLink href={SONIOX_SITE}>Get a key from Soniox</ExternalLink>
+            </>
+          }
           control={
             keyEditing ? (
               <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
@@ -253,42 +304,14 @@ export function SettingsTranscription() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Advanced" description="Server endpoints for the engines.">
-        <Disclosure label="Whisper & Soniox server URLs">
+      <SettingsSection title="Advanced" description="You only need to change these if you run your own servers.">
+        <Disclosure label={engine === "whisper" ? "Soniox server address" : "Server addresses"}>
           <div className="grid gap-2">
+            {engine !== "whisper" && whisperRow}
             <SettingRow
-              label="Whisper server URL"
-              htmlFor="stt-whisper-url"
-              description="Where the local Whisper server listens."
-              control={
-                <div className="grid w-96 justify-items-end gap-1">
-                  <Input
-                    id="stt-whisper-url"
-                    name="whisper_url"
-                    type="url"
-                    {...noAutofill}
-                    value={whisperUrl}
-                    onChange={(e) => setWhisperUrl(e.target.value)}
-                    onBlur={commitWhisperUrl}
-                    placeholder="http://127.0.0.1:8080…"
-                    aria-invalid={urlErrors.whisper ? true : undefined}
-                    aria-describedby={
-                      urlErrors.whisper
-                        ? `${descId("stt-whisper-url")} ${WHISPER_URL_ERROR_ID}`
-                        : descId("stt-whisper-url")
-                    }
-                    className="w-full"
-                  />
-                  <StatusMessage id={WHISPER_URL_ERROR_ID} tone="error" className="break-words">
-                    {urlErrors.whisper}
-                  </StatusMessage>
-                </div>
-              }
-            />
-            <SettingRow
-              label="Soniox WebSocket URL"
+              label="Soniox server address"
               htmlFor="stt-soniox-url"
-              description="Endpoint for the Soniox realtime stream."
+              description={`Where CatchM sends audio when you use “${ENGINE_LABEL.soniox}”.`}
               control={
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input
