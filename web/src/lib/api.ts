@@ -56,6 +56,10 @@ export interface Meeting {
   summary?: string
   notes?: string[]
   refined?: boolean
+  /** Which engine re-transcribed the meeting ("soniox" | "whisper"); empty for engine "none". */
+  refined_with?: string
+  /** True when the meeting was created from an uploaded recording. */
+  imported?: boolean
 }
 
 /**
@@ -301,11 +305,14 @@ export class RefineError extends ApiError {
   kind: SummaryErrorKind
   /** RFC3339 timestamp string; set for quota_exceeded. */
   reset_at?: string
+  /** Set when the server kept the meeting despite the failure (import). */
+  meeting_id?: string
   constructor(message: string, status: number, kind: SummaryErrorKind, resetAt?: string, body?: Record<string, unknown>) {
     super(message, status, body)
     this.name = "RefineError"
     this.kind = kind
     this.reset_at = resetAt
+    if (typeof body?.meeting_id === "string") this.meeting_id = body.meeting_id
   }
 }
 
@@ -469,10 +476,13 @@ export function endMeeting(id: string): Promise<{ status: string }> {
  * transcription, then the summary). Throws RefineError when the summary
  * step failed (the body has a kind), else a plain ApiError.
  */
-export async function refineMeeting(id: string): Promise<Meeting> {
+export type RefineEngine = "auto" | "soniox" | "whisper" | "none"
+
+export async function refineMeeting(id: string, opts?: { engine?: RefineEngine }): Promise<Meeting> {
   try {
     return await apiFetch<Meeting>(`/api/meetings/${encodeURIComponent(id)}/refine`, {
       method: "POST",
+      body: opts?.engine ? JSON.stringify({ engine: opts.engine }) : undefined,
     })
   } catch (err) {
     const kind = err instanceof ApiError ? err.body?.kind : undefined
@@ -482,6 +492,69 @@ export async function refineMeeting(id: string): Promise<Meeting> {
     }
     throw err
   }
+}
+
+/** importRecording opts: everything except file, which is the first argument. */
+export interface ImportRecordingOptions {
+  title?: string
+  lang?: string
+  translate_to?: string
+  two_way?: boolean
+  engine?: RefineEngine
+}
+
+/**
+ * POST /api/meetings/import (multipart) — streams the file with
+ * XMLHttpRequest so onUploadProgress can track it (0..1). On failure,
+ * the server may have kept the meeting: the thrown RefineError-style
+ * error then carries meeting_id.
+ */
+export function importRecording(
+  file: File,
+  opts: ImportRecordingOptions,
+  onUploadProgress?: (fraction: number) => void,
+): Promise<Meeting> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", "/api/meetings/import")
+    xhr.responseType = "json"
+    if (onUploadProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onUploadProgress(e.loaded / e.total)
+      }
+    }
+    const fail = () => {
+      const body = (xhr.response ?? undefined) as Record<string, unknown> | undefined
+      let message = xhr.statusText || `import failed with status ${xhr.status}`
+      const kind = body?.kind
+      if (typeof body?.error === "string") message = body.error
+      if (typeof kind === "string") {
+        const resetAt = typeof body?.reset_at === "string" ? body.reset_at : undefined
+        reject(new RefineError(message, xhr.status, kind as SummaryErrorKind, resetAt, body))
+        return
+      }
+      reject(new ApiError(message, xhr.status, body))
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response as Meeting)
+      } else {
+        fail()
+      }
+    }
+    xhr.onerror = () => reject(new ApiError("Import request failed (network error).", xhr.status))
+    xhr.onabort = () => reject(new ApiError("Import was cancelled.", xhr.status))
+    // Fields before the file: the server reads parts in order, so a bad
+    // engine/format choice is rejected before the whole upload is sent.
+    const form = new FormData()
+    if (opts.title) form.append("title", opts.title)
+    if (opts.lang) form.append("lang", opts.lang)
+    if (opts.translate_to) form.append("translate_to", opts.translate_to)
+    if (opts.two_way !== undefined) form.append("two_way", String(opts.two_way))
+    if (opts.engine) form.append("engine", opts.engine)
+    form.append("file", file)
+    xhr.send(form)
+  })
 }
 
 /** internal/tools.ActionItemRef: an ActionItem flattened together with the

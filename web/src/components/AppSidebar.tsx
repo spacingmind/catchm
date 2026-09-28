@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType, type ReactNode, type RefObject } from "react"
-import { CheckSquare, ListVideo, Mic, PanelLeftClose, PanelLeftOpen, Radio, Settings2 } from "lucide-react"
+import { CheckSquare, ListVideo, Mic, PanelLeftClose, PanelLeftOpen, Radio, Settings2, Upload } from "lucide-react"
 import { cn } from "cn"
 
 import logo from "@/assets/logo.png"
@@ -82,9 +82,10 @@ interface AppSidebarProps {
   onStartMeeting: () => void
   /** Start button — exposed so the start popover can anchor to it. */
   startButtonRef?: RefObject<HTMLButtonElement | null>
+  onImportRecording: () => void
 }
 
-export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startButtonRef }: AppSidebarProps) {
+export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startButtonRef, onImportRecording }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
@@ -169,6 +170,16 @@ export function AppSidebar({ view, onNavigate, liveTitle, onStartMeeting, startB
           >
             <Mic />
             <span className={collapsed ? "sr-only" : undefined}>Start meeting</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn("w-full", collapsed && "px-0")}
+            onClick={onImportRecording}
+            title="Import recording"
+          >
+            <Upload />
+            <span className={collapsed ? "sr-only" : undefined}>Import recording</span>
           </Button>
           <NavButton icon={Settings2} label="Settings" title={`Settings${shortcutHint(",")}`} collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
         </div>

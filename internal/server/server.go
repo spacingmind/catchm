@@ -33,9 +33,12 @@ type Server struct {
 
 	newEngine      func(name string, cfg *config.Config) (stt.StreamEngine, error)
 	newSource      func(device string) (capture.Source, error)
-	newBatchEngine func(cfg *config.Config) (stt.BatchEngine, error)
+	newBatchEngine func(cfg *config.Config, engine string) (stt.BatchEngine, error)
 	newTranslator  func(cfg *config.Config, model string) (translate.Translator, error)
 	newSummarizer  func(cfg *config.Config, cloud summarize.CloudAuth) (summarize.Summarizer, error)
+	// startSonioxCleanup runs once at construction when a Soniox key
+	// is set; a test seam so no network is touched in tests.
+	startSonioxCleanup func()
 
 	mu        sync.Mutex
 	pipelines map[string]*pipeline.Pipeline
@@ -60,7 +63,17 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		mux:            http.NewServeMux(),
 		newEngine:      newEngine,
 		newSource:      func(device string) (capture.Source, error) { return capture.NewMicSource(device) },
-		newBatchEngine: func(cfg *config.Config) (stt.BatchEngine, error) { return stt.NewWhisperEngine(cfg.WhisperURL), nil },
+		newBatchEngine: newBatchEngine,
+		startSonioxCleanup: func() {
+			if cfg.Soniox.APIKey == "" {
+				return
+			}
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), sonioxCleanupTimeout)
+				defer cancel()
+				_ = stt.NewSonioxAsyncEngine(cfg.Soniox.APIKey, "").CleanupStale(ctx)
+			}()
+		},
 		newTranslator: func(cfg *config.Config, model string) (translate.Translator, error) {
 			return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
 		},
@@ -68,6 +81,7 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		pipelines:      map[string]*pipeline.Pipeline{},
 		newCloudClient: nil,
 	}
+	s.startSonioxCleanup()
 	s.routes()
 	return s
 }
@@ -89,6 +103,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/meetings/{id}/notes", s.handleAddNote)
 	s.mux.HandleFunc("POST /api/meetings/{id}/end", s.handleEndMeeting)
 	s.mux.HandleFunc("POST /api/meetings/{id}/refine", s.handleRefine)
+	s.mux.HandleFunc("POST /api/meetings/import", s.handleImportMeeting)
 	s.mux.HandleFunc("GET /api/action-items", s.handleListActionItems)
 	s.mux.HandleFunc("PATCH /api/meetings/{id}/action-items/{index}", s.handleSetActionItemStatus)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
@@ -684,64 +699,6 @@ func (s *Server) handleSetActionItemStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	m, err := s.surface.GetMeeting(id)
-	respond(w, m, err)
-}
-
-func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	m, err := s.surface.GetMeeting(id)
-	if err != nil {
-		respondRefineErr(w, err)
-		return
-	}
-	// A meeting that can't be refined answers that first, before any
-	// summary readiness probe.
-	if err := batch.CheckRefinable(s.surface.Store(), id); err != nil {
-		respondRefineErr(w, err)
-		return
-	}
-	var translator translate.Translator
-	if m.TranslateTo != "" {
-		if t, err := s.newTranslator(s.cfg, s.cfg.Translate.BatchModel); err == nil {
-			translator = t
-		}
-	}
-	// Build the summarizer before the (slow) batch pass: its checks are
-	// config-only, so a missing cloud consent or provider setup answers
-	// at once, and nothing reaches the cloud without consent.
-	s.mu.Lock()
-	cfg := *s.cfg
-	s.mu.Unlock()
-	auth := s.cloudAuth()
-	sum, err := s.newSummarizer(&cfg, auth)
-	if err != nil {
-		respondSummaryErr(w, err)
-		return
-	}
-	// Then the status endpoint's probes (Ollama up with the model, cloud
-	// quota left), so a summary that can't run fails before minutes of
-	// batch transcription. An unreachable quota endpoint doesn't block.
-	readyCtx, cancel := context.WithTimeout(r.Context(), refineReadyTimeout)
-	st := summaryReadiness(readyCtx, &cfg, auth, false)
-	cancel()
-	if err := st.err(); err != nil {
-		respondSummaryErr(w, err)
-		return
-	}
-	engine, err := s.newBatchEngine(s.cfg)
-	if err != nil {
-		httpError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := batch.Refine(r.Context(), s.surface.Store(), id, engine, translator); err != nil {
-		respondRefineErr(w, err)
-		return
-	}
-	if err := summarize.SummarizeMeeting(r.Context(), s.surface.Store(), id, sum); err != nil {
-		respondSummaryErr(w, err)
-		return
-	}
-	m, err = s.surface.GetMeeting(id)
 	respond(w, m, err)
 }
 

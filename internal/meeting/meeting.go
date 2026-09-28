@@ -62,6 +62,8 @@ type Meeting struct {
 	Summary       string            `yaml:"summary,omitempty" json:"summary,omitempty"`
 	Notes         []string          `yaml:"notes,omitempty" json:"notes,omitempty"`
 	Refined       bool              `yaml:"refined,omitempty" json:"refined,omitempty"`
+	RefinedWith   string            `yaml:"refined_with,omitempty" json:"refined_with,omitempty"`
+	Imported      bool              `yaml:"imported,omitempty" json:"imported,omitempty"`
 }
 
 // SchemaVersion is the current frontmatter schema version.

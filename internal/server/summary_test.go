@@ -48,9 +48,9 @@ func stubSummarizer(t *testing.T, s *Server, sum summarize.Summarizer) {
 func countBatchEngine(s *Server) *atomic.Int32 {
 	var n atomic.Int32
 	next := s.newBatchEngine
-	s.newBatchEngine = func(cfg *config.Config) (stt.BatchEngine, error) {
+	s.newBatchEngine = func(cfg *config.Config, engine string) (stt.BatchEngine, error) {
 		n.Add(1)
-		return next(cfg)
+		return next(cfg, engine)
 	}
 	return &n
 }

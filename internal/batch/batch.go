@@ -1,13 +1,12 @@
-// Package batch runs post-meeting STT refinement: transcribing a meeting's
-// complete audio.wav with a BatchEngine once the meeting has ended, and
-// storing the result as the meeting's batch transcript.
+// Package batch runs post-meeting STT refinement: transcribing a
+// meeting's complete audio recording with a BatchEngine once the
+// meeting has ended, and storing the result as the meeting's batch
+// transcript.
 package batch
 
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spacingmind/catchm/internal/meeting"
@@ -16,17 +15,21 @@ import (
 )
 
 // ErrMeetingActive is returned when Refine is called on a meeting that
-// has not ended yet: there is no complete audio.wav to transcribe.
+// has not ended yet: there is no complete recording to transcribe.
 var ErrMeetingActive = errors.New("meeting is still active")
 
-// ErrNoAudio is returned when a meeting has no recorded audio.wav.
-var ErrNoAudio = errors.New("meeting has no audio.wav")
+// ErrNoAudio aliases meeting.ErrNoAudio: callers of this package get
+// the same sentinel the store's AudioPath returns.
+var ErrNoAudio = meeting.ErrNoAudio
 
-// Refine transcribes a meeting's full audio.wav with engine and writes the
-// result as the meeting's batch transcript (see meeting.WriteBatchTranscript).
-// The meeting must have ended and have a recorded audio.wav. translator may
-// be nil, in which case no translation step runs. When non-nil, it fills in
-// Translated only for utterances engine left untranslated.
+// Refine transcribes a meeting's full audio recording with engine and
+// writes the result as the meeting's batch transcript (see
+// meeting.WriteBatchTranscript). The meeting must have ended and have a
+// recorded audio file. engine may be nil, in which case no
+// re-transcription runs (the "none" engine: the caller summarizes the
+// live transcript). translator may be nil, in which case no translation
+// step runs. When non-nil, it fills in Translated only for utterances
+// engine left untranslated.
 func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.BatchEngine, translator translate.Translator) error {
 	m, err := store.Get(id)
 	if err != nil {
@@ -35,9 +38,28 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 	if err := checkRefinable(store, m); err != nil {
 		return err
 	}
-	audioPath := filepath.Join(store.Root(), id, "audio.wav")
+	if engine == nil {
+		return nil // none: no re-transcription, no v2 write
+	}
+	audioPath, err := store.AudioPath(id)
+	if err != nil {
+		return err
+	}
 
-	us, err := engine.TranscribeFile(ctx, audioPath, stt.Options{Lang: m.Lang, TranslateTo: m.TranslateTo})
+	languageB := ""
+	if m.TwoWay {
+		// Two-way meetings store their two conversation languages in
+		// lang (A) and translate_to (B); TranslateTo is otherwise unused.
+		languageB = m.TranslateTo
+	}
+	us, err := engine.TranscribeFile(ctx, audioPath, stt.Options{
+		Lang:         m.Lang,
+		TranslateTo:  m.TranslateTo,
+		TwoWay:       m.TwoWay,
+		LanguageB:    languageB,
+		Title:        m.Title,
+		ContextTerms: m.Participants,
+	})
 	if err != nil {
 		return err
 	}
@@ -57,7 +79,7 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 
 // CheckRefinable reports whether meeting id can be refined now: it
 // exists (meeting.ErrNotFound), has ended (ErrMeetingActive) and has an
-// audio.wav (ErrNoAudio). Refine runs the same check.
+// audio recording (ErrNoAudio). Refine runs the same check.
 func CheckRefinable(store *meeting.Store, id string) error {
 	m, err := store.Get(id)
 	if err != nil {
@@ -70,11 +92,6 @@ func checkRefinable(store *meeting.Store, m *meeting.Meeting) error {
 	if m.EndedAt == nil {
 		return ErrMeetingActive
 	}
-	if _, err := os.Stat(filepath.Join(store.Root(), m.ID, "audio.wav")); err != nil {
-		if os.IsNotExist(err) {
-			return ErrNoAudio
-		}
-		return err
-	}
-	return nil
+	_, err := store.AudioPath(m.ID)
+	return err
 }

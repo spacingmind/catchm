@@ -14,10 +14,12 @@ type PCM []byte
 
 // Options configures a streaming session.
 type Options struct {
-	Lang        string // source language hint, engine-specific; empty means auto-detect
-	TranslateTo string // target language for engines that support translation; empty disables it
-	LanguageB   string // two-way mode: the second conversation language, alongside Lang
-	TwoWay      bool   // translate each utterance into whichever of Lang/LanguageB it wasn't spoken in; when true, TranslateTo is unused
+	Lang         string   // source language hint, engine-specific; empty means auto-detect
+	TranslateTo  string   // target language for engines that support translation; empty disables it
+	LanguageB    string   // two-way mode: the second conversation language, alongside Lang
+	TwoWay       bool     // translate each utterance into whichever of Lang/LanguageB it wasn't spoken in; when true, TranslateTo is unused
+	Title        string   // meeting title, fed to engines that accept context (Soniox async); empty disables it
+	ContextTerms []string // domain terms and participant names to bias recognition (Soniox async); empty disables it
 }
 
 // Result is one recognized segment of speech, partial or final.

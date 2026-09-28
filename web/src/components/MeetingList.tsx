@@ -19,6 +19,8 @@ interface MeetingListProps {
   onOpenMeeting: (meeting: Meeting) => void
   /** Opens the start-meeting popover (the empty state's call to action). */
   onStartMeeting?: () => void
+  /** Opens the import-recording dialog (the empty state's link). */
+  onImportRecording?: () => void
 }
 
 /** Stable empty list, so memo deps don't change on every render. */
@@ -30,7 +32,7 @@ type SearchResult = { q: string; attempt: number; meetings: Meeting[] | null; er
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps) {
+export function MeetingList({ onOpenMeeting, onStartMeeting, onImportRecording }: MeetingListProps) {
   const [meetings, setMeetings] = useState<Meeting[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -196,6 +198,13 @@ export function MeetingList({ onOpenMeeting, onStartMeeting }: MeetingListProps)
             <Button className="mt-6" onClick={onStartMeeting}>
               <Mic /> Start meeting
             </Button>
+          )}
+          {onImportRecording && (
+            <div className="mt-3">
+              <Button variant="link" className="text-muted-foreground" onClick={onImportRecording}>
+                Import a recording you already have
+              </Button>
+            </div>
           )}
         </div>
       ) : searching ? (
