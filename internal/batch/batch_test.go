@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,5 +139,117 @@ func TestRefineTranslatesUtterances(t *testing.T) {
 	}
 	if translator.calls != 1 {
 		t.Fatalf("translator called %d times, want 1", translator.calls)
+	}
+}
+
+// optionsBatchEngine records the Options and audio path it was given.
+type optionsBatchEngine struct {
+	us      []meeting.Utterance
+	gotOpts stt.Options
+	gotPath string
+}
+
+func (f *optionsBatchEngine) TranscribeFile(_ context.Context, path string, opts stt.Options) ([]meeting.Utterance, error) {
+	f.gotOpts = opts
+	f.gotPath = path
+	return f.us, nil
+}
+
+// TestRefineNilEngineIsNonePath proves a nil engine skips the
+// re-transcription entirely: no batch transcript is written.
+func TestRefineNilEngineIsNonePath(t *testing.T) {
+	s := newTestStore(t)
+	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	m, err := s.Start("Standup", start, meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.End(m.ID, start.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root(), m.ID, "audio.wav"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Refine(context.Background(), s, m.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadBatchTranscript(m.ID)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("none path wrote a batch transcript: %+v (%v)", got, err)
+	}
+}
+
+// TestRefinePassesFullTranslationModeAndContext proves Lang,
+// TranslateTo, TwoWay, LanguageB (two-way meetings store language B in
+// translate_to), Title and ContextTerms (participants) all reach the
+// engine, and that non-WAV audio files are discovered.
+func TestRefinePassesFullTranslationModeAndContext(t *testing.T) {
+	s := newTestStore(t)
+	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	m, err := s.Start("Bilingual 1:1", start, meeting.StartOptions{
+		Lang: "en", TranslateTo: "vi", TwoWay: true, Engine: "soniox",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
+		mm.Participants = []string{"alex", "sam"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.End(m.ID, start.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root(), m.ID, "audio.m4a"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := &optionsBatchEngine{us: []meeting.Utterance{{Text: "hi", At: time.Time{}.Add(time.Second)}}}
+	if err := Refine(context.Background(), s, m.ID, engine, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := stt.Options{
+		Lang: "en", TranslateTo: "vi", TwoWay: true, LanguageB: "vi",
+		Title: "Bilingual 1:1", ContextTerms: []string{"alex", "sam"},
+	}
+	got := engine.gotOpts
+	if got.Lang != want.Lang || got.TranslateTo != want.TranslateTo || got.TwoWay != want.TwoWay ||
+		got.LanguageB != want.LanguageB || got.Title != want.Title ||
+		!slices.Equal(got.ContextTerms, want.ContextTerms) {
+		t.Fatalf("opts = %+v, want %+v", got, want)
+	}
+	if !strings.HasSuffix(engine.gotPath, "audio.m4a") {
+		t.Fatalf("audio path = %q, want audio.m4a", engine.gotPath)
+	}
+}
+
+// TestRefineDiscoversAudioByExtension: an imported meeting with only
+// audio.mp3 refines; CheckRefinable agrees via the same helper.
+func TestRefineDiscoversAudioByExtension(t *testing.T) {
+	s := newTestStore(t)
+	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	m, err := s.Start("Imported", start, meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.End(m.ID, start.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckRefinable(s, m.ID); !errors.Is(err, ErrNoAudio) {
+		t.Fatalf("err = %v, want ErrNoAudio", err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root(), m.ID, "audio.mp3"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckRefinable(s, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	engine := &optionsBatchEngine{}
+	if err := Refine(context.Background(), s, m.ID, engine, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(engine.gotPath, "audio.mp3") {
+		t.Fatalf("audio path = %q", engine.gotPath)
 	}
 }

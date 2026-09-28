@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
+import { AudioLines, CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { CloudConsentDialog } from "@/components/settings/SettingsSummaries"
@@ -24,6 +24,7 @@ import { useAnnounceChange, useStatusCheck } from "@/hooks/useStatusCheck"
 import {
   ApiError,
   deleteMeeting,
+  getConfig,
   getMeeting,
   getSummaryStatus,
   getTranscript,
@@ -58,6 +59,23 @@ const sentence = (s: string) => `${s.replace(/[.\s]+$/, "")}.`
 
 /** CatchM Cloud's free daily summaries, when the quota endpoint doesn't say. */
 const CLOUD_DEFAULT_LIMIT = 5
+
+/** Soniox's async transcription rate. */
+const SONIOX_RATE_PER_HOUR = 0.1
+const SONIOX_PRIVACY = "The audio is uploaded to Soniox, processed, and deleted right after."
+
+/** The meeting's length in seconds (0 while live). */
+function meetingSeconds(m: Meeting): number {
+  if (!m.ended_at) return 0
+  const start = new Date(m.started_at).getTime()
+  const end = new Date(m.ended_at).getTime()
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? (end - start) / 1000 : 0
+}
+
+/** "about $0.05" for a Soniox pass over the recording. */
+function sonioxCost(m: Meeting): string {
+  return `about $${((meetingSeconds(m) / 3600) * SONIOX_RATE_PER_HOUR).toFixed(2)}`
+}
 
 /** What "Create summary & action items" does, shown next to the button. */
 const SUMMARY_HELP =
@@ -151,6 +169,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const [cloudConsentOpen, setCloudConsentOpen] = useState(false)
   const [cloudSaving, setCloudSaving] = useState(false)
   const [cloudError, setCloudError] = useState<string | null>(null)
+  // "Improve with Soniox": only offered when a key is set.
+  const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
+  const [improveOpen, setImproveOpen] = useState(false)
+  const [improving, setImproving] = useState(false)
+  const [improveError, setImproveError] = useState<string | null>(null)
 
   // An ended meeting without a summary leads with "Create summary", so
   // check first whether summaries are set up; if not, the card offers the
@@ -191,6 +214,21 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       cancelled = true
     }
   }, [meetingId])
+
+  // A Soniox key decides whether "Improve with Soniox" is offered.
+  const ended = Boolean(meeting?.ended_at)
+  useEffect(() => {
+    if (!ended) return
+    let cancelled = false
+    getConfig()
+      .then((c) => {
+        if (!cancelled) setSonioxKeySet(c.soniox_api_key_set)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [ended, meetingId])
 
   // Transcript is fetched when its tab is first opened, not up front.
   // The cancelled flag ignores the result if the component unmounted or
@@ -312,6 +350,21 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     }
   }
 
+  const handleImprove = async () => {
+    if (improving) return
+    setImproving(true)
+    setImproveError(null)
+    try {
+      const m = await refineMeeting(meetingId, { engine: "soniox" })
+      setMeeting(m)
+      setImproveOpen(false)
+    } catch (err) {
+      setImproveError(refineErrorText(err))
+    } finally {
+      setImproving(false)
+    }
+  }
+
   // CatchM Cloud is chosen (and agreed to). Logged in: go ahead with the
   // summary, like the consent_required retry. Logged out: the re-check
   // turns the card's cloud option into "Open Cloud sync".
@@ -393,6 +446,10 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   }
 
   const refined = Boolean(meeting.refined)
+  // Offered for an ended meeting transcribed locally (or not at all)
+  // that hasn't already had a Soniox pass, when a key is set.
+  const showImprove =
+    Boolean(meeting.ended_at) && meeting.engine !== "soniox" && meeting.refined_with !== "soniox" && sonioxKeySet === true
   // Summaries are manual: ending a meeting doesn't create one, so an
   // ended, unsummarized meeting leads with the call to action.
   const showSummaryCta = !refined && Boolean(meeting.ended_at)
@@ -461,6 +518,25 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             </div>
           )}
         </div>
+        {showImprove && (
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              aria-describedby="improve-soniox-desc"
+              onClick={() => {
+                setImproveError(null)
+                setImproveOpen(true)
+              }}
+            >
+              <AudioLines aria-hidden="true" className="size-4" />
+              Improve with Soniox
+            </Button>
+            <p id="improve-soniox-desc" className="min-w-0 flex-1 text-xs text-muted-foreground">
+              Adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.
+            </p>
+          </div>
+        )}
         <div className="flex gap-2">
           {refined && summaryButton}
           <Button variant="destructive" onClick={openDelete}>
@@ -484,6 +560,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         )}
       </div>
       <StatusMessage className="sr-only">{summaryAnnouncement}</StatusMessage>
+      {meeting.refined_with === "soniox" && (
+        <StatusMessage className="mb-4">Transcript improved with Soniox.</StatusMessage>
+      )}
       {refined && (
         <StatusMessage className="mb-4">
           {refining ? "Creating a new summary. This takes a few minutes, so keep this page open." : null}
@@ -493,7 +572,14 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6 flex w-fit">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="transcript">Transcript</TabsTrigger>
+          <TabsTrigger value="transcript">
+            Transcript
+            {meeting.refined_with === "soniox" && (
+              <Badge variant="secondary" className="ml-1.5">
+                Soniox
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -804,6 +890,30 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         onOpenChange={setCloudConsentOpen}
         onAccepted={afterCloudChosen}
         select
+      />
+
+      <ConfirmDialog
+        open={improveOpen}
+        onOpenChange={(next) => {
+          if (!next && improving) return
+          setImproveOpen(next)
+        }}
+        title="Improve this transcript with Soniox?"
+        description={
+          <>
+            <span className="block">
+              CatchM listens to the recording again and adds who said what (speaker names) and a more accurate
+              transcript, then rewrites the summary.
+            </span>
+            <span className="mt-2 block">
+              Estimated cost: {sonioxCost(meeting)} ($0.10 per hour). {SONIOX_PRIVACY}
+            </span>
+          </>
+        }
+        confirmLabel={improving ? "Improving…" : "Improve with Soniox"}
+        pending={improving}
+        error={improveError}
+        onConfirm={() => void handleImprove()}
       />
 
       <ConfirmDialog

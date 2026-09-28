@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { AppSidebar, type View } from "@/components/AppSidebar"
 import { LiveMeeting } from "@/components/LiveMeeting"
 import { MeetingList } from "@/components/MeetingList"
+import { ImportRecordingDialog } from "@/components/ImportRecordingDialog"
 import { StartMeetingPopover } from "@/components/StartMeetingPopover"
 import { StatusMessage } from "@/components/StatusMessage"
 import { UpdateBanner } from "@/components/UpdateBanner"
@@ -75,6 +76,7 @@ function App() {
   // sidebar's recording indicator.
   const [live, setLive] = useState<Meeting | null>(null)
   const [startOpen, setStartOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   // Sidebar Start button — the popover anchors above it.
   const startBtnRef = useRef<HTMLButtonElement | null>(null)
   // capture_error from the start response (M19): the meeting exists but
@@ -247,6 +249,7 @@ function App() {
   }, [live])
 
   const startMeeting = useCallback(() => setStartOpen(true), [])
+  const importRecording = useCallback(() => setImportOpen(true), [])
   // No section (Ctrl/⌘, and the sidebar item): Settings picks its
   // default, or stays on the section already open. Live's "Open
   // settings" buttons (capture_error banner, engine error) name one.
@@ -319,6 +322,7 @@ function App() {
           liveTitle={live?.title ?? null}
           onStartMeeting={startMeeting}
           startButtonRef={startBtnRef}
+          onImportRecording={importRecording}
         />
       )}
 
@@ -357,7 +361,11 @@ function App() {
           </div>
         )}
         {!showCompactShell && view === "list" && (
-          <MeetingList onOpenMeeting={openMeeting} onStartMeeting={startMeeting} />
+          <MeetingList
+            onOpenMeeting={openMeeting}
+            onStartMeeting={startMeeting}
+            onImportRecording={importRecording}
+          />
         )}
         {/* A routed meeting still being fetched (reload, deep link). Its
             own slot, so LiveMeeting's position below never shifts. */}
@@ -403,7 +411,19 @@ function App() {
       </main>
 
       {!showCompactShell && (
+        <>
         <StartMeetingPopover open={startOpen} onOpenChange={setStartOpen} onStarted={handleStarted} anchor={startBtnRef} onOpenSettings={openSettings} />
+        <ImportRecordingDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          onImported={openMeeting}
+          onOpenMeeting={(id) => {
+            setImportOpen(false)
+            openMeetingByID(id)
+          }}
+          onOpenSettings={() => openSettings("transcription")}
+        />
+        </>
       )}
     </div>
   )

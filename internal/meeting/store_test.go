@@ -456,3 +456,61 @@ func TestTwoWayMeetingOptionRecorded(t *testing.T) {
 		}
 	}
 }
+
+// TestRefinedWithAndImportedRoundTrip proves the two new frontmatter
+// fields survive a write/read cycle, both parsed and in the raw doc.
+func TestRefinedWithAndImportedRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Standup", time.Now().UTC(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateDoc(m.ID, func(mm *Meeting) error {
+		mm.RefinedWith = "soniox"
+		mm.Imported = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RefinedWith != "soniox" || !got.Imported {
+		t.Fatalf("round-trip = %+v", got)
+	}
+	raw, err := os.ReadFile(filepath.Join(s.Root(), m.ID, "meeting.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"refined_with: soniox", "imported: true"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("meeting.md missing %q:\n%s", want, raw)
+		}
+	}
+}
+
+func TestAudioPath(t *testing.T) {
+	s := newTestStore(t)
+	m, err := s.Start("Standup", time.Now().UTC(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AudioPath(m.ID); err != ErrNoAudio {
+		t.Fatalf("empty dir: err = %v, want ErrNoAudio", err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root(), m.ID, "audio.mp3"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.AudioPath(m.ID)
+	if err != nil || !strings.HasSuffix(p, "audio.mp3") {
+		t.Fatalf("AudioPath = %q, %v", p, err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root(), m.ID, "audio.wav"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.AudioPath(m.ID)
+	if err != nil || !strings.HasSuffix(p, "audio.wav") {
+		t.Fatalf("AudioPath = %q, %v, want audio.wav to win", p, err)
+	}
+}
