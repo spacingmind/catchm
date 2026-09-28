@@ -36,10 +36,15 @@ tasks:
       - go test ./...
 
   lint:
-    desc: Vet + gofmt check
+    desc: Vet + gofmt check + no case-only filename collisions
     cmds:
       - go vet ./...
       - test -z "$(gofmt -l $(git ls-files '*.go'))"
+      # Windows (the release runner) and macOS have case-insensitive
+      # filesystems: two files differing only in case (v0.3.0 shipped
+      # insights/Evidence.tsx next to insights/evidence.ts) break the
+      # release build there while Linux CI stays green.
+      - test -z "$(git ls-files | tr '[:upper:]' '[:lower:]' | sort | uniq -d)"
 
   tidy:
     desc: go mod tidy

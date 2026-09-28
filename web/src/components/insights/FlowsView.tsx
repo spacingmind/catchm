@@ -18,7 +18,7 @@ import { Route as RouteIcon } from "lucide-react"
 
 import { Disclosure } from "@/components/Disclosure"
 import { SourceLink } from "@/components/insights/Evidence"
-import { narrowScreen, ownerName, type JumpToEvidence } from "@/components/insights/evidence"
+import { narrowScreen, ownerName, type JumpToEvidence } from "@/components/insights/evidenceData"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Analysis, Flow, FlowStep } from "@/lib/api"
 import { cn } from "cn"

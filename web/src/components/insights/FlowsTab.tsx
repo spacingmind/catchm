@@ -1,7 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react"
 import { Loader2, Route as RouteIcon, Search } from "lucide-react"
 
-import { evidenceMatchesTranscript, type JumpToEvidence } from "@/components/insights/evidence"
+import { evidenceMatchesTranscript, type JumpToEvidence } from "@/components/insights/evidenceData"
 import { GraphSkeleton, InsightEmpty, InsightLoadError } from "@/components/insights/InsightStates"
 import type { FindFlowsState } from "@/components/insights/useFindFlows"
 import { StatusMessage } from "@/components/StatusMessage"

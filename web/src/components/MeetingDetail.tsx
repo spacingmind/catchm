@@ -3,7 +3,7 @@ import { AudioLines, CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, 
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { EvidenceBar, SourceLink } from "@/components/insights/Evidence"
-import { evidenceMatchesTranscript, prefersReducedMotion } from "@/components/insights/evidence"
+import { evidenceMatchesTranscript, prefersReducedMotion } from "@/components/insights/evidenceData"
 import { FlowsTab } from "@/components/insights/FlowsTab"
 import { MindMapTab } from "@/components/insights/MindMapTab"
 import { useFindFlows } from "@/components/insights/useFindFlows"
