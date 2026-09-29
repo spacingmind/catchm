@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, plainTags, projectKey, projectOf, type Meeting } from "@/lib/api"
-import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
+import { formatDateRange, formatDateTime, formatDay, formatMonth } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { findProject, readGroupBy, useProjects, writeGroupBy, type MeetingGroupBy } from "@/lib/projects"
 import { MEETINGS, navigate } from "@/lib/route"
@@ -40,8 +40,6 @@ type SearchResult = { q: string; attempt: number; meetings: Meeting[] | null; er
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-const monthFmt = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" })
-
 /** Local midnight of the given time. */
 function dayStart(t: Date): number {
   const d = new Date(t)
@@ -58,7 +56,7 @@ function dateGroup(iso: string, today: number): string {
   if (daysAgo <= 0) return "Today"
   if (daysAgo === 1) return "Yesterday"
   if (daysAgo < 7) return "Last 7 days"
-  return monthFmt.format(d)
+  return formatMonth(d)
 }
 
 interface MeetingGroup {

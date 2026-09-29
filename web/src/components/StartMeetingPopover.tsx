@@ -38,6 +38,7 @@ import {
   writeStartedDevice,
 } from "@/lib/recordPrefs"
 import { ENGINE_HINT, ENGINE_LABEL, SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
+import { activeLocale } from "@/i18n"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
@@ -71,7 +72,7 @@ function writeLast(p: StartPrefs) {
 /** Backend requires a non-empty title; generate from date/time. */
 function defaultTitle(): string {
   const now = new Date()
-  return `Meeting ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+  return `Meeting ${now.toLocaleDateString(activeLocale())} ${now.toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" })}`
 }
 
 /** Radix Select can't have an item with value "", which is what "auto"
@@ -447,7 +448,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                       {!twoWay && <SelectItem value={UNSET_LANG}>Detect automatically</SelectItem>}
                       {LANGUAGES.map((l) => (
                         <SelectItem key={l.code} value={l.code}>
-                          {l.label}
+                          {languageLabel(l.code)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -469,7 +470,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                       {!twoWay && <SelectItem value={UNSET_LANG}>No translation</SelectItem>}
                       {LANGUAGES.map((l) => (
                         <SelectItem key={l.code} value={l.code}>
-                          {l.label}
+                          {languageLabel(l.code)}
                         </SelectItem>
                       ))}
                     </SelectContent>

@@ -37,6 +37,15 @@ const setDocLang = (lng: string) => {
   document.documentElement.lang = lng
 }
 
+/** The best locale tag for formatting: the browser's own tag when it
+ *  matches the active UI language (keeps the user's regional style,
+ *  e.g. "en-GB"), otherwise the active language itself. */
+export function activeLocale(): string {
+  const active = i18next.language ?? "en"
+  const nav = navigator.language ?? ""
+  return nav.toLowerCase().startsWith(active.toLowerCase()) ? nav : active
+}
+
 export function initI18n() {
   void i18next.use(initReactI18next).init({
     resources: { en: { translation: en }, vi: { translation: vi } },

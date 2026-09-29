@@ -19,7 +19,7 @@ import {
   type TranslateTarget,
 } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
-import { LANGUAGES } from "@/lib/languages"
+import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { isAbsoluteUrl } from "@/lib/url"
 
 interface PullState {
@@ -504,7 +504,7 @@ export function SettingsTranslation() {
                   <SelectContent>
                     {LANGUAGES.map((l) => (
                       <SelectItem key={l.code} value={l.code}>
-                        {l.label}
+                        {languageLabel(l.code)}
                       </SelectItem>
                     ))}
                   </SelectContent>

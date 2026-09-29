@@ -22,7 +22,7 @@ import { ArrowLeftRight } from "lucide-react"
 import { ApiError, getConfig, importRecording, type Meeting } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import { ENGINE_LABEL } from "@/lib/labels"
-import { LANGUAGES } from "@/lib/languages"
+import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Radix Select can't hold an item with value ""; stands in for "unset". */
@@ -319,7 +319,7 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                   {!twoWay && <SelectItem value={UNSET_LANG}>Detect automatically</SelectItem>}
                   {LANGUAGES.map((l) => (
                     <SelectItem key={l.code} value={l.code}>
-                      {l.label}
+                      {languageLabel(l.code)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -339,7 +339,7 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                   {!twoWay && <SelectItem value={UNSET_LANG}>No translation</SelectItem>}
                   {LANGUAGES.map((l) => (
                     <SelectItem key={l.code} value={l.code}>
-                      {l.label}
+                      {languageLabel(l.code)}
                     </SelectItem>
                   ))}
                 </SelectContent>
