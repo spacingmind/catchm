@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { Check, ShieldAlert, TriangleAlert } from "lucide-react"
+import i18next from "i18next"
+import { useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -43,63 +45,93 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 interface ProviderOption {
   value: SummaryProvider
-  label: string
-  description: string
+  labelKey: (typeof PROVIDER_LABEL_KEYS)[SummaryProvider]
+  descriptionKey: (typeof PROVIDER_DESC_KEYS)[SummaryProvider]
 }
+
+const PROVIDER_LABEL_KEYS = {
+  ollama: "settings.summaries.providerOllama",
+  "catchm-cloud": "settings.summaries.providerCloud",
+  openai: "settings.summaries.providerCloudflare",
+} as const
+const PROVIDER_DESC_KEYS = {
+  ollama: "settings.summaries.providerOllamaDesc",
+  "catchm-cloud": "settings.summaries.providerCloudDesc",
+  openai: "settings.summaries.providerCloudflareDesc",
+} as const
 
 const PROVIDERS: ProviderOption[] = [
   {
     value: "ollama",
-    label: "On this computer (Ollama)",
-    description: "Free and private: nothing leaves this computer.",
+    labelKey: "settings.summaries.providerOllama",
+    descriptionKey: "settings.summaries.providerOllamaDesc",
   },
   {
     value: "catchm-cloud",
-    label: "CatchM Cloud (free)",
-    description: "Uses a free shared pool on CatchM’s servers (Cloudflare Workers AI, or a zero-retention partner model when it’s busy).",
+    labelKey: "settings.summaries.providerCloud",
+    descriptionKey: "settings.summaries.providerCloudDesc",
   },
   {
     value: "openai",
-    label: "Your Cloudflare account",
-    description: "Workers AI on your own free Cloudflare account. Only the transcript is sent, and it stays under your account.",
+    labelKey: "settings.summaries.providerCloudflare",
+    descriptionKey: "settings.summaries.providerCloudflareDesc",
   },
 ]
 
 interface ModelPreset {
   model: string
   /** Shown when this computer's memory is unknown. */
-  label: string
-  /** Shown when it's known: "Recommended for this computer" then marks
-   *  the best fit instead of a fixed "Recommended". */
-  plainLabel: string
-  /** Rough memory (RAM) the model needs, in GB. */
+  labelKey: (typeof PRESET_LABEL_KEYS)[keyof typeof PRESET_LABEL_KEYS]
+  plainLabelKey: (typeof PRESET_LABEL_KEYS)[keyof typeof PRESET_LABEL_KEYS]
   ramGb: number
-  needs: string
+  needsKey: (typeof PRESET_NEEDS_KEYS)[keyof typeof PRESET_NEEDS_KEYS]
 }
+
+const PRESET_LABEL_KEYS = {
+  light: "settings.summaries.presetLight",
+  lightPlain: "settings.summaries.presetLightPlain",
+  recommended: "settings.summaries.presetRecommended",
+  standard: "settings.summaries.presetStandard",
+  alsoRecommended: "settings.summaries.presetAlsoRecommended",
+  standardAlt: "settings.summaries.presetStandardAlt",
+  best: "settings.summaries.presetBest",
+  bestPlain: "settings.summaries.presetBestPlain",
+} as const
+const PRESET_NEEDS_KEYS = {
+  needs8: "settings.summaries.presetNeeds8",
+  needs16: "settings.summaries.presetNeeds16",
+  needs32: "settings.summaries.presetNeeds32",
+} as const
 
 const MODEL_PRESETS: ModelPreset[] = [
   {
     model: "qwen3.5:4b",
-    label: "Light",
-    plainLabel: "Light",
+    labelKey: "settings.summaries.presetLight",
+    plainLabelKey: "settings.summaries.presetLightPlain",
     ramGb: 8,
-    needs: "About 8 GB of memory (RAM). OK for short meetings.",
+    needsKey: "settings.summaries.presetNeeds8",
   },
   {
     model: "qwen3.5:9b",
-    label: "Recommended",
-    plainLabel: "Standard",
+    labelKey: "settings.summaries.presetRecommended",
+    plainLabelKey: "settings.summaries.presetStandard",
     ramGb: 16,
-    needs: "About 16 GB of memory (RAM).",
+    needsKey: "settings.summaries.presetNeeds16",
   },
   {
     model: "gemma4:12b",
-    label: "Also recommended",
-    plainLabel: "Standard (alternative)",
+    labelKey: "settings.summaries.presetAlsoRecommended",
+    plainLabelKey: "settings.summaries.presetStandardAlt",
     ramGb: 16,
-    needs: "About 16 GB of memory (RAM).",
+    needsKey: "settings.summaries.presetNeeds16",
   },
-  { model: "qwen3.5:27b", label: "Best", plainLabel: "Best", ramGb: 32, needs: "32 GB of memory (RAM) or more." },
+  {
+    model: "qwen3.5:27b",
+    labelKey: "settings.summaries.presetBest",
+    plainLabelKey: "settings.summaries.presetBestPlain",
+    ramGb: 32,
+    needsKey: "settings.summaries.presetNeeds32",
+  },
 ]
 
 /** A "16 GB" computer reports a little less (about 15.6 GiB, often less
@@ -117,10 +149,10 @@ const gbToGib = (gb: number) => (gb * 1e9) / 2 ** 30
 function setupProgressText(status: SummaryStatus | null): string | null {
   const ollama = status?.ollama
   if (!status || status.provider !== "ollama" || !ollama) return null
-  if (status.ready) return "Summaries are ready."
-  if (!ollama.reachable) return "Ollama isn’t running yet."
-  if (!ollama.installed) return "Ollama found. Next, download the summary model."
-  return status.reason ?? "Summaries aren’t ready yet."
+  if (status.ready) return i18next.t("settings.summaries.setupReady")
+  if (!ollama.reachable) return i18next.t("settings.summaries.setupOllamaNotRunning")
+  if (!ollama.installed) return i18next.t("settings.summaries.setupOllamaFound")
+  return status.reason ?? i18next.t("settings.summaries.setupNotReady")
 }
 
 /** The biggest preset that fits this computer's memory (the first of a
@@ -165,10 +197,6 @@ function cloudflareBaseUrl(accountId: string): string {
   return `${CLOUDFLARE_ACCOUNTS_PREFIX}${accountId}${CLOUDFLARE_BASE_SUFFIX}`
 }
 
-/** The privacy statement shown before anything is sent to CatchM Cloud. */
-const CLOUD_PRIVACY =
-  "Your transcript is sent unencrypted to CatchM Cloud, which uses Cloudflare Workers AI (or a zero-retention partner model when Cloudflare is busy) to write the summary. It isn’t stored."
-
 const OPENAI_KEY_ERROR_ID = "summary-openai-key-error"
 
 /**
@@ -189,6 +217,7 @@ export function CloudConsentDialog({
   onAccepted: (config: AppConfig) => void
   select?: boolean
 }) {
+  const { t } = useTranslation()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -206,7 +235,7 @@ export function CloudConsentDialog({
       setError(null)
     } catch (err) {
       setPending(false)
-      setError(`Couldn’t save your choice: ${errorMessage(err)}. Try again.`)
+      setError(t("settings.summaries.consentSaveError", { error: errorMessage(err) }))
     }
   }
 
@@ -218,18 +247,15 @@ export function CloudConsentDialog({
         if (!next) setError(null)
         onOpenChange(next)
       }}
-      title="Send transcripts to CatchM Cloud?"
+      title={t("settings.summaries.consentTitle")}
       description={
         <>
-          <span className="block font-medium text-foreground">{CLOUD_PRIVACY}</span>
-          <span className="mt-2 block">
-            This happens each time you create a summary with CatchM Cloud. Your recordings and your synced meetings
-            stay encrypted. If you’d rather keep everything on this computer, choose “On this computer” instead.
-          </span>
+          <span className="block font-medium text-foreground">{t("settings.summaries.cloudPrivacy")}</span>
+          <span className="mt-2 block">{t("settings.summaries.consentBody")}</span>
         </>
       }
-      confirmLabel={pending ? "Saving…" : "I agree, use CatchM Cloud"}
-      cancelLabel="Don’t send"
+      confirmLabel={pending ? t("settings.pieces.saving") : t("settings.summaries.consentAccept")}
+      cancelLabel={t("settings.summaries.consentCancel")}
       pending={pending}
       error={error}
       onConfirm={() => void accept()}
@@ -248,10 +274,11 @@ const idlePullState: PullState = { running: false, percent: null, statusText: nu
 
 /** Green "Ready" / red "Not ready" / pulsing "Checking…" badge. */
 function ReadyBadge({ ready, children }: { ready: boolean | null; children?: ReactNode }) {
+  const { t } = useTranslation()
   if (ready === null) {
     return (
       <Badge variant="outline" className="motion-safe:animate-pulse">
-        Checking…
+        {t("settings.system.checking")}
       </Badge>
     )
   }
@@ -260,7 +287,7 @@ function ReadyBadge({ ready, children }: { ready: boolean | null; children?: Rea
       variant={ready ? "secondary" : "destructive"}
       className={ready ? "border-transparent bg-primary/15 text-primary" : undefined}
     >
-      {children ?? (ready ? "Ready" : "Not ready")}
+      {children ?? (ready ? t("getStarted.ready") : t("settings.summaries.notReady"))}
     </Badge>
   )
 }
@@ -631,18 +658,18 @@ export function SettingsSummaries() {
                     onChange={chooseModel}
                     title={
                       <>
-                        {totalRamGb == null ? p.label : p.plainLabel}{" "}
+                        {i18next.t(totalRamGb == null ? p.labelKey : p.plainLabelKey)}{" "}
                         <span translate="no" className="font-normal text-muted-foreground">
                           · {p.model}
                         </span>
                         {recommended === p && (
                           <Badge variant="secondary" className="ml-2 border-transparent bg-primary/15 align-middle text-primary">
-                            Recommended for this computer
+                            {i18next.t("settings.summaries.recommendedHere")}
                           </Badge>
                         )}
                       </>
                     }
-                    description={`${gb != null ? `${formatGb(gb)} download. ` : ""}${p.needs}`}
+                    description={`${gb != null ? i18next.t("settings.summaries.downloadSize", { size: formatGb(gb) }) : ""}${i18next.t(p.needsKey)}`}
                     extra={
                       tooBig ? (
                         <span className="mt-1 flex items-start gap-1.5 font-medium text-warning">
@@ -807,7 +834,8 @@ export function SettingsSummaries() {
       >
         <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
         <p>
-          <span className="font-medium">{CLOUD_PRIVACY}</span> Your recordings and synced meetings stay encrypted.
+          <span className="font-medium">{i18next.t("settings.summaries.cloudPrivacy")}</span>{" "}
+          {i18next.t("settings.summaries.staysEncrypted")}
         </p>
       </div>
       <SettingRow
@@ -1000,11 +1028,11 @@ export function SettingsSummaries() {
                 value={p.value}
                 checked={shown === p.value}
                 onChange={(v) => chooseProvider(v as SummaryProvider)}
-                title={p.label}
-                description={p.description}
+                title={i18next.t(PROVIDER_LABEL_KEYS[p.value])}
+                description={i18next.t(PROVIDER_DESC_KEYS[p.value])}
                 extra={
                   p.value === "catchm-cloud" ? (
-                    <span className="mt-1 block font-medium text-foreground">{CLOUD_PRIVACY}</span>
+                    <span className="mt-1 block font-medium text-foreground">{i18next.t("settings.summaries.cloudPrivacy")}</span>
                   ) : undefined
                 }
               />
