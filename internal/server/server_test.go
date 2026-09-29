@@ -744,11 +744,30 @@ func TestUnknownMeetingIs404(t *testing.T) {
 		{"GET", "/api/meetings/nope/transcript"},
 		{"POST", "/api/meetings/nope/notes"},
 		{"POST", "/api/meetings/nope/end"},
+		{"DELETE", "/api/meetings/nope"},
 	} {
 		w := do(t, s, tc.method, tc.target, `{"note":"x"}`)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("%s %s: status = %d, want 404", tc.method, tc.target, w.Code)
 		}
+		var v struct {
+			Code string `json:"code"`
+		}
+		decode(t, w, &v)
+		if v.Code != "meeting_not_found" {
+			t.Fatalf("%s %s: code = %q, want meeting_not_found", tc.method, tc.target, v.Code)
+		}
+	}
+
+	// Plain httpError responses carry no code key.
+	w := do(t, s, "POST", "/api/meetings/nope/notes", "")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("empty note: status = %d, want 400", w.Code)
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	if _, has := v["code"]; has {
+		t.Fatalf("plain httpError response has a code key: %v", v)
 	}
 }
 

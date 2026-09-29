@@ -299,7 +299,7 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 			// explicit, unusable engine fail before the upload is read.
 			if engineName == "whisper" && ext != "wav" {
 				rejectImport(w, r, http.StatusBadRequest, map[string]string{
-					"error": "The Whisper engine only accepts WAV files. Use the Soniox engine for other formats."})
+					"error": "The Whisper engine only accepts WAV files. Use the Soniox engine for other formats.", "code": "whisper_wav_only"})
 				return
 			}
 			if engineName == "soniox" {
@@ -359,7 +359,7 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if tmpPath == "" {
-		httpError(w, http.StatusBadRequest, "file is required")
+		httpErrorCode(w, http.StatusBadRequest, "file_required", "file is required")
 		return
 	}
 	if title == "" {
@@ -400,7 +400,7 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if name == "whisper" && fileExt != "wav" {
-		httpError(w, http.StatusBadRequest, "The Whisper engine only accepts WAV files. Use the Soniox engine for other formats.")
+		httpErrorCode(w, http.StatusBadRequest, "whisper_wav_only", "The Whisper engine only accepts WAV files. Use the Soniox engine for other formats.")
 		return
 	}
 	var engine stt.BatchEngine
@@ -503,7 +503,7 @@ func rejectImport(w http.ResponseWriter, r *http.Request, status int, body map[s
 func respondImportMaxBytes(w http.ResponseWriter, err error) {
 	var maxErr *http.MaxBytesError
 	if errors.As(err, &maxErr) {
-		httpError(w, http.StatusRequestEntityTooLarge, "The recording is larger than the 1 GiB import limit.")
+		httpErrorCode(w, http.StatusRequestEntityTooLarge, "file_too_large", "The recording is larger than the 1 GiB import limit.")
 		return
 	}
 	httpError(w, http.StatusBadRequest, "bad multipart body: "+err.Error())

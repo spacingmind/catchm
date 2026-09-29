@@ -137,12 +137,15 @@ func TestCloudLoginWrongPasswordFails(t *testing.T) {
 
 	// Unknown email: fake auth-params mean the derived keys can't match
 	// anything, so the Worker's 401 surfaces.
-	code, _ := doCloud(t, s, http.MethodPost, "/api/cloud/login",
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/login",
 		`{"email":"ghost@example.com","password":"whatever"}`)
 	if code != http.StatusUnauthorized {
 		t.Fatalf("unknown-email login code = %d, want 401", code)
 	}
-	code, body := doCloud(t, s, http.MethodGet, "/api/cloud/status", "")
+	if body["code"] != "invalid_credentials" {
+		t.Fatalf("code = %v, want invalid_credentials", body["code"])
+	}
+	code, body = doCloud(t, s, http.MethodGet, "/api/cloud/status", "")
 	if code != http.StatusOK || body["logged_in"] != false {
 		t.Fatalf("status after failed login = %d %v", code, body)
 	}

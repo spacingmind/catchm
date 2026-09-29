@@ -133,7 +133,7 @@ func (s *Server) handleCloudLogin(w http.ResponseWriter, r *http.Request) {
 		// Right password, wrong salt/params (e.g. the anti-enumeration
 		// fake values for an unknown email) — indistinguishable from
 		// wrong credentials.
-		httpError(w, http.StatusUnauthorized, "invalid credentials")
+		httpErrorCode(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
 		return
 	}
 
@@ -195,7 +195,7 @@ func (s *Server) handleCloudSync(w http.ResponseWriter, r *http.Request) {
 	st := s.cloud
 	s.mu.Unlock()
 	if st == nil {
-		httpError(w, http.StatusUnauthorized, "not logged in")
+		httpErrorCode(w, http.StatusUnauthorized, "not_logged_in", "not logged in")
 		return
 	}
 
@@ -276,7 +276,7 @@ func (s *Server) handleCloudRecover(w http.ResponseWriter, r *http.Request) {
 	masterKey, err := e2ee.RecoverMasterKey(req.RecoveryCode, salt, params, blob)
 	if err != nil {
 		// Right email, wrong code: the AEAD open on the real blob fails.
-		httpError(w, http.StatusUnauthorized, "invalid recovery code")
+		httpErrorCode(w, http.StatusUnauthorized, "invalid_recovery_code", "invalid recovery code")
 		return
 	}
 
@@ -367,7 +367,7 @@ func (s *Server) handleCloudServer(w http.ResponseWriter, r *http.Request) {
 	loggedIn := s.cloud != nil
 	s.mu.Unlock()
 	if loggedIn {
-		httpError(w, http.StatusConflict, "log out before changing the cloud server")
+		httpErrorCode(w, http.StatusConflict, "logout_required", "log out before changing the cloud server")
 		return
 	}
 
@@ -441,13 +441,13 @@ func (s *Server) saveCloudConfig(email, salt, kdfParams string) {
 func respondCloudErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, cloudsync.ErrUnauthorized):
-		httpError(w, http.StatusUnauthorized, "invalid credentials")
+		httpErrorCode(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
 	case errors.Is(err, cloudsync.ErrConflict):
-		httpError(w, http.StatusConflict, "email already registered")
+		httpErrorCode(w, http.StatusConflict, "email_taken", "email already registered")
 	case errors.Is(err, cloudsync.ErrRateLimited):
-		httpError(w, http.StatusTooManyRequests, "Too many attempts — try again in a minute.")
+		httpErrorCode(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts — try again in a minute.")
 	case errors.Is(err, cloudsync.ErrQuotaExceeded):
-		httpError(w, http.StatusInsufficientStorage, "Cloud storage is full.")
+		httpErrorCode(w, http.StatusInsufficientStorage, "cloud_storage_full", "Cloud storage is full.")
 	default:
 		httpError(w, http.StatusInternalServerError, err.Error())
 	}

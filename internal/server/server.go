@@ -218,7 +218,7 @@ func (s *Server) handleSetMeetingSource(w http.ResponseWriter, r *http.Request) 
 	p := s.pipelines[id]
 	s.mu.Unlock()
 	if p == nil {
-		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		httpErrorCode(w, http.StatusNotFound, "no_live_pipeline", "no live pipeline for this meeting")
 		return
 	}
 
@@ -276,12 +276,12 @@ func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
 	p := s.pipelines[id]
 	s.mu.Unlock()
 	if p == nil {
-		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		httpErrorCode(w, http.StatusNotFound, "no_live_pipeline", "no live pipeline for this meeting")
 		return
 	}
 	mixer := p.Mixer()
 	if mixer == nil {
-		httpError(w, http.StatusNotFound, "no live pipeline for this meeting")
+		httpErrorCode(w, http.StatusNotFound, "no_live_pipeline", "no live pipeline for this meeting")
 		return
 	}
 
@@ -734,7 +734,7 @@ func (s *Server) handleDeleteMeeting(w http.ResponseWriter, r *http.Request) {
 	if m.EndedAt == nil {
 		// Mirrors handleRefine's active-meeting conflict: deleting a
 		// meeting that is still being captured would orphan its pipeline.
-		httpError(w, http.StatusConflict, "meeting is still active")
+		httpErrorCode(w, http.StatusConflict, "meeting_active", "meeting is still active")
 		return
 	}
 	s.stopPipeline(id)
@@ -768,7 +768,7 @@ func (s *Server) handleSetActionItemStatus(w http.ResponseWriter, r *http.Reques
 	id := r.PathValue("id")
 	if err := s.surface.Store().SetActionItemStatus(id, index, req.Status); err != nil {
 		if errors.Is(err, meeting.ErrActionItemIndex) {
-			httpError(w, http.StatusNotFound, err.Error())
+			httpErrorCode(w, http.StatusNotFound, "action_item_not_found", err.Error())
 			return
 		}
 		respondErr(w, err)
@@ -1119,9 +1119,11 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 func respondRefineErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, meeting.ErrNotFound):
-		httpError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, batch.ErrMeetingActive), errors.Is(err, batch.ErrNoAudio):
-		httpError(w, http.StatusConflict, err.Error())
+		httpErrorCode(w, http.StatusNotFound, "meeting_not_found", err.Error())
+	case errors.Is(err, batch.ErrMeetingActive):
+		httpErrorCode(w, http.StatusConflict, "meeting_active", err.Error())
+	case errors.Is(err, batch.ErrNoAudio):
+		httpErrorCode(w, http.StatusConflict, "no_audio", err.Error())
 	default:
 		httpError(w, http.StatusInternalServerError, err.Error())
 	}
@@ -1137,7 +1139,7 @@ func respond(w http.ResponseWriter, v any, err error) {
 
 func respondErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, meeting.ErrNotFound) {
-		httpError(w, http.StatusNotFound, err.Error())
+		httpErrorCode(w, http.StatusNotFound, "meeting_not_found", err.Error())
 		return
 	}
 	httpError(w, http.StatusInternalServerError, err.Error())
@@ -1151,4 +1153,10 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func httpError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+// httpErrorCode is httpError plus a stable machine-readable code (msg
+// stays English for logs, MCP and agents; the UI keys off the code).
+func httpErrorCode(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg, "code": code})
 }
