@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react"
+import { useTranslation } from "react-i18next"
 
 import { RecoveryCodeDialog } from "@/components/RecoveryCodeDialog"
 import { StatusMessage } from "@/components/StatusMessage"
@@ -48,6 +49,7 @@ type AuthField = "email" | "password" | "recoverEmail" | "recoverCode" | "newPas
 const AUTH_ERROR_ID = "cloud-auth-error"
 
 export function SettingsCloudSync() {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<CloudStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -121,9 +123,9 @@ export function SettingsCloudSync() {
 
   const validateAuthFields = () => {
     const errs: Partial<Record<AuthField, string>> = {}
-    if (!email.trim()) errs.email = "Enter your email."
-    else if (!email.includes("@")) errs.email = "Enter an email address like name@example.com."
-    if (!password.trim()) errs.password = mode === "signup" ? "Choose a password." : "Enter your password."
+    if (!email.trim()) errs.email = t("settings.cloudSync.emailRequired")
+    else if (!email.includes("@")) errs.email = t("settings.cloudSync.emailInvalid")
+    if (!password.trim()) errs.password = mode === "signup" ? t("settings.cloudSync.passwordNew") : t("settings.cloudSync.passwordRequired")
     setFieldErrors(errs)
     if (errs.email) emailRef.current?.focus()
     else if (errs.password) passwordRef.current?.focus()
@@ -137,14 +139,14 @@ export function SettingsCloudSync() {
   ): { message: string; field?: AuthField } => {
     const code = err instanceof ApiError ? err.status : 0
     if (kind === "login" && code === 401)
-      return { message: "Email or password is incorrect. Check both, then try again.", field: "password" }
+      return { message: t("settings.cloudSync.loginBadCredentials"), field: "password" }
     if (kind === "signup" && code === 409)
       return {
-        message: "An account with this email already exists. Log in instead, or use a different email.",
+        message: t("settings.cloudSync.signupExists"),
         field: "email",
       }
     if (kind === "recover" && code === 401)
-      return { message: "That recovery code doesn’t match this email. Check it, then try again.", field: "recoverCode" }
+      return { message: t("settings.cloudSync.recoverBadCode"), field: "recoverCode" }
     return { message: errorMessage(err) }
   }
 
@@ -176,9 +178,9 @@ export function SettingsCloudSync() {
     e.preventDefault()
     if (authBusy !== null) return
     const errs: Partial<Record<AuthField, string>> = {}
-    if (!email.trim()) errs.recoverEmail = "Enter your email."
-    if (!recoveryCodeInput.trim()) errs.recoverCode = "Enter your recovery code."
-    if (!newPassword.trim()) errs.newPassword = "Enter a new password."
+    if (!email.trim()) errs.recoverEmail = t("settings.cloudSync.emailRequired")
+    if (!recoveryCodeInput.trim()) errs.recoverCode = t("settings.cloudSync.recoverCodeRequired")
+    if (!newPassword.trim()) errs.newPassword = t("settings.cloudSync.newPasswordRequired")
     setFieldErrors(errs)
     if (errs.recoverEmail) recoverEmailRef.current?.focus()
     else if (errs.recoverCode) recoverCodeRef.current?.focus()
@@ -212,7 +214,7 @@ export function SettingsCloudSync() {
         refresh()
       })
       .catch((err: unknown) =>
-        setLogoutError(`Couldn’t log out: ${errorMessage(err)}. Try again, or restart CatchM if it keeps failing.`),
+        setLogoutError(t("settings.cloudSync.logoutError", { error: errorMessage(err) })),
       )
       .finally(() => setLoggingOut(false))
   }
@@ -245,10 +247,10 @@ export function SettingsCloudSync() {
   const loadErrorBlock = loadError && (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
       <StatusMessage tone="error" className="min-w-0 break-words">
-        Couldn’t load your cloud sync status: {loadError}. Try again, or restart CatchM if it keeps failing.
+        {t("settings.cloudSync.loadError", { error: loadError })}
       </StatusMessage>
       <Button size="sm" variant="outline" onClick={refresh}>
-        Try again
+        {t("common.tryAgain")}
       </Button>
     </div>
   )
@@ -256,14 +258,14 @@ export function SettingsCloudSync() {
   if (status === null) {
     if (loadError) {
       return (
-        <SettingsSection title="Cloud sync" description="Keep your meetings in sync across your devices, privately.">
+        <SettingsSection title={t("settings.nav.cloudSync")} description={t("settings.cloudSync.desc")}>
           {loadErrorBlock}
         </SettingsSection>
       )
     }
     return (
       <div aria-busy="true" className="grid gap-4">
-        <span className="sr-only">Loading cloud sync settings…</span>
+        <span className="sr-only">{t("settings.cloudSync.loading")}</span>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-16 w-full rounded-xl" />
         <Skeleton className="h-16 w-full rounded-xl" />
@@ -279,18 +281,11 @@ export function SettingsCloudSync() {
   return (
     <div>
       <SettingsSection
-        title="Cloud sync"
+        title={t("settings.nav.cloudSync")}
         description={
           <>
-            Your meetings stay on this computer unless you sign up or log in. With an account, CatchM keeps them in
-            sync across your devices. They are locked with your password before they leave this computer, so no one
-            else can read them, not even CatchM.{" "}
-            <span className="mt-1 block">
-              One exception: if you make summaries with CatchM Cloud (in Settings → Summaries), that meeting’s
-              transcript is sent unencrypted to CatchM Cloud, which uses Cloudflare Workers AI (or a zero-retention
-              partner model when Cloudflare is busy) to write the summary. It isn’t stored, and your synced meetings
-              stay encrypted.
-            </span>
+            {t("settings.cloudSync.desc")}
+            <span className="mt-1 block">{t("settings.cloudSync.summaryNote")}</span>
           </>
         }
       >
@@ -299,7 +294,7 @@ export function SettingsCloudSync() {
         {!loggedIn && mode !== "forgot" && (
           <form noValidate onSubmit={(e) => void handleAuth(e)} className="grid gap-3">
             <SettingRow
-              label="Email"
+              label={t("settings.cloudSync.emailLabel")}
               htmlFor="cloud-email"
               control={
                 <div className="grid w-72 justify-items-end gap-1">
@@ -321,9 +316,9 @@ export function SettingsCloudSync() {
               }
             />
             <SettingRow
-              label="Password"
+              label={t("settings.cloudSync.passwordLabel")}
               htmlFor="cloud-password"
-              description={mode === "signup" ? "Choose a password for your new CatchM cloud account." : undefined}
+              description={mode === "signup" ? t("settings.cloudSync.passwordDesc") : undefined}
               control={
                 <div className="grid w-72 justify-items-end gap-1">
                   <Input
@@ -351,7 +346,7 @@ export function SettingsCloudSync() {
             {mode === "login" ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={authBusy !== null} aria-busy={authBusy === "login" || undefined}>
-                  {authBusy === "login" ? "Logging in…" : "Log in"}
+                  {authBusy === "login" ? t("settings.cloudSync.loggingIn") : t("settings.cloudSync.logIn")}
                 </Button>
                 <Button
                   type="button"
@@ -359,16 +354,16 @@ export function SettingsCloudSync() {
                   disabled={authBusy !== null}
                   onClick={() => switchMode("signup")}
                 >
-                  Create an account
+                  {t("settings.cloudSync.createAccount")}
                 </Button>
                 <Button type="button" variant="link" disabled={authBusy !== null} onClick={() => switchMode("forgot")}>
-                  Forgot password?
+                  {t("settings.cloudSync.forgotPassword")}
                 </Button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={authBusy !== null} aria-busy={authBusy === "signup" || undefined}>
-                  {authBusy === "signup" ? "Signing up…" : "Sign up"}
+                  {authBusy === "signup" ? t("settings.cloudSync.signingUp") : t("settings.cloudSync.signUp")}
                 </Button>
                 <Button
                   type="button"
@@ -376,7 +371,7 @@ export function SettingsCloudSync() {
                   disabled={authBusy !== null}
                   onClick={() => switchMode("login")}
                 >
-                  Log in instead
+                  {t("settings.cloudSync.logInInstead")}
                 </Button>
               </div>
             )}
@@ -389,10 +384,10 @@ export function SettingsCloudSync() {
         {!loggedIn && mode === "forgot" && (
           <form noValidate onSubmit={(e) => void handleRecover(e)} className="grid gap-3">
             <p className="text-sm text-muted-foreground">
-              Enter the recovery code you saved when you created your account. After you set a new password, you’ll get a new recovery code and the old one stops working.
+              {t("settings.cloudSync.recoverIntro")}
             </p>
             <SettingRow
-              label="Email"
+              label={t("settings.cloudSync.emailLabel")}
               htmlFor="recover-email"
               control={
                 <div className="grid w-72 justify-items-end gap-1">
@@ -414,7 +409,7 @@ export function SettingsCloudSync() {
               }
             />
             <SettingRow
-              label="Recovery code"
+              label={t("settings.cloudSync.recoveryCodeLabel")}
               htmlFor="recover-code"
               control={
                 <div className="grid w-72 justify-items-end gap-1">
@@ -440,7 +435,7 @@ export function SettingsCloudSync() {
               }
             />
             <SettingRow
-              label="New password"
+              label={t("settings.cloudSync.newPasswordLabel")}
               htmlFor="recover-new-password"
               control={
                 <div className="grid w-72 justify-items-end gap-1">
@@ -464,7 +459,7 @@ export function SettingsCloudSync() {
             />
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" disabled={authBusy !== null} aria-busy={authBusy === "recover" || undefined}>
-                {authBusy === "recover" ? "Recovering…" : "Recover and set new password"}
+                {authBusy === "recover" ? t("settings.cloudSync.recovering") : t("settings.cloudSync.recoverButton")}
               </Button>
               <Button
                 type="button"
@@ -472,7 +467,7 @@ export function SettingsCloudSync() {
                 disabled={authBusy !== null}
                 onClick={() => switchMode("login")}
               >
-                Back
+                {t("common.back")}
               </Button>
             </div>
             <StatusMessage id={AUTH_ERROR_ID} tone="error" className="break-words">
