@@ -62,4 +62,29 @@ export const vi: Messages = {
       languageLoadError: "Không tải được cài đặt ngôn ngữ: {{error}}",
     },
   },
+  app: {
+    skipToContent: "Bỏ qua tới nội dung",
+    dismiss: "Bỏ qua",
+    missingMeeting:
+      "Không mở được cuộc họp đó. Có thể nó đã bị xóa; hãy chọn một cuộc họp khác trong danh sách.",
+  },
+  sidebar: {
+    mainNav: "Điều hướng chính",
+    goHome: "CatchM — đến danh sách cuộc họp",
+    expand: "Mở rộng thanh bên",
+    collapse: "Thu gọn thanh bên",
+    meetings: "Cuộc họp",
+    live: "Trực tiếp",
+    actionItems: "Việc cần làm",
+    projects: "Dự án",
+    settings: "Cài đặt",
+    recordingSr: " (đang ghi âm)",
+    startMeeting: "Bắt đầu cuộc họp",
+    importRecording: "Nhập bản ghi",
+  },
+  viewSkeletons: {
+    loadingMeeting: "Đang tải cuộc họp…",
+    loadingActionItems: "Đang tải việc cần làm…",
+    loadingSettings: "Đang tải cài đặt…",
+  },
 }

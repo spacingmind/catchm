@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react"
+import { useTranslation } from "react-i18next"
 
 import { AppSidebar, type View } from "@/components/AppSidebar"
 import { LiveMeeting } from "@/components/LiveMeeting"
@@ -43,8 +44,6 @@ function captureErrorSection(kind: CaptureErrorKind): SettingsSection {
   }
 }
 
-const MISSING_MEETING = "Couldn’t open that meeting. It may have been deleted; pick one from the list instead."
-
 /** Which shell view a route shows (the sidebar highlights by view). */
 function viewOf(route: Route): View {
   switch (route.name) {
@@ -58,6 +57,7 @@ function viewOf(route: Route): View {
 }
 
 function App() {
+  const { t } = useTranslation()
   // The hash route is the source of truth for where the user is (view,
   // meeting, settings section, detail tab), so reload, Back/Forward and
   // deep links all land on the same screen.
@@ -111,8 +111,8 @@ function App() {
   const showMissingMeeting = useCallback((replace: boolean) => {
     setSelected(null)
     navigate(MEETINGS, { replace })
-    setNotice({ text: MISSING_MEETING, hash: formatRoute(MEETINGS) })
-  }, [])
+    setNotice({ text: t("app.missingMeeting"), hash: formatRoute(MEETINGS) })
+  }, [t])
 
   const openMeeting = useCallback((meeting: Meeting) => {
     setSelected(meeting)
@@ -304,7 +304,7 @@ function App() {
           onClick={skipToContent}
           className="fixed top-3 left-3 z-50 -translate-y-[200%] rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-md focus:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-safe:transition-transform"
         >
-          Skip to content
+          {t("app.skipToContent")}
         </a>
       )}
 
@@ -361,7 +361,7 @@ function App() {
             </StatusMessage>
             {noticeText && (
               <Button size="sm" variant="ghost" onClick={() => setNotice(null)}>
-                Dismiss
+                {t("app.dismiss")}
               </Button>
             )}
           </div>

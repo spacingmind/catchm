@@ -74,6 +74,31 @@ export const en = {
       languageLoadError: "Couldn’t load the language setting: {{error}}",
     },
   },
+  app: {
+    skipToContent: "Skip to content",
+    dismiss: "Dismiss",
+    missingMeeting:
+      "Couldn’t open that meeting. It may have been deleted; pick one from the list instead.",
+  },
+  sidebar: {
+    mainNav: "Main",
+    goHome: "CatchM — go to meetings",
+    expand: "Expand sidebar",
+    collapse: "Collapse sidebar",
+    meetings: "Meetings",
+    live: "Live",
+    actionItems: "Action items",
+    projects: "Projects",
+    settings: "Settings",
+    recordingSr: " (recording)",
+    startMeeting: "Start meeting",
+    importRecording: "Import recording",
+  },
+  viewSkeletons: {
+    loadingMeeting: "Loading meeting…",
+    loadingActionItems: "Loading action items…",
+    loadingSettings: "Loading settings…",
+  },
 } as const
 
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> }
