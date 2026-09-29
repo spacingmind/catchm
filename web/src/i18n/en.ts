@@ -300,6 +300,26 @@ export const en = {
     logAria: "Latest transcript lines",
     waiting: "Waiting for someone to speak…",
   },
+  meetingDetail: {
+    sonioxPrivacy: "The audio is uploaded to Soniox, processed, and deleted right after.",
+    sonioxCost: "about ${{cost}}",
+    summaryHelp:
+      "CatchM listens to the whole recording again for a more accurate transcript, then the AI writes the summary, decisions and action items. It takes a few minutes, so keep this page open.",
+    refineNotReady: "Summaries aren’t set up yet. {{reason}} Fix this in Settings → Summaries, then try again.",
+    refineQuota:
+      "Today’s free summaries are used up. Try again after {{after}}, or switch to “$t(labels.engine.whisper)” in Settings → Summaries.",
+    tomorrow: "tomorrow",
+    refineFailed: "CatchM couldn’t write the summary this time. Try again in a moment.",
+    refineGone: "This meeting no longer exists. Go back to your meetings.",
+    refineStillRecording: "This meeting is still recording. End it first, then create the summary.",
+    refineNoAudio: "This meeting has no saved recording, so a summary can’t be created.",
+    refineWhisperDown:
+      "Transcription on this computer (the Whisper server) isn’t responding. Check Settings → Transcription, then try again.",
+    refineGeneric: "Couldn’t create the summary: {{reason}} Try again.",
+    summariesReady: "Summaries are set up. You can create the summary now.",
+    summariesNotReady: "Summaries aren’t set up yet.",
+  },
+
 } as const
 
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> }

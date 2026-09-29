@@ -216,6 +216,26 @@ export const vi: Messages = {
     startAnyway: "Vẫn bắt đầu",
     starting: "Đang bắt đầu…",
   },
+  meetingDetail: {
+    sonioxPrivacy: "Âm thanh được tải lên Soniox để xử lý và bị xóa ngay sau đó.",
+    sonioxCost: "khoảng ${{cost}}",
+    summaryHelp:
+      "CatchM nghe lại toàn bộ bản ghi để có bản chép lời chính xác hơn, sau đó AI viết tóm tắt, quyết định và việc cần làm. Việc này mất vài phút, hãy giữ mở trang này.",
+    refineNotReady: "Tóm tắt chưa được thiết lập. {{reason}} Hãy sửa trong Cài đặt → Tóm tắt, rồi thử lại.",
+    refineQuota:
+      "Đã dùng hết số tóm tắt miễn phí hôm nay. Hãy thử lại sau {{after}}, hoặc chuyển sang “$t(labels.engine.whisper)” trong Cài đặt → Tóm tắt.",
+    tomorrow: "ngày mai",
+    refineFailed: "CatchM chưa viết được tóm tắt lần này. Hãy thử lại sau một lát.",
+    refineGone: "Cuộc họp này không còn tồn tại. Hãy quay lại danh sách cuộc họp.",
+    refineStillRecording: "Cuộc họp này vẫn đang được ghi. Hãy kết thúc trước, rồi tạo tóm tắt.",
+    refineNoAudio: "Cuộc họp này không có bản ghi đã lưu, nên không tạo được tóm tắt.",
+    refineWhisperDown:
+      "Chép lời trên máy này (máy chủ Whisper) không phản hồi. Hãy kiểm tra Cài đặt → Chép lời, rồi thử lại.",
+    refineGeneric: "Không tạo được tóm tắt: {{reason}} Hãy thử lại.",
+    summariesReady: "Tóm tắt đã được thiết lập. Bạn có thể tạo tóm tắt ngay bây giờ.",
+    summariesNotReady: "Tóm tắt chưa được thiết lập.",
+  },
+
   statusRow: {
     sourceShortcuts: "Phím tắt: {{mod}}1 {{mic}}, {{mod}}2 {{system}}, {{mod}}3 {{both}}",
     hintSoniox: "Kiểm tra kết nối internet và API key Soniox trong Cài đặt → Chép lời.",

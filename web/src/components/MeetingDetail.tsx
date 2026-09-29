@@ -1,4 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
+import i18next from "i18next"
+import { useTranslation } from "react-i18next"
 import { AudioLines, CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -70,7 +72,10 @@ const CLOUD_DEFAULT_LIMIT = 5
 
 /** Soniox's async transcription rate. */
 const SONIOX_RATE_PER_HOUR = 0.1
-const SONIOX_PRIVACY = "The audio is uploaded to Soniox, processed, and deleted right after."
+/** Shown next to the estimated cost in the Soniox confirm dialog. */
+function sonioxPrivacy(): string {
+  return i18next.t("meetingDetail.sonioxPrivacy")
+}
 
 /** The meeting's length in seconds (0 while live). */
 function meetingSeconds(m: Meeting): number {
@@ -82,12 +87,14 @@ function meetingSeconds(m: Meeting): number {
 
 /** "about $0.05" for a Soniox pass over the recording. */
 function sonioxCost(m: Meeting): string {
-  return `about $${((meetingSeconds(m) / 3600) * SONIOX_RATE_PER_HOUR).toFixed(2)}`
+  const cost = ((meetingSeconds(m) / 3600) * SONIOX_RATE_PER_HOUR).toFixed(2)
+  return i18next.t("meetingDetail.sonioxCost", { cost })
 }
 
 /** What "Create summary & action items" does, shown next to the button. */
-const SUMMARY_HELP =
-  "CatchM listens to the whole recording again for a more accurate transcript, then the AI writes the summary, decisions and action items. It takes a few minutes, so keep this page open."
+function summaryHelp(): string {
+  return i18next.t("meetingDetail.summaryHelp")
+}
 
 /** A refine failure in plain words, with what to do next. Summary
  *  failures carry a `kind` (RefineError); the rest are the raw messages
@@ -99,22 +106,22 @@ function refineErrorText(err: unknown): string {
   if (err instanceof RefineError) {
     switch (err.kind) {
       case "summary_not_ready":
-        return `Summaries aren’t set up yet. ${sentence(raw)} Fix this in Settings → Summaries, then try again.`
+        return i18next.t("meetingDetail.refineNotReady", { reason: sentence(raw) })
       case "quota_exceeded": {
-        const after = err.reset_at ? formatDateTime(err.reset_at) : "tomorrow"
-        return `Today’s free summaries are used up. Try again after ${after}, or switch to “On this computer” in Settings → Summaries.`
+        const after = err.reset_at ? formatDateTime(err.reset_at) : i18next.t("meetingDetail.tomorrow")
+        return i18next.t("meetingDetail.refineQuota", { after })
       }
       case "summary_failed":
-        return "CatchM couldn’t write the summary this time. Try again in a moment."
+        return i18next.t("meetingDetail.refineFailed")
     }
   }
-  if (err instanceof ApiError && err.status === 404) return "This meeting no longer exists. Go back to your meetings."
-  if (/still active/i.test(raw)) return "This meeting is still recording. End it first, then create the summary."
-  if (/no audio/i.test(raw)) return "This meeting has no saved recording, so a summary can’t be created."
+  if (err instanceof ApiError && err.status === 404) return i18next.t("meetingDetail.refineGone")
+  if (/still active/i.test(raw)) return i18next.t("meetingDetail.refineStillRecording")
+  if (/no audio/i.test(raw)) return i18next.t("meetingDetail.refineNoAudio")
   if (/whisper|inference|connection refused|dial tcp/i.test(raw)) {
-    return "Transcription on this computer (the Whisper server) isn’t responding. Check Settings → Transcription, then try again."
+    return i18next.t("meetingDetail.refineWhisperDown")
   }
-  return `Couldn’t create the summary: ${sentence(raw)} Try again.`
+  return i18next.t("meetingDetail.refineGeneric", { reason: sentence(raw) })
 }
 
 /** Load a whole (ended) transcript by walking the cursor until a page
@@ -180,6 +187,7 @@ function Section({ title, icon, children }: { title: string; icon?: ReactNode; c
 }
 
 export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = onBack }: MeetingDetailProps) {
+  const { t } = useTranslation()
   const [meeting, setMeeting] = useState<Meeting | null>(initialMeeting ?? null)
   const [refining, setRefining] = useState(false)
   // Page-level errors (load, refine, action-item toggle). Rename/delete
@@ -223,8 +231,8 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const summaryAnnouncement = useAnnounceChange(
     summaryStatus
       ? summaryStatus.ready
-        ? "Summaries are set up. You can create the summary now."
-        : "Summaries aren’t set up yet."
+        ? t("meetingDetail.summariesReady")
+        : t("meetingDetail.summariesNotReady")
       : null,
   )
 
@@ -826,7 +834,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                       Get a summary of this meeting
                     </h2>
                   </CardTitle>
-                  <CardDescription className="text-pretty">{SUMMARY_HELP}</CardDescription>
+                  <CardDescription className="text-pretty">{summaryHelp()}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {checkingSetup ? <Skeleton aria-hidden="true" className="h-8 w-60" /> : summaryButton}
@@ -1098,7 +1106,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               transcript, then rewrites the summary.
             </span>
             <span className="mt-2 block">
-              Estimated cost: {sonioxCost(meeting)} ($0.10 per hour). {SONIOX_PRIVACY}
+              Estimated cost: {sonioxCost(meeting)} ($0.10 per hour). {sonioxPrivacy()}
             </span>
           </>
         }
