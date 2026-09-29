@@ -14,7 +14,9 @@ import {
   type NodeProps,
   type ReactFlowInstance,
 } from "@xyflow/react"
+import type { TFunction } from "i18next"
 import { Route as RouteIcon } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { Disclosure } from "@/components/Disclosure"
 import { SourceLink } from "@/components/insights/Evidence"
@@ -82,25 +84,26 @@ function StepNodeView({ data }: NodeProps<StepNode>) {
 
 const nodeTypes = { step: StepNodeView }
 
-const NODE_HELP = "Press Enter to see where this step was said in the transcript."
-const ARIA_LABELS = {
-  "node.a11yDescription.default": NODE_HELP,
-  "node.a11yDescription.keyboardDisabled": NODE_HELP,
-  "controls.ariaLabel": "Zoom controls",
-  "controls.zoomIn.ariaLabel": "Zoom in",
-  "controls.zoomOut.ariaLabel": "Zoom out",
-  "controls.fitView.ariaLabel": "Fit to view",
+function ariaLabels(t: TFunction) {
+  return {
+    "node.a11yDescription.default": t("insights.stepNodeHelp"),
+    "node.a11yDescription.keyboardDisabled": t("insights.stepNodeHelp"),
+    "controls.ariaLabel": t("insights.zoomControls"),
+    "controls.zoomIn.ariaLabel": t("insights.zoomIn"),
+    "controls.zoomOut.ariaLabel": t("insights.zoomOut"),
+    "controls.fitView.ariaLabel": t("insights.fitView"),
+  }
 }
 
 const byOrder = (a: FlowStep, b: FlowStep) => a.order - b.order
 
-function stepLabel(s: FlowStep): string {
-  return `Step ${s.order}: ${s.text}${s.actor ? `. Who: ${s.actor}` : ""}`
+function stepLabel(t: TFunction, s: FlowStep): string {
+  return t("insights.stepLabel", { order: s.order, text: s.text }) + (s.actor ? t("insights.whoSuffix", { who: s.actor }) : "")
 }
 
 /** Dagre positions (centres) for the steps and their edges. Actors are
  *  person keys when they name a listed person: shown as the name. */
-function layoutFlow(a: Analysis, flow: Flow, canJump: boolean) {
+function layoutFlow(a: Analysis, flow: Flow, canJump: boolean, t: TFunction) {
   const steps = [...(flow.steps ?? [])].sort(byOrder).map((s) => ({ ...s, actor: ownerName(a, s.actor) }))
   const ids = new Set(steps.map((s) => s.id))
   const g = new Graph()
@@ -141,7 +144,7 @@ function layoutFlow(a: Analysis, flow: Flow, canJump: boolean) {
       type: "step",
       position: { x: p.x, y: p.y },
       data: { order: s.order, text: s.text, actor: s.actor, jump, hasIn: hasIn.has(s.id), hasOut: hasOut.has(s.id) },
-      ariaLabel: stepLabel(s),
+      ariaLabel: stepLabel(t, s),
       ariaRole: jump.length > 0 ? "button" : "group",
     }
   })
@@ -160,7 +163,11 @@ function FlowCard({
   canJump: boolean
   onJump: JumpToEvidence
 }) {
-  const { steps, nodes, edges, width, height } = useMemo(() => layoutFlow(analysis, flow, canJump), [analysis, flow, canJump])
+  const { t } = useTranslation()
+  const { steps, nodes, edges, width, height } = useMemo(
+    () => layoutFlow(analysis, flow, canJump, t),
+    [analysis, flow, canJump, t],
+  )
   const actor = ownerName(analysis, flow.actor)
   const jumpById = useMemo(() => new Map(nodes.map((n) => [n.id, n.data.jump])), [nodes])
   const orderById = useMemo(() => new Map(steps.map((s) => [s.id, s.order])), [steps])
@@ -200,10 +207,10 @@ function FlowCard({
           </h2>
         </CardTitle>
         <CardDescription id={descId} className="grid gap-0.5 text-pretty">
-          {actor && <span>Who: {actor}</span>}
-          {flow.trigger && <span>Starts when: {flow.trigger}</span>}
+          {actor && <span>{t("insights.who", { actor })}</span>}
+          {flow.trigger && <span>{t("insights.startsWhen", { trigger: flow.trigger })}</span>}
           <span>
-            {steps.length === 1 ? "1 step" : `${steps.length} steps`}
+            {t("insights.stepCount", { count: steps.length })}
             {flowJump.length > 0 && (
               <>
                 {" · "}
@@ -221,7 +228,7 @@ function FlowCard({
             style={{ height: boxHeight }}
           >
             <ReactFlow
-              aria-label={`Steps of ${flow.name}`}
+              aria-label={t("insights.stepsOf", { name: flow.name })}
               aria-describedby={descId}
               nodes={nodes}
               edges={edges}
@@ -241,14 +248,14 @@ function FlowCard({
               fitViewOptions={{ padding: 0.1, maxZoom: 1 }}
               minZoom={0.3}
               maxZoom={1.5}
-              ariaLabelConfig={ARIA_LABELS}
+              ariaLabelConfig={ariaLabels(t)}
             >
               <Background gap={20} size={1} />
               <Controls showInteractive={false} position="bottom-left" />
             </ReactFlow>
           </div>
         )}
-        <Disclosure label="List view" defaultOpen={narrowScreen()}>
+        <Disclosure label={t("insights.listView")} defaultOpen={narrowScreen()}>
           <ol className="grid gap-2 text-sm">
             {steps.map((s) => {
               const branches = (s.next ?? []).filter((n) => orderById.has(n.to))
@@ -267,13 +274,16 @@ function FlowCard({
                   )}
                   {!plain && branches.length > 0 && (
                     <ul className="mt-1 grid gap-0.5 pl-5 text-muted-foreground">
-                      {branches.map((n) => (
-                        <li key={n.to}>
-                          {n.condition
-                            ? `If ${n.condition}: go to step ${orderById.get(n.to)}`
-                            : `Then step ${orderById.get(n.to)}`}
-                        </li>
-                      ))}
+                      {branches.map((n) => {
+                        const to = orderById.get(n.to) ?? 0
+                        return (
+                          <li key={n.to}>
+                            {n.condition
+                              ? t("insights.ifGoTo", { condition: n.condition, step: to })
+                              : t("insights.thenStep", { step: to })}
+                          </li>
+                        )
+                      })}
                     </ul>
                   )}
                 </li>
