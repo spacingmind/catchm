@@ -808,7 +808,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                             disabled={cloudSaving}
                             aria-describedby="summary-setup-cloud-desc"
                           >
-                            {cloudSaving ? "Saving…" : "Use CatchM Cloud"}
+                            {cloudSaving ? t("meetingOrganize.saving") : t("meetingDetail.useCloud")}
                           </Button>
                         )}
                       </li>
@@ -822,7 +822,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                     className="h-auto justify-self-start px-0 text-muted-foreground"
                     onClick={() => void handleRefine()}
                   >
-                    Try anyway
+                    {t("meetingDetail.tryAnyway")}
                   </Button>
                 </CardContent>
               </Card>
@@ -832,7 +832,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                   <CardTitle className="text-lg font-semibold">
                     <h2 className="flex items-center gap-2">
                       <Sparkles aria-hidden="true" className="size-4" />
-                      Get a summary of this meeting
+                      {t("meetingDetail.getCtaTitle")}
                     </h2>
                   </CardTitle>
                   <CardDescription className="text-pretty">{summaryHelp()}</CardDescription>
@@ -842,7 +842,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 </CardContent>
               </Card>
             ))}
-          <Section title="Decisions" icon={<GitBranch aria-hidden="true" className="size-4" />}>
+          <Section title={t("meetingDetail.sectionDecisions")} icon={<GitBranch aria-hidden="true" className="size-4" />}>
             {meeting.decisions && meeting.decisions.length > 0 ? (
               <ul className="grid gap-2 text-base">
                 {meeting.decisions.map((d, i) => (
@@ -854,12 +854,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {refined ? "No decisions were found in this meeting." : `No decisions yet. ${findHint}`}
+                {refined ? t("meetingDetail.noDecisionsFound") : `${t("meetingDetail.noDecisionsYet")} ${findHint}`}
               </p>
             )}
           </Section>
 
-          <Section title="Action items" icon={<CheckSquare aria-hidden="true" className="size-4" />}>
+          <Section title={t("sidebar.actionItems")} icon={<CheckSquare aria-hidden="true" className="size-4" />}>
             {meeting.action_items && meeting.action_items.length > 0 ? (
               <ul className="grid gap-3">
                 {meeting.action_items.map((a, i) => (
@@ -881,7 +881,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                       </label>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {a.owner && <Badge variant="outline">{a.owner}</Badge>}
-                        {a.due && <span>due {formatDay(a.due)}</span>}
+                        {a.due && <span>{t("meetingDetail.due", { date: formatDay(a.due) })}</span>}
                         {sourceLink(actionEvidence(i, a.text))}
                       </div>
                     </div>
@@ -891,33 +891,33 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             ) : (
               <p className="text-sm text-muted-foreground">
                 {refined
-                  ? "No action items were found in this meeting."
-                  : `No action items yet. ${findHint}`}
+                  ? t("meetingDetail.noActionsFound")
+                  : `${t("meetingDetail.noActionsYet")} ${findHint}`}
               </p>
             )}
           </Section>
 
-          <Section title="Summary">
+          <Section title={t("meetingDetail.sectionSummary")}>
             {meeting.summary ? (
               <p className="break-words text-base">{meeting.summary}</p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {refined ? "No summary was written for this meeting." : showSummaryCta
-                  ? "No summary yet. Create one with the button above."
-                  : "No summary yet. End the meeting, then create one."}
+                {refined ? t("meetingDetail.noSummaryFound") : showSummaryCta
+                  ? t("meetingDetail.noSummaryCta")
+                  : t("meetingDetail.noSummaryEnd")}
               </p>
             )}
           </Section>
 
-          <Section title="Participants">
+          <Section title={t("meetingDetail.sectionParticipants")}>
             {meeting.participants && meeting.participants.length > 0 ? (
               <p className="break-words text-base">{meeting.participants.join(", ")}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">No participants found.</p>
+              <p className="text-sm text-muted-foreground">{t("meetingDetail.noParticipants")}</p>
             )}
           </Section>
 
-          <Section title="Notes">
+          <Section title={t("meetingDetail.sectionNotes")}>
             {meeting.notes && meeting.notes.length > 0 ? (
               <ul className="grid gap-1 text-base">
                 {meeting.notes.map((n, i) => (
@@ -927,7 +927,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No notes.</p>
+              <p className="text-sm text-muted-foreground">{t("meetingDetail.noNotes")}</p>
             )}
           </Section>
         </TabsContent>
@@ -974,21 +974,21 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           {transcriptError ? (
             <div className="grid justify-items-start gap-3">
               <StatusMessage tone="error">
-                Couldn’t load the transcript ({transcriptError}). Try again.
+                {t("meetingDetail.transcriptLoadFailed", { error: transcriptError })}
               </StatusMessage>
               <Button size="sm" variant="outline" onClick={retryTranscript}>
-                Try again
+                {t("common.tryAgain")}
               </Button>
             </div>
           ) : transcript === null ? (
             <div className="grid gap-2" aria-busy="true">
-              <StatusMessage className="sr-only">Loading transcript…</StatusMessage>
+              <StatusMessage className="sr-only">{t("meetingDetail.loadingTranscript")}</StatusMessage>
               {[0, 1, 2, 3].map((i) => (
                 <Skeleton key={i} className="h-4 w-full" />
               ))}
             </div>
           ) : transcript.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No transcript was captured.</p>
+            <p className="text-sm text-muted-foreground">{t("meetingDetail.noTranscript")}</p>
           ) : (
             <div className="grid gap-6">
               {groups.map((g, gi) => (
@@ -1033,11 +1033,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         <DialogContent>
           <form onSubmit={handleRename} noValidate>
             <DialogHeader>
-              <DialogTitle>Rename meeting</DialogTitle>
-              <DialogDescription>Give this meeting a new title.</DialogDescription>
+              <DialogTitle>{t("meetingDetail.renameTitle")}</DialogTitle>
+              <DialogDescription>{t("meetingDetail.renameDesc")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-1.5 py-4">
-              <Label htmlFor="rename-title">Title</Label>
+              <Label htmlFor="rename-title">{t("startMeeting.title")}</Label>
               <Input
                 ref={renameInputRef}
                 id="rename-title"
@@ -1061,7 +1061,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             <DialogFooter>
               <Button type="submit" disabled={renaming} aria-busy={renaming || undefined}>
                 {renaming && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
-                {renaming ? "Renaming…" : "Rename meeting"}
+                {renaming ? t("meetingDetail.renaming") : t("meetingDetail.renameMeeting")}
               </Button>
             </DialogFooter>
           </form>
@@ -1074,7 +1074,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           setConsentOpen(open)
           if (!open && !consentAccepted.current) {
             setError(
-              "No summary was created. CatchM Cloud needs your OK before it gets the transcript. To keep everything on this computer, switch to “On this computer” in Settings → Summaries.",
+              t("meetingDetail.consentDeclined"),
             )
             setNeedsSetup(true)
           }
@@ -1099,19 +1099,19 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           if (!next && improving) return
           setImproveOpen(next)
         }}
-        title="Improve this transcript with Soniox?"
+        title={t("meetingDetail.improveConfirmTitle")}
         description={
           <>
             <span className="block">
-              CatchM listens to the recording again and adds who said what (speaker names) and a more accurate
-              transcript, then rewrites the summary.
+              {t("meetingDetail.improveConfirmBody")}
             </span>
             <span className="mt-2 block">
-              Estimated cost: {sonioxCost(meeting)} ($0.10 per hour). {sonioxPrivacy()}
+              {t("meetingDetail.estimatedCost", { cost: sonioxCost(meeting) })}{" "}
+              {sonioxPrivacy()}
             </span>
           </>
         }
-        confirmLabel={improving ? "Improving…" : "Improve with Soniox"}
+        confirmLabel={improving ? t("meetingDetail.improving") : t("meetingDetail.improveButton")}
         pending={improving}
         error={improveError}
         onConfirm={() => void handleImprove()}
@@ -1120,9 +1120,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title="Delete meeting?"
-        description={<>This permanently removes “{meeting.title}” and its transcript. This can’t be undone.</>}
-        confirmLabel={deleting ? "Deleting…" : "Delete meeting"}
+        title={t("meetingDetail.deleteConfirmTitle")}
+        description={<>{t("meetingDetail.deleteConfirmBody", { title: meeting.title })}</>}
+        confirmLabel={deleting ? t("meetingDetail.deleting") : t("meetingDetail.deleteMeeting")}
         destructive
         pending={deleting}
         error={deleteError}
