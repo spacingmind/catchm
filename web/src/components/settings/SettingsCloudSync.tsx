@@ -20,7 +20,6 @@ import {
   type SyncResult,
 } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
-import { pluralize } from "@/lib/utils"
 
 const STATUS_POLL_MS = 30_000
 
@@ -284,7 +283,7 @@ export function SettingsCloudSync() {
         title={t("settings.nav.cloudSync")}
         description={
           <>
-            {t("settings.cloudSync.desc")}
+            {t("settings.cloudSync.privacyIntro")}{" "}
             <span className="mt-1 block">{t("settings.cloudSync.summaryNote")}</span>
           </>
         }
@@ -479,8 +478,8 @@ export function SettingsCloudSync() {
         {loggedIn && (
           <div className="grid gap-1">
             <SettingRow
-              label="Account"
-              description={loggedInAt ? `Logged in on ${loggedInAt}.` : "Logged in."}
+              label={t("settings.cloudSync.accountLabel")}
+              description={loggedInAt ? t("settings.cloudSync.loggedInOn", { date: loggedInAt }) : t("settings.cloudSync.loggedIn")}
               control={
                 <div className="grid justify-items-end gap-1">
                   <div className="flex min-w-0 items-center gap-2">
@@ -494,7 +493,7 @@ export function SettingsCloudSync() {
                       disabled={loggingOut}
                       aria-busy={loggingOut || undefined}
                     >
-                      {loggingOut ? "Logging out…" : "Log out"}
+                      {loggingOut ? t("settings.cloudSync.loggingOut") : t("settings.cloudSync.logOut")}
                     </Button>
                   </div>
                   <StatusMessage tone="error" className="max-w-96 break-words">
@@ -504,34 +503,32 @@ export function SettingsCloudSync() {
               }
             />
             <SettingRow
-              label="Last sync"
-              description={lastSyncAt ?? "Never"}
+              label={t("settings.cloudSync.lastSyncLabel")}
+              description={lastSyncAt ?? t("settings.cloudSync.neverSynced")}
               control={
                 <Button onClick={() => void handleSync()} disabled={syncing} aria-busy={syncing || undefined}>
-                  {syncing ? "Syncing…" : "Sync now"}
+                  {syncing ? t("settings.cloudSync.syncing") : t("settings.cloudSync.syncNow")}
                 </Button>
               }
             />
             <div className={syncError || syncResult ? "grid gap-1 pt-2 text-sm text-muted-foreground" : undefined}>
               <StatusMessage tone="error" className="break-words">
-                {syncError && `Couldn’t sync: ${syncError}. Check your connection, then sync again.`}
+                {syncError && t("settings.cloudSync.syncError", { error: syncError })}
               </StatusMessage>
               <StatusMessage className="tabular-nums">
                 {syncResult && (
                   <>
-                    Uploaded {pluralize(syncResult.pushed?.length ?? 0, "meeting")} · Downloaded{" "}
-                    {pluralize(syncResult.pulled?.length ?? 0, "meeting")}
-                    {conflicted.length > 0 && ` · ${pluralize(conflicted.length, "meeting")} changed on two devices`}
+                    {t("settings.cloudSync.syncUploaded", { count: syncResult.pushed?.length ?? 0 })} ·{" "}
+                    {t("settings.cloudSync.syncDownloaded", { count: syncResult.pulled?.length ?? 0 })}
+                    {conflicted.length > 0 && (
+                      <> · {t("settings.cloudSync.syncConflicts", { count: conflicted.length })}</>
+                    )}
                   </>
                 )}
               </StatusMessage>
               {conflicted.length > 0 && (
                 <div className="grid gap-1">
-                  <p>
-                    These meetings were changed on this computer and on another device. Both versions were kept:
-                    the meeting now shows the other device’s version, and the version from this computer is saved
-                    as a backup file in the meeting’s folder. The backup doesn’t appear in your meeting list.
-                  </p>
+                  <p>{t("settings.cloudSync.conflictNote")}</p>
                   <ul className="grid gap-1">
                     {conflicted.map((id) => (
                       <li key={id}>
