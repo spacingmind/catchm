@@ -75,6 +75,10 @@ export interface Device {
 
 export type SttEngine = "whisper" | "soniox"
 
+/** UI text language preference ("system" follows the OS language).
+ *  Not to be confused with the STT Lang below. */
+export type UILanguage = "system" | "en" | "vi"
+
 /** M19 §4: where the audio comes from. Default "mic" when omitted. */
 export type AudioSource = "mic" | "system" | "both"
 
@@ -237,6 +241,7 @@ export type SummaryErrorKind =
 export interface AppConfig {
   engine: string
   lang: string
+  ui_language: UILanguage
   whisper_url: string
   soniox: { url: string }
   /** True when a Soniox API key is stored; the key itself is never sent. */
@@ -263,6 +268,7 @@ export interface AppConfig {
 export interface UpdateConfigRequest {
   engine?: string
   lang?: string
+  ui_language?: UILanguage
   whisper_url?: string
   soniox?: { url: string }
   /** Never present in responses. Omitted/empty preserves the stored key. */
