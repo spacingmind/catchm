@@ -95,4 +95,4 @@ branch, but only because it maintains parallel backports). A
 release-only `master` merge target needs sync-back guard machinery
 (see this org's smind repo) to avoid clobbering release metadata — a
 failure mode a single integration branch can't develop in the first
-place. Full reasoning: `docs/plans/active/release-process.md`.
+place. Full reasoning: `docs/plans/completed/release-process.md`.
