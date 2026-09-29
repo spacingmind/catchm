@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { RefreshCw } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { StatusMessage } from "@/components/StatusMessage"
 import { SettingRow, SettingsSection, SaveStatus, descId } from "@/components/settings/pieces"
@@ -50,12 +51,11 @@ function CheckboxRow({
   checked: boolean | null
   onCheckedChange: (checked: boolean) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="border-b border-border py-4 last:border-b-0">
       {checked === null ? (
-        <StatusMessage tone="error">
-          Couldn’t read this setting. Restart CatchM, then try again.
-        </StatusMessage>
+        <StatusMessage tone="error">{t("settings.system.cantReadSetting")}</StatusMessage>
       ) : (
         <div className="flex items-start gap-3">
           <Checkbox
@@ -82,6 +82,7 @@ function CheckboxRow({
 }
 
 export function SettingsSystem() {
+  const { t } = useTranslation()
   // undefined = still loading; null = the bridge call failed.
   const [version, setVersion] = useState<string | null | undefined>(undefined)
   const [status, setStatus] = useState<UpdateStatus | null>(null)
@@ -119,10 +120,7 @@ export function SettingsSystem() {
   const handleAutostart = (enabled: boolean) => {
     setAutostartState(enabled)
     void autostartSave
-      .run(
-        () => setAutostart(enabled),
-        "Couldn’t change this setting. Try again, or restart CatchM if it keeps failing.",
-      )
+      .run(() => setAutostart(enabled), t("settings.system.settingSaveError"))
       .then((ok) => {
         if (!ok) setAutostartState(!enabled)
       })
@@ -131,10 +129,7 @@ export function SettingsSystem() {
   const handleNotifications = (enabled: boolean) => {
     setNotificationsState(enabled)
     void notificationsSave
-      .run(
-        () => setNotificationsEnabled(enabled),
-        "Couldn’t change notifications. Try again, or restart CatchM if it keeps failing.",
-      )
+      .run(() => setNotificationsEnabled(enabled), t("settings.system.notificationsSaveError"))
       .then((ok) => {
         if (!ok) setNotificationsState(!enabled)
       })
@@ -164,39 +159,39 @@ export function SettingsSystem() {
   const effectiveStatus = status ?? update.status
   const latest = effectiveStatus?.latestVersion
 
-  const checkedLabel = lastChecked ? `Last checked ${formatDateTime(lastChecked)}` : "Not checked yet this session"
+  const checkedLabel = lastChecked
+    ? t("settings.system.lastChecked", { date: formatDateTime(lastChecked) })
+    : t("settings.system.notCheckedYet")
   const updateError = update.error || status?.error
   const updateDetail = updateError
     ? updateError
     : update.phase === "downloading"
       ? latest
-        ? `Downloading version ${latest}…`
-        : "Downloading the update…"
+        ? t("updateBanner.downloading", { version: latest })
+        : t("settings.system.downloading")
       : update.phase === "cancelling"
-        ? "Cancelling the download…"
+        ? t("updateBanner.cancelling")
         : update.phase === "applying"
-          ? "Updating — CatchM will restart shortly."
+          ? t("settings.system.applying")
           : effectiveStatus?.updateAvailable
-            ? [update.notice, latest ? `Version ${latest} is available.` : "A new version is available."]
+            ? [update.notice, latest ? t("updateBanner.available", { version: latest }) : t("settings.system.newVersionAvailable")]
                 .filter(Boolean)
                 .join(" ")
             : status
-              ? "You’re up to date."
+              ? t("settings.system.upToDate")
               : checkedLabel
 
-  const loadingPref = (
-<p className="py-4 text-sm text-muted-foreground">Loading…</p>
-  )
+  const loadingPref = <p className="py-4 text-sm text-muted-foreground">{t("settings.system.loading")}</p>
 
   return (
     <div>
-      <SettingsSection title="Start automatically" description="CatchM starts in the background when you sign in to your computer.">
+      <SettingsSection title={t("settings.system.autostartTitle")} description={t("settings.system.autostartDesc")}>
         {autostart === undefined ? (
           loadingPref
         ) : (
           <CheckboxRow
             id="autostart-toggle"
-            label="Start CatchM when you sign in"
+            label={t("settings.system.autostartLabel")}
             checked={autostart}
             onCheckedChange={handleAutostart}
           />
@@ -206,14 +201,14 @@ export function SettingsSystem() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Notifications" description="Pop-up notifications while CatchM’s window is hidden.">
+      <SettingsSection title={t("settings.system.notificationsTitle")} description={t("settings.system.notificationsDesc")}>
         {notifications === undefined ? (
           loadingPref
         ) : (
           <CheckboxRow
             id="notifications-toggle"
-            label="Show notifications"
-            description="For example, when recording stops working, a meeting ends, or cloud sync needs your attention."
+            label={t("settings.system.notificationsLabel")}
+            description={t("settings.system.notificationsExamples")}
             checked={notifications}
             onCheckedChange={handleNotifications}
           />
@@ -223,14 +218,14 @@ export function SettingsSystem() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Updates" description="CatchM checks for updates on startup and once a day while running.">
+      <SettingsSection title={t("settings.system.updatesTitle")} description={t("settings.system.updatesDesc")}>
         <SettingRow
-          label="Current version"
+          label={t("settings.system.currentVersion")}
           id="update-status"
           description={
             <>
               <span translate="no" className="block font-medium tabular-nums text-foreground">
-                {version === undefined ? "…" : version === null ? "Unknown" : version}
+                {version === undefined ? "…" : version === null ? t("settings.system.unknownVersion") : version}
               </span>
               <span
                 role="status"
@@ -245,7 +240,7 @@ export function SettingsSystem() {
           control={
             <div className="flex shrink-0 items-center gap-2">
               {effectiveStatus?.updateAvailable && update.phase === "idle" && (
-                <Button onClick={() => void update.download()}>Update now</Button>
+                <Button onClick={() => void update.download()}>{t("settings.system.updateNow")}</Button>
               )}
               {(update.phase === "downloading" || update.phase === "cancelling") && (
                 <Button
@@ -253,15 +248,15 @@ export function SettingsSystem() {
                   disabled={update.phase === "cancelling"}
                   onClick={() => void update.cancel()}
                 >
-                  {update.phase === "cancelling" ? "Cancelling…" : "Cancel download"}
+                  {update.phase === "cancelling" ? t("updateBanner.cancellingShort") : t("updateBanner.cancelDownload")}
                 </Button>
               )}
               {effectiveStatus?.updateAvailable && update.phase === "confirm" && (
                 <>
                   <Button variant="outline" onClick={() => update.reset()}>
-                    Not now
+                    {t("updateBanner.notNow")}
                   </Button>
-                  <Button onClick={() => void update.apply()}>Install update</Button>
+                  <Button onClick={() => void update.apply()}>{t("settings.system.installUpdate")}</Button>
                 </>
               )}
               <Button
@@ -271,7 +266,7 @@ export function SettingsSystem() {
                 aria-describedby={descId("update-status")}
               >
                 <RefreshCw aria-hidden="true" className={checking ? "motion-safe:animate-spin" : undefined} />
-                {checking ? "Checking…" : "Check for updates"}
+                {checking ? t("settings.system.checking") : t("settings.system.checkForUpdates")}
               </Button>
             </div>
           }
