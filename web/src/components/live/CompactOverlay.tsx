@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react"
+import i18next from "i18next"
+import { useTranslation } from "react-i18next"
 import { Radio, X } from "lucide-react"
 import { cn } from "cn"
 
@@ -21,9 +23,13 @@ const LEVEL_POLL_MS = 1000
  *  case needs no words in a 480px window). */
 function engineNote(engine: EngineLevelsStatus | undefined): { text: string; error: boolean } | null {
   if (!engine || engine.state === "streaming") return null
-  if (engine.state === "connecting") return { text: "Connecting…", error: false }
-  if (engine.state === "reconnecting") return { text: "Reconnecting…", error: false }
-  if (engine.state === "error") return { text: engine.error ? `Transcription stopped: ${engine.error}` : "Transcription stopped", error: true }
+  if (engine.state === "connecting") return { text: i18next.t("compactOverlay.connecting"), error: false }
+  if (engine.state === "reconnecting") return { text: i18next.t("compactOverlay.reconnecting"), error: false }
+  if (engine.state === "error")
+    return {
+      text: engine.error ? i18next.t("compactOverlay.stoppedWithError", { error: engine.error }) : i18next.t("compactOverlay.stopped"),
+      error: true,
+    }
   return null
 }
 
@@ -57,6 +63,7 @@ export function CompactOverlay({
   captureError,
   onExit,
 }: CompactOverlayProps) {
+  const { t } = useTranslation()
   const [peak, setPeak] = useState(0)
   const [engine, setEngine] = useState<EngineLevelsStatus | undefined>(undefined)
 
@@ -82,7 +89,11 @@ export function CompactOverlay({
   const lines = utterances.slice(-VISIBLE_LINES)
   const { ref: bottomRef } = useStickToBottom(utterances.length)
   const note = engineNote(engine)
-  const problem = captureError ? `Not recording: ${captureError}` : error ? `Transcript not updating: ${error}` : null
+  const problem = captureError
+    ? t("compactOverlay.notRecordingWith", { error: captureError })
+    : error
+      ? t("compactOverlay.notUpdatingWith", { error })
+      : null
 
   return (
     <div className="flex h-svh flex-col bg-background px-3 py-2 text-foreground">
@@ -97,10 +108,10 @@ export function CompactOverlay({
               className="absolute -top-0.5 -right-0.5 size-1 motion-safe:animate-pulse rounded-full bg-primary"
             />
           )}
-          <span className="sr-only">{captureError ? "Not recording" : "Recording"}</span>
+          <span className="sr-only">{captureError ? t("compactOverlay.notRecordingSr") : t("compactOverlay.recordingSr")}</span>
         </span>
         <span className="shrink-0">
-          <span className="sr-only">Source: </span>
+          <span className="sr-only">{t("compactOverlay.sourceSr")} </span>
           {sourceShortLabel(audioSource)}
         </span>
         <div aria-hidden="true" className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted">
@@ -116,7 +127,7 @@ export function CompactOverlay({
         >
           {note?.text}
         </span>
-        <Button size="icon" variant="ghost" className="ml-auto shrink-0" aria-label="Back to full window" title="Back to full window" onClick={onExit}>
+        <Button size="icon" variant="ghost" className="ml-auto shrink-0" aria-label={t("compactOverlay.exitAria")} title={t("compactOverlay.exitAria")} onClick={onExit}>
           <X className="size-3.5" />
         </Button>
       </div>
@@ -126,9 +137,9 @@ export function CompactOverlay({
       </StatusMessage>
 
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize }}>
-        <div role="log" aria-label="Latest transcript lines" className="grid gap-2">
+        <div role="log" aria-label={t("compactOverlay.logAria")} className="grid gap-2">
           {lines.length === 0 ? (
-            <p className="text-muted-foreground">Waiting for someone to speak…</p>
+            <p className="text-muted-foreground">{t("compactOverlay.waiting")}</p>
           ) : (
             lines.map((u) => (
               <div key={u.seq} className="leading-snug">

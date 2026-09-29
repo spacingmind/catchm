@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { ArrowDown, Loader2, Minus, Plus, Radio } from "lucide-react"
 import { cn } from "cn"
 
@@ -23,12 +24,6 @@ const POLL_INTERVAL_MS = 1500
 
 /** How long the note's "Saved" confirmation stays before clearing. */
 const NOTE_SAVED_MS = 2000
-
-const VIEW_MODE_OPTIONS: { value: TranscriptViewMode; label: string }[] = [
-  { value: "stacked", label: "Original + translation" },
-  { value: "side-by-side", label: "Side by side" },
-  { value: "translation-only", label: "Translation only" },
-]
 
 /** Stable empty list for a meeting whose transcript hasn't loaded yet
  *  (a fresh [] each render would re-run the memo and scroll effects). */
@@ -160,6 +155,7 @@ export function LiveMeeting({
   onOpenSettings,
   onCompactChange,
 }: LiveMeetingProps) {
+  const { t } = useTranslation()
   // Tagged with the meeting it belongs to, so switching meetings shows
   // an empty transcript at once (derived below) without resetting state
   // from the poll effect.
@@ -239,7 +235,7 @@ export function LiveMeeting({
       noteTimerRef.current = window.setTimeout(() => setNoteState("idle"), NOTE_SAVED_MS)
     } catch (err) {
       setNoteState("error")
-      setNoteError(`Couldn’t add the note: ${errorText(err)}`)
+      setNoteError(t("liveMeeting.noteError", { error: errorText(err) }))
     }
   }
 
@@ -250,7 +246,7 @@ export function LiveMeeting({
       await endMeeting(meeting.id)
       onEnded({ ...meeting, ended_at: new Date().toISOString() })
     } catch (err) {
-      setEndError(`Couldn’t end the meeting: ${errorText(err)}`)
+      setEndError(t("liveMeeting.endError", { error: errorText(err) }))
       setEnding(false)
     }
   }
@@ -278,7 +274,7 @@ export function LiveMeeting({
   )
 
   const translationOn = Boolean(meeting.translate_to) || Boolean(meeting.two_way)
-  const pollErrorText = pollError ? `Couldn’t load new transcript lines: ${pollError}. Retrying…` : null
+  const pollErrorText = pollError ? t("liveMeeting.pollError", { error: pollError }) : null
 
   const { compact, available: compactAvailable, toggle: toggleCompact } = useCompactMode()
 
@@ -305,6 +301,11 @@ export function LiveMeeting({
   }
 
   const unsavedNote = note.trim() !== ""
+  const viewModeOptions: { value: TranscriptViewMode; label: string }[] = [
+    { value: "stacked", label: t("liveMeeting.viewStacked") },
+    { value: "side-by-side", label: t("liveMeeting.viewSideBySide") },
+    { value: "translation-only", label: t("liveMeeting.viewTranslationOnly") },
+  ]
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6 py-8">
@@ -317,7 +318,7 @@ export function LiveMeeting({
             </span>
             <span className="min-w-0 break-words">{meeting.title}</span>
           </h1>
-          <p className="text-sm text-muted-foreground">Live meeting — transcript updates automatically.</p>
+          <p className="text-sm text-muted-foreground">{t("liveMeeting.subtitle")}</p>
         </div>
         <Button
           variant="destructive"
@@ -328,20 +329,18 @@ export function LiveMeeting({
           }}
           disabled={ending}
         >
-          {ending ? "Ending…" : "End meeting"}
+          {ending ? t("liveMeeting.ending") : t("liveMeeting.endMeeting")}
         </Button>
       </div>
 
       <ConfirmDialog
         open={confirmEnd}
         onOpenChange={setConfirmEnd}
-        title="End this meeting?"
+        title={t("liveMeeting.confirmTitle")}
         description={
-          unsavedNote
-            ? "Recording stops and the transcript is saved. Your note hasn’t been added yet and will be discarded — cancel and select Add note to keep it."
-            : "Recording stops and the transcript is saved. You can’t resume a meeting after ending it."
+          unsavedNote ? t("liveMeeting.confirmDescNote") : t("liveMeeting.confirmDescPlain")
         }
-        confirmLabel="End meeting"
+        confirmLabel={t("liveMeeting.endMeeting")}
         destructive
         pending={ending}
         error={endError}
@@ -355,11 +354,11 @@ export function LiveMeeting({
       {captureError && (
         <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
           <p className="min-w-0 break-words text-sm text-destructive">
-            <span className="font-medium">Not recording:</span> {captureError}
+            <span className="font-medium">{t("liveMeeting.notRecordingLabel")}</span> {captureError}
           </p>
           {onOpenSettings && (
             <Button size="sm" variant="outline" onClick={() => onOpenSettings(captureErrorSettings)}>
-              Open settings
+              {t("statusRow.openSettings")}
             </Button>
           )}
         </div>
@@ -379,15 +378,15 @@ export function LiveMeeting({
 
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         {translationOn ? (
-          <SegmentedControl label="Transcript view" value={viewMode} onChange={changeViewMode} options={VIEW_MODE_OPTIONS} />
+          <SegmentedControl label={t("liveMeeting.transcriptView")} value={viewMode} onChange={changeViewMode} options={viewModeOptions} />
         ) : (
           <span />
         )}
-        <div role="group" aria-label="Text size" className="flex items-center gap-1">
+        <div role="group" aria-label={t("liveMeeting.textSizeGroup")} className="flex items-center gap-1">
           <Button
             size="icon-sm"
             variant="outline"
-            aria-label="Decrease text size"
+            aria-label={t("liveMeeting.textSizeDecrease")}
             disabled={fontSize <= FONT_SIZES[0]}
             onClick={() => changeFontSize(-1)}
           >
@@ -396,7 +395,7 @@ export function LiveMeeting({
           <Button
             size="icon-sm"
             variant="outline"
-            aria-label="Increase text size"
+            aria-label={t("liveMeeting.textSizeIncrease")}
             disabled={fontSize >= FONT_SIZES[FONT_SIZES.length - 1]}
             onClick={() => changeFontSize(1)}
           >
@@ -407,11 +406,9 @@ export function LiveMeeting({
 
       <div className="relative mb-4 min-h-0 flex-1">
         <ScrollArea className="h-full rounded-xl border border-border bg-card">
-          <div role="log" aria-label="Transcript" className="grid gap-3 p-4">
+          <div role="log" aria-label={t("liveMeeting.transcriptLog")} className="grid gap-3 p-4">
             {groups.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Waiting for someone to speak… What’s said will appear here.
-              </p>
+              <p className="text-sm text-muted-foreground">{t("liveMeeting.waiting")}</p>
             ) : (
               groups.map((group, i) => (
                 <SpeakerGroup
@@ -433,7 +430,7 @@ export function LiveMeeting({
             className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-md"
             onClick={scrollToBottom}
           >
-            <ArrowDown aria-hidden="true" /> New lines
+            <ArrowDown aria-hidden="true" /> {t("liveMeeting.newLines")}
           </Button>
         )}
       </div>
@@ -445,13 +442,13 @@ export function LiveMeeting({
           void handleAddNote()
         }}
       >
-        <Label htmlFor="live-note">Note</Label>
+        <Label htmlFor="live-note">{t("liveMeeting.noteLabel")}</Label>
         <Textarea
           id="live-note"
           name="note"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Add a note about this meeting…"
+          placeholder={t("liveMeeting.notePlaceholder")}
           rows={3}
           aria-invalid={noteState === "error" || undefined}
           aria-describedby="live-note-status"
@@ -459,7 +456,7 @@ export function LiveMeeting({
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={!note.trim() || noteState === "saving"} aria-busy={noteState === "saving" || undefined}>
             {noteState === "saving" && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
-            {noteState === "saving" ? "Adding…" : "Add note"}
+            {noteState === "saving" ? t("liveMeeting.adding") : t("liveMeeting.addNote")}
           </Button>
           <SaveStatus id="live-note-status" className="min-w-0 break-words" state={noteState === "saving" ? "idle" : noteState} error={noteError} />
         </div>
