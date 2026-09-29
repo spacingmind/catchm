@@ -969,6 +969,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 	return map[string]any{
 		"engine":             cfg.Engine,
 		"lang":               cfg.Lang,
+		"ui_language":        cfg.UILanguage,
 		"whisper_url":        cfg.WhisperURL,
 		"soniox":             map[string]any{"url": cfg.Soniox.URL},
 		"soniox_api_key_set": cfg.Soniox.APIKey != "",
@@ -996,6 +997,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 type configRequestBody struct {
 	Engine     string `json:"engine"`
 	Lang       string `json:"lang"`
+	UILanguage string `json:"ui_language"`
 	WhisperURL string `json:"whisper_url"`
 	Soniox     struct {
 		URL string `json:"url"`
@@ -1054,6 +1056,12 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, `summary.provider must be "ollama", "catchm-cloud" or "openai"`)
 		return
 	}
+	switch req.UILanguage {
+	case "", "system", "en", "vi":
+	default:
+		httpError(w, http.StatusBadRequest, `ui_language must be "system", "en" or "vi"`)
+		return
+	}
 	baseURL := req.Summary.OpenAI.BaseURL
 	if baseURL != "" {
 		normalized, err := validateSummaryBaseURL(baseURL)
@@ -1072,6 +1080,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	// not blank out the rest of the config on disk.
 	setIfNonEmpty(&updated.Engine, req.Engine)
 	setIfNonEmpty(&updated.Lang, req.Lang)
+	setIfNonEmpty(&updated.UILanguage, req.UILanguage)
 	setIfNonEmpty(&updated.WhisperURL, req.WhisperURL)
 	setIfNonEmpty(&updated.Soniox.URL, req.Soniox.URL)
 	setIfNonEmpty(&updated.Soniox.APIKey, req.SonioxAPIKey)
