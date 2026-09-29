@@ -605,8 +605,8 @@ export function SettingsSummaries() {
       : null
 
   const computerParts = [
-    totalRamGb != null && `${Math.round(totalRamGb)} GB memory`,
-    freeDiskGb != null && `${formatGb(freeDiskGb)} free disk space`,
+    totalRamGb != null && t("settings.summaries.computerRam", { gb: Math.round(totalRamGb) }),
+    freeDiskGb != null && t("settings.summaries.computerDisk", { size: formatGb(freeDiskGb) }),
   ].filter(Boolean)
 
   const translationModels = translate ? installedModels([translate.live_model, translate.batch_model]) : []
@@ -617,37 +617,38 @@ export function SettingsSummaries() {
 
   const ollamaDetails = (
     <SettingsSection
-      title="On this computer"
-      description="Summaries are written by Ollama, a free app that runs on this computer. Set it up once in three steps. Without a graphics card, a summary can take several minutes."
+      title={t("settings.summaries.ollamaTitle")}
+      description={t("settings.summaries.ollamaDesc")}
     >
       <StatusMessage className="sr-only">{setupAnnouncement}</StatusMessage>
       <ol className="grid">
-        <SetupStep n={1} title="Install Ollama" done={ollamaFound}>
+        <SetupStep n={1} title={t("settings.summaries.step1Title")} done={ollamaFound}>
           {ollamaFound ? (
-            <p className="text-sm text-muted-foreground">Ollama is running.</p>
+            <p className="text-sm text-muted-foreground">{t("settings.summaries.step1Done")}</p>
           ) : (
             <div className="grid gap-1 text-sm text-muted-foreground">
               <p>
-                Ollama is free. <ExternalLink href={OLLAMA_DOWNLOAD}>Download Ollama from ollama.com</ExternalLink> and
-                install it.
+                {t("settings.summaries.step1Free")}{" "}
+                <ExternalLink href={OLLAMA_DOWNLOAD}>{t("settings.summaries.step1DownloadLink")}</ExternalLink>
+                {t("settings.summaries.step1Install")}
               </p>
-              {ollamaFound === false && <p>After installing, open Ollama once. CatchM will notice automatically.</p>}
+              {ollamaFound === false && <p>{t("settings.summaries.step1OpenOnce")}</p>}
             </div>
           )}
         </SetupStep>
 
-        <SetupStep n={2} title="Download the summary model" done={modelDownloaded}>
+        <SetupStep n={2} title={t("settings.summaries.step2Title")} done={modelDownloaded}>
           <fieldset aria-describedby="summary-model-help">
-            <legend className="text-sm font-medium">Model</legend>
+            <legend className="text-sm font-medium">{t("settings.summaries.modelLegend")}</legend>
             <p id="summary-model-help" className="mt-0.5 text-sm text-muted-foreground">
-              Bigger models write better summaries but need a faster computer with more memory.
-              {computerParts.length > 0 && ` This computer: ${computerParts.join(", ")}.`}
+              {t("settings.summaries.modelHelp")}
+              {computerParts.length > 0 &&
+                ` ${t("settings.summaries.thisComputer", { parts: computerParts.join(", ") })}`}
             </p>
             {totalRamGb != null && !recommended && (
               <p className="mt-2 flex items-start gap-1.5 text-sm font-medium text-warning">
                 <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                This computer has less memory than these models need, so summaries may be very slow or fail. CatchM
-                Cloud may work better.
+                {t("settings.summaries.lowMemoryWarning")}
               </p>
             )}
             <div className="mt-3 grid gap-2">
@@ -663,24 +664,23 @@ export function SettingsSummaries() {
                     onChange={chooseModel}
                     title={
                       <>
-                        {i18next.t(totalRamGb == null ? p.labelKey : p.plainLabelKey)}{" "}
+                        {t(totalRamGb == null ? p.labelKey : p.plainLabelKey)}{" "}
                         <span translate="no" className="font-normal text-muted-foreground">
                           · {p.model}
                         </span>
                         {recommended === p && (
                           <Badge variant="secondary" className="ml-2 border-transparent bg-primary/15 align-middle text-primary">
-                            {i18next.t("settings.summaries.recommendedHere")}
+                            {t("settings.summaries.recommendedHere")}
                           </Badge>
                         )}
                       </>
                     }
-                    description={`${gb != null ? i18next.t("settings.summaries.downloadSize", { size: formatGb(gb) }) : ""}${i18next.t(p.needsKey)}`}
+                    description={`${gb != null ? t("settings.summaries.downloadSize", { size: formatGb(gb) }) : ""}${t(p.needsKey)}`}
                     extra={
                       tooBig ? (
                         <span className="mt-1 flex items-start gap-1.5 font-medium text-warning">
                           <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                          Needs more memory than this computer has ({Math.round(totalRamGb)} GB). It may be very slow
-                          or fail.
+                          {t("settings.summaries.presetTooBig", { gb: Math.round(totalRamGb) })}
                         </span>
                       ) : undefined
                     }
@@ -692,14 +692,14 @@ export function SettingsSummaries() {
                 value={CUSTOM_MODEL}
                 checked={modelChoice === CUSTOM_MODEL}
                 onChange={chooseModel}
-                title="Custom model name"
-                description="Any model from ollama.com."
+                title={t("settings.summaries.customModelTitle")}
+                description={t("settings.summaries.customModelDesc")}
               />
             </div>
             {modelChoice === CUSTOM_MODEL && (
               <div className="mt-3 grid gap-1">
                 <label htmlFor="summary-custom-model" className="text-sm font-medium">
-                  Model name
+                  {t("settings.summaries.modelNameLabel")}
                 </label>
                 <Input
                   id="summary-custom-model"
@@ -726,11 +726,11 @@ export function SettingsSummaries() {
           </fieldset>
 
           <p className="mt-3 text-sm text-muted-foreground">
-            This is a separate model from the one used for translation.
+            {t("settings.summaries.separateFromTranslation")}
             {translationModels.length > 0 && (
               <>
                 {" "}
-                Already downloaded for translation:{" "}
+                {t("settings.summaries.alreadyForTranslation")}{" "}
                 {translationModels.map((name, i) => {
                   const gb = modelDownloadGb(name)
                   return (
@@ -744,19 +744,19 @@ export function SettingsSummaries() {
                 .
               </>
             )}
-            {totalGb != null && ` Translation and summaries together use about ${formatGb(totalGb)}.`}
+            {totalGb != null && ` ${t("settings.summaries.totalDiskUse", { size: formatGb(totalGb) })}`}
           </p>
 
           <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
             <p id="summary-model-download" className="min-w-0 text-sm">
-              <span className="font-medium">Selected: </span>
+              <span className="font-medium">{t("settings.summaries.selectedLabel")} </span>
               <span translate="no" className="break-all">
                 {selectedModel}
               </span>
               {selectedGb != null && <span className="text-muted-foreground">{` · ${formatGb(selectedGb)}`}</span>}
-              {modelDownloaded === true && <span className="text-muted-foreground"> · Downloaded</span>}
+              {modelDownloaded === true && <span className="text-muted-foreground"> · {t("settings.translation.downloaded")}</span>}
               {ollamaFound === false && (
-                <span className="block text-muted-foreground">Finish step 1 first, then download the model.</span>
+                <span className="block text-muted-foreground">{t("settings.summaries.finishStep1First")}</span>
               )}
             </p>
             {ollama && !ollama.installed && (
@@ -768,7 +768,7 @@ export function SettingsSummaries() {
                     onClick={() => abortRef.current?.abort()}
                     aria-describedby="summary-model-download"
                   >
-                    Cancel download
+                    {t("updateBanner.cancelDownload")}
                   </Button>
                 ) : (
                   <Button
@@ -779,11 +779,11 @@ export function SettingsSummaries() {
                       diskShortfall ? "summary-model-download summary-disk-warning" : "summary-model-download"
                     }
                   >
-                    Download model
+                    {t("settings.translation.downloadModel")}
                   </Button>
                 )}
                 {pull.running && pull.percent !== null && (
-                  <Progress value={pull.percent} aria-label="Summary model download progress" />
+                  <Progress value={pull.percent} aria-label={t("settings.summaries.downloadProgressAria")} />
                 )}
               </div>
             )}
@@ -794,26 +794,24 @@ export function SettingsSummaries() {
               className="mt-2 flex items-start gap-1.5 text-sm font-medium text-warning"
             >
               <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              Not enough free disk space: this model needs about {formatGb(diskShortfall.need)} and this computer
-              has {formatGb(diskShortfall.free)} free. Free up some space or choose a smaller model.
+              {t("settings.summaries.diskShortfall", { need: formatGb(diskShortfall.need), free: formatGb(diskShortfall.free) })}
             </p>
           )}
           <div className="mt-1 grid justify-items-end">
             <StatusMessage className="text-xs break-words">{pull.statusText}</StatusMessage>
             <StatusMessage tone="error" className="text-xs break-words">
-              {pull.error &&
-                `${pull.error}. Check that Ollama is running and the model name is correct, then download again.`}
+              {pull.error && t("settings.translation.pullErrorHint", { error: pull.error })}
             </StatusMessage>
           </div>
         </SetupStep>
 
-        <SetupStep n={3} title="Ready" done={allReady}>
+        <SetupStep n={3} title={t("getStarted.ready")} done={allReady}>
           <p className="text-sm text-muted-foreground">
             {allReady
-              ? "All set. Open a meeting and choose “Create summary & action items”."
+              ? t("settings.summaries.step3Done", { create: t("meetingDetail.createSummary") })
               : ollama?.reachable && ollama.installed && current?.reason
                 ? current.reason
-                : "When steps 1 and 2 are done, open a meeting and choose “Create summary & action items”."}
+                : t("settings.summaries.step3Waiting", { create: t("meetingDetail.createSummary") })}
           </p>
         </SetupStep>
       </ol>
@@ -822,36 +820,36 @@ export function SettingsSummaries() {
 
   const cloud = current?.cloud
   const quotaText = (() => {
-    if (!cloud) return "Checking…"
-    if (!cloud.logged_in) return "Log in to see how many free summaries you have left today."
+    if (!cloud) return t("settings.system.checking")
+    if (!cloud.logged_in) return t("settings.summaries.quotaLogin")
     if (cloud.remaining_today == null || cloud.limit == null) {
-      return "Couldn’t check today’s free summaries right now."
+      return t("settings.summaries.quotaCheckError")
     }
-    const resets = cloud.reset_at ? ` Resets ${formatDateTime(cloud.reset_at)}.` : ""
-    return `${cloud.remaining_today} of ${cloud.limit} free summaries left today.${resets}`
+    const resets = cloud.reset_at ? ` ${t("settings.summaries.quotaResets", { date: formatDateTime(cloud.reset_at) })}` : ""
+    return t("settings.summaries.quotaLeft", { remaining: cloud.remaining_today, limit: cloud.limit }) + resets
   })()
 
   const cloudDetails = (
-    <SettingsSection title="CatchM Cloud" description="Free, with a daily limit per account. Needs a CatchM account.">
+    <SettingsSection title={t("settings.summaries.cloudTitle")} description={t("settings.summaries.cloudDesc")}>
       <div
         id="summary-cloud-privacy"
         className="mb-2 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
       >
         <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
         <p>
-          <span className="font-medium">{i18next.t("settings.summaries.cloudPrivacy")}</span>{" "}
-          {i18next.t("settings.summaries.staysEncrypted")}
+          <span className="font-medium">{t("settings.summaries.cloudPrivacy")}</span>{" "}
+          {t("settings.summaries.staysEncrypted")}
         </p>
       </div>
       <SettingRow
-        label="CatchM account"
+        label={t("settings.summaries.cloudAccountLabel")}
         id="summary-cloud-account"
         description={
           cloud
             ? cloud.logged_in
-              ? "You’re logged in."
-              : "Log in or sign up on the Cloud sync page to use CatchM Cloud."
-            : "Checking…"
+              ? t("settings.summaries.youreLoggedIn")
+              : t("settings.summaries.cloudAccountLogin")
+            : t("settings.system.checking")
         }
         control={
           cloud && !cloud.logged_in ? (
@@ -861,10 +859,10 @@ export function SettingsSummaries() {
               onClick={() => navigate({ name: "settings", section: "cloud" })}
               aria-describedby={descId("summary-cloud-account")}
             >
-              Open Cloud sync
+              {t("settings.summaries.openCloudSync")}
             </Button>
           ) : (
-            <ReadyBadge ready={cloud ? cloud.logged_in : null}>{cloud && "Logged in"}</ReadyBadge>
+            <ReadyBadge ready={cloud ? cloud.logged_in : null}>{cloud && t("settings.cloudSync.loggedIn")}</ReadyBadge>
           )
         }
       />
@@ -1033,11 +1031,11 @@ export function SettingsSummaries() {
                 value={p.value}
                 checked={shown === p.value}
                 onChange={(v) => chooseProvider(v as SummaryProvider)}
-                title={i18next.t(PROVIDER_LABEL_KEYS[p.value])}
-                description={i18next.t(PROVIDER_DESC_KEYS[p.value])}
+                title={t(PROVIDER_LABEL_KEYS[p.value])}
+                description={t(PROVIDER_DESC_KEYS[p.value])}
                 extra={
                   p.value === "catchm-cloud" ? (
-                    <span className="mt-1 block font-medium text-foreground">{i18next.t("settings.summaries.cloudPrivacy")}</span>
+                    <span className="mt-1 block font-medium text-foreground">{t("settings.summaries.cloudPrivacy")}</span>
                   ) : undefined
                 }
               />
