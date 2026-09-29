@@ -106,4 +106,23 @@ export const vi: Messages = {
     downloadCancelled: "Đã hủy tải xuống.",
     cancelFailed: "Không hủy được tải xuống. Hãy thử lại.",
   },
+  meetingOrganize: {
+    project: "Dự án",
+    tags: "Thẻ",
+    saving: "Đang lưu…",
+    movedTo: "Đã chuyển đến “{{name}}”.",
+    removedFromProject: "Đã xóa khỏi dự án.",
+    tagAdded: "Đã thêm thẻ.",
+    tagRemoved: "Đã xóa thẻ.",
+    saveError: "Không lưu được thay đổi: {{error}} Hãy thử lại.",
+  },
+  tagEditor: {
+    projectHint: "Để đưa cuộc họp này vào dự án, hãy dùng mục Dự án ở trên.",
+    duplicateTag: "Cuộc họp này đã có thẻ “{{tag}}”.",
+    removeTagAria: "Xóa thẻ “{{tag}}”",
+    removeTag: "Xóa thẻ",
+    addTag: "Thêm thẻ",
+    addTagPlaceholder: "Thêm thẻ…",
+    enterHint: "Nhấn Enter để thêm thẻ.",
+  },
 }

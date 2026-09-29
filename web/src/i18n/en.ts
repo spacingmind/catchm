@@ -118,6 +118,25 @@ export const en = {
     downloadCancelled: "Download cancelled.",
     cancelFailed: "Couldn’t cancel the download. Try again.",
   },
+  meetingOrganize: {
+    project: "Project",
+    tags: "Tags",
+    saving: "Saving…",
+    movedTo: "Moved to “{{name}}”.",
+    removedFromProject: "Removed from the project.",
+    tagAdded: "Tag added.",
+    tagRemoved: "Tag removed.",
+    saveError: "Couldn’t save the change: {{error}} Try again.",
+  },
+  tagEditor: {
+    projectHint: "To put this meeting in a project, use Project above.",
+    duplicateTag: "This meeting already has the tag “{{tag}}”.",
+    removeTagAria: "Remove tag “{{tag}}”",
+    removeTag: "Remove tag",
+    addTag: "Add a tag",
+    addTagPlaceholder: "Add a tag…",
+    enterHint: "Press Enter to add the tag.",
+  },
 } as const
 
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> }
