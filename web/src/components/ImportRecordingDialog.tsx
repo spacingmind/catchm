@@ -21,7 +21,7 @@ import { Toggle } from "@/components/ui/toggle"
 import { ArrowLeftRight } from "lucide-react"
 import { ApiError, getConfig, importRecording, type Meeting } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
-import { ENGINE_LABEL } from "@/lib/labels"
+import { engineLabel } from "@/lib/labels"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
@@ -363,8 +363,8 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
               value={activeEngine}
               onChange={setEngine}
               options={[
-                { value: "soniox", label: ENGINE_LABEL.soniox, disabled: sonioxDisabled, reason: sonioxDisabled ? SONIOX_NO_KEY_REASON : undefined },
-                { value: "whisper", label: ENGINE_LABEL.whisper, disabled: whisperDisabled, reason: whisperDisabled ? WHISPER_FORMAT_REASON : undefined },
+                { value: "soniox", label: engineLabel("soniox"), disabled: sonioxDisabled, reason: sonioxDisabled ? SONIOX_NO_KEY_REASON : undefined },
+                { value: "whisper", label: engineLabel("whisper"), disabled: whisperDisabled, reason: whisperDisabled ? WHISPER_FORMAT_REASON : undefined },
               ]}
             />
             <p id="import-engine-reason" className="text-xs text-muted-foreground">

@@ -4,7 +4,7 @@ import { SegmentedControl, SettingRow, SettingsSection, SaveStatus, descId, labe
 import { useSaveStatus } from "@/components/settings/useConfigSave"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getAudioSources, getDevices, type AudioSources, type Device } from "@/lib/api"
-import { SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
+import { sourceHint, sourceLabel } from "@/lib/labels"
 import {
   effectiveSource,
   readDevicePref,
@@ -57,7 +57,7 @@ export function SettingsRecording() {
   const systemReason =
     sources?.system?.supported === false && sources.system.reason
       ? `${sources.system.reason.replace(/[.\s]+$/, "")}.`
-      : `${SOURCE_LABEL.system} needs a newer version of CatchM. Update CatchM to use it.`
+      : `${sourceLabel("system")} needs a newer version of CatchM. Update CatchM to use it.`
 
   const effective = effectiveSource(source, sources)
   const storedUnavailable = effective !== source
@@ -92,8 +92,8 @@ export function SettingsRecording() {
           id="recording-source"
           description={
             storedUnavailable
-              ? `Your saved choice isn’t available right now, so meetings start with ${SOURCE_LABEL.mic}.`
-              : SOURCE_HINT
+              ? `Your saved choice isn’t available right now, so meetings start with ${sourceLabel("mic")}.`
+              : sourceHint()
           }
           control={
             <SegmentedControl
@@ -103,16 +103,16 @@ export function SettingsRecording() {
               value={source}
               onChange={handleSource}
               options={[
-                { value: "mic", label: SOURCE_LABEL.mic },
+                { value: "mic", label: sourceLabel("mic") },
                 {
                   value: "system",
-                  label: SOURCE_LABEL.system,
+                  label: sourceLabel("system"),
                   disabled: !systemAvailable,
                   reason: systemReason,
                 },
                 {
                   value: "both",
-                  label: SOURCE_LABEL.both,
+                  label: sourceLabel("both"),
                   disabled: !systemAvailable,
                   reason: systemReason,
                 },

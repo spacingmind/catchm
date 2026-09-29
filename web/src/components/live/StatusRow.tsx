@@ -17,7 +17,7 @@ import {
   type EngineLevelsStatus,
   type MeetingLevels,
 } from "@/lib/api"
-import { SOURCE_LABEL, SOURCE_SHORT_LABEL } from "@/lib/labels"
+import { sourceLabel, sourceShortLabel } from "@/lib/labels"
 import { DEFAULT_DEVICE_VALUE, deviceSelectValue } from "@/lib/recordPrefs"
 
 /** How often a Whisper meeting re-checks GET /api/stt/status. The
@@ -37,11 +37,7 @@ const NO_SIGNAL_AFTER_MS = 4000
  *  single burst doesn't flash on and off between polls. */
 const DROPS_WARNING_HOLD_MS = 5000
 
-const SOURCE_OPTIONS: { value: AudioSource; label: string }[] = [
-  { value: "mic", label: SOURCE_LABEL.mic },
-  { value: "system", label: SOURCE_LABEL.system },
-  { value: "both", label: SOURCE_LABEL.both },
-]
+const SOURCES: AudioSource[] = ["mic", "system", "both"]
 
 /** Shown when the backend says system audio is unsupported but gives no
  *  reason. */
@@ -55,7 +51,7 @@ const COMPACT_SHORTCUT = IS_MAC ? "⌘⇧L" : "Ctrl+Shift+L"
 
 /** The Ctrl/⌘+1/2/3 source shortcuts, as a hover hint on the source
  *  control (SegmentedControl has no per-option tooltip). */
-const SOURCE_SHORTCUTS_HINT = `Shortcuts: ${MOD}1 ${SOURCE_LABEL.mic}, ${MOD}2 ${SOURCE_LABEL.system}, ${MOD}3 ${SOURCE_LABEL.both}`
+const sourceShortcutsHint = () => `Shortcuts: ${MOD}1 ${sourceLabel("mic")}, ${MOD}2 ${sourceLabel("system")}, ${MOD}3 ${sourceLabel("both")}`
 
 /** What to do about an engine error, per engine: the local Whisper
  *  server and the Soniox cloud fail for different reasons. */
@@ -347,15 +343,15 @@ export function StatusRow({
           {elapsed}
         </span>
 
-        <div title={SOURCE_SHORTCUTS_HINT}>
+        <div title={sourceShortcutsHint()}>
           <SegmentedControl
             id="live-source"
             label="Audio source"
             value={shownSource}
             onChange={(v) => void handleSourceChange(v)}
-            options={SOURCE_OPTIONS.map((o) => {
-              const disabled = (o.value === "system" || o.value === "both") && !systemAvailable
-              return { ...o, disabled, reason: disabled ? unavailableReason : undefined }
+            options={SOURCES.map((value) => {
+              const disabled = (value === "system" || value === "both") && !systemAvailable
+              return { value, label: sourceLabel(value), disabled, reason: disabled ? unavailableReason : undefined }
             })}
           />
         </div>
@@ -421,8 +417,8 @@ export function StatusRow({
       </StatusMessage>
 
       <div className="flex flex-wrap items-center gap-4">
-        {source !== "system" && <LevelMeter label={SOURCE_SHORT_LABEL.mic} levels={levels?.mic} noSignal={micNoSignal} />}
-        {source !== "mic" && <LevelMeter label={SOURCE_SHORT_LABEL.system} levels={levels?.system} noSignal={sysNoSignal} />}
+        {source !== "system" && <LevelMeter label={sourceShortLabel("mic")} levels={levels?.mic} noSignal={micNoSignal} />}
+        {source !== "mic" && <LevelMeter label={sourceShortLabel("system")} levels={levels?.system} noSignal={sysNoSignal} />}
       </div>
 
       <StatusMessage tone="warning" className="flex items-center gap-1.5 text-xs font-medium">

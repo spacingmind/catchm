@@ -6,7 +6,7 @@ import { StatusMessage } from "@/components/StatusMessage"
 import { Button } from "@/components/ui/button"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
 import { getMeetingLevels, type AudioSource, type EngineLevelsStatus, type Utterance } from "@/lib/api"
-import { SOURCE_SHORT_LABEL } from "@/lib/labels"
+import { sourceShortLabel } from "@/lib/labels"
 import type { TranscriptViewMode } from "@/lib/livePrefs"
 
 /** How many of the most recent utterances the compact strip keeps on
@@ -101,7 +101,7 @@ export function CompactOverlay({
         </span>
         <span className="shrink-0">
           <span className="sr-only">Source: </span>
-          {SOURCE_SHORT_LABEL[audioSource]}
+          {sourceShortLabel(audioSource)}
         </span>
         <div aria-hidden="true" className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted">
           <div

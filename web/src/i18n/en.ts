@@ -19,8 +19,49 @@
 export const en = {
   common: {
     tryAgain: "Try again",
+    cancel: "Cancel",
+  },
+  labels: {
+    source: {
+      mic: "Microphone",
+      system: "Computer audio",
+      both: "Both",
+    },
+    sourceShort: {
+      mic: "Mic",
+      system: "Computer",
+      both: "Mic + computer",
+    },
+    sourceHint:
+      "Online meeting (Zoom, Meet, Teams)? Choose Both to hear you and the others. In a room, Microphone is enough.",
+    engine: {
+      whisper: "On this computer",
+      soniox: "Cloud (Soniox)",
+    },
+    engineHint: {
+      whisper: "Free and private. Needs the free Whisper server running on this computer.",
+      soniox: "More accurate and tells speakers apart. Needs a paid Soniox API key.",
+    },
   },
   settings: {
+    nav: {
+      recording: "Recording",
+      transcription: "Transcription",
+      translation: "Translation",
+      summaries: "Summaries",
+      cloudSync: "Cloud sync",
+      appearance: "Appearance",
+      shortcuts: "Shortcuts",
+      system: "System",
+      title: "Settings",
+      sections: "Settings sections",
+    },
+    pieces: {
+      saving: "Saving…",
+      saved: "Saved",
+      saveError: "Couldn’t save. Try again, or restart CatchM if it keeps failing.",
+      opensInBrowser: " (opens in your browser)",
+    },
     appearance: {
       title: "Appearance",
       themeLabel: "Theme",

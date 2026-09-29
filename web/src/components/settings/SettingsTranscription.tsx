@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getConfig, type AppConfig, type SttEngine } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
-import { ENGINE_HINT, ENGINE_LABEL } from "@/lib/labels"
+import { engineHint, engineLabel } from "@/lib/labels"
 import { isAbsoluteUrl } from "@/lib/url"
 
 const ENGINES: SttEngine[] = ["whisper", "soniox"]
@@ -175,7 +175,7 @@ export function SettingsTranscription() {
       description={
         engine === "whisper" ? (
           <>
-            “{ENGINE_LABEL.whisper}” needs the free whisper.cpp server running on this computer. Keep this address
+            “{engineLabel("whisper")}” needs the free whisper.cpp server running on this computer. Keep this address
             unless you started the server on a different one.{" "}
             <ExternalLink href={WHISPER_SERVER_DOCS}>How to set up the server</ExternalLink>
           </>
@@ -219,7 +219,7 @@ export function SettingsTranscription() {
           id="stt-engine"
           description={
             <>
-              Used when you start a meeting. {ENGINE_HINT[engine]}
+              Used when you start a meeting. {engineHint(engine)}
             </>
           }
           control={
@@ -229,7 +229,7 @@ export function SettingsTranscription() {
               describedBy={descId("stt-engine")}
               value={engine}
               onChange={setEngine}
-              options={ENGINES.map((e) => ({ value: e, label: ENGINE_LABEL[e] }))}
+              options={ENGINES.map((e) => ({ value: e, label: engineLabel(e) }))}
             />
           }
         />
@@ -240,7 +240,7 @@ export function SettingsTranscription() {
           id="soniox-key"
           description={
             <>
-              Only needed for “{ENGINE_LABEL.soniox}”. The key stays on this computer.{" "}
+              Only needed for “{engineLabel("soniox")}”. The key stays on this computer.{" "}
               <ExternalLink href={SONIOX_SITE}>Get a key from Soniox</ExternalLink>
             </>
           }
@@ -311,7 +311,7 @@ export function SettingsTranscription() {
             <SettingRow
               label="Soniox server address"
               htmlFor="stt-soniox-url"
-              description={`Where CatchM sends audio when you use “${ENGINE_LABEL.soniox}”.`}
+              description={`Where CatchM sends audio when you use “${engineLabel("soniox")}”.`}
               control={
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input

@@ -1,4 +1,5 @@
 import { useId, type MouseEvent, type ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -101,6 +102,7 @@ function openExternal(e: MouseEvent<HTMLAnchorElement>) {
 
 /** An inline link to a website, for setup help inside row descriptions. */
 export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  const { t } = useTranslation()
   return (
     <a
       href={href}
@@ -110,7 +112,7 @@ export function ExternalLink({ href, children }: { href: string; children: React
       className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
     >
       {children}
-      <span className="sr-only"> (opens in your browser)</span>
+      <span className="sr-only">{t("settings.pieces.opensInBrowser")}</span>
     </a>
   )
 }
@@ -132,14 +134,15 @@ export function SaveStatus({
   id?: string
   className?: string
 }) {
+  const { t } = useTranslation()
   return (
     <StatusMessage id={id} className={className} tone={state === "error" ? "error" : "muted"}>
       {state === "saving"
-        ? "Saving…"
+        ? t("settings.pieces.saving")
         : state === "saved"
-          ? "Saved"
+          ? t("settings.pieces.saved")
           : state === "error"
-            ? error || "Couldn’t save. Try again, or restart CatchM if it keeps failing."
+            ? error || t("settings.pieces.saveError")
             : null}
     </StatusMessage>
   )

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { Loader2 } from "lucide-react"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -27,7 +28,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
-  cancelLabel = "Cancel",
+  cancelLabel,
   destructive = false,
   pending = false,
   error,
@@ -44,6 +45,7 @@ export function ConfirmDialog({
   error?: string | null
   onConfirm: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <AlertDialog
       open={open}
@@ -59,7 +61,7 @@ export function ConfirmDialog({
         </AlertDialogHeader>
         <StatusMessage tone="error">{error}</StatusMessage>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogCancel disabled={pending}>{cancelLabel ?? t("common.cancel")}</AlertDialogCancel>
           <Button
             variant={destructive ? "destructive" : "default"}
             disabled={pending}

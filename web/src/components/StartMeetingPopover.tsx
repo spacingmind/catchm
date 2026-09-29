@@ -37,7 +37,7 @@ import {
   readSourcePref,
   writeStartedDevice,
 } from "@/lib/recordPrefs"
-import { ENGINE_HINT, ENGINE_LABEL, SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
+import { engineHint, engineLabel, sourceHint, sourceLabel } from "@/lib/labels"
 import { activeLocale } from "@/i18n"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
@@ -185,8 +185,8 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const usableEngines: { value: SttEngine; label: string }[] =
     sonioxKeySet === true
       ? [
-          { value: "whisper", label: ENGINE_LABEL.whisper },
-          { value: "soniox", label: ENGINE_LABEL.soniox },
+          { value: "whisper", label: engineLabel("whisper") },
+          { value: "soniox", label: engineLabel("soniox") },
         ]
       : []
   const activeEngine = usableEngines.length > 0 ? engine : configEngine
@@ -236,7 +236,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
         ? languageLabel(lang)
         : null,
     twoWay ? "two-way" : null,
-    ENGINE_LABEL[activeEngine],
+    engineLabel(activeEngine),
   ]
     .filter(Boolean)
     .join(" · ")
@@ -367,18 +367,18 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               value={source}
               onChange={setSource}
               options={[
-                { value: "mic", label: SOURCE_LABEL.mic },
+                { value: "mic", label: sourceLabel("mic") },
                 {
                   value: "system",
-                  label: SOURCE_LABEL.system,
+                  label: sourceLabel("system"),
                   disabled: !systemAvailable,
                   reason: systemReason || undefined,
                 },
-                { value: "both", label: SOURCE_LABEL.both, disabled: !systemAvailable, reason: systemReason || undefined },
+                { value: "both", label: sourceLabel("both"), disabled: !systemAvailable, reason: systemReason || undefined },
               ]}
             />
             <p id="start-source-hint" className="text-xs text-muted-foreground">
-              {SOURCE_HINT}
+              {sourceHint()}
             </p>
           </div>
 
@@ -500,7 +500,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     options={usableEngines}
                   />
                   <p id="start-engine-hint" className="text-xs text-muted-foreground">
-                    {ENGINE_HINT[engine]}
+                    {engineHint(engine)}
                   </p>
                 </div>
               )}
@@ -515,7 +515,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               <div className="flex flex-wrap gap-2">
                 {canSwitchToSoniox && (
                   <Button type="button" size="sm" variant="outline" onClick={() => setEngine("soniox")}>
-                    Use {ENGINE_LABEL.soniox} instead
+                    Use {engineLabel("soniox")} instead
                   </Button>
                 )}
                 {onOpenSettings && (
