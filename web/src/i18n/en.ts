@@ -228,6 +228,37 @@ export const en = {
     startAnyway: "Start anyway",
     starting: "Starting…",
   },
+  statusRow: {
+    sourceShortcuts: "Shortcuts: {{mod}}1 {{mic}}, {{mod}}2 {{system}}, {{mod}}3 {{both}}",
+    hintSoniox: "Check your internet connection and the Soniox API key in Settings → Transcription.",
+    hintWhisper:
+      "The Whisper server on this computer isn’t responding. Set it up, or switch to the cloud engine, in Settings → Transcription.",
+    hintGeneric: "Check the transcription settings in Settings → Transcription.",
+    engineChecking: "Transcription: checking…",
+    engineOn: "Transcription on",
+    engineConnecting: "Transcription connecting…",
+    engineReconnecting: "Transcription reconnecting…",
+    engineError: "Transcription error",
+    engineNotWorking: "Transcription not working",
+    noSignal: "No signal",
+    whisperDownFallback: "The Whisper server isn’t responding.",
+    errorStopped: "Transcription stopped working: {{error}} {{hint}}",
+    whisperNotWorking: "Transcription isn’t working: {{reason}} Fix it in Settings → Transcription.",
+    systemUnavailableFallback: "Computer audio isn’t available on this computer.",
+    switchSourceFailed: "Couldn’t switch source: {{error}} Try another input.",
+    switchMicFailed: "Couldn’t switch microphone: {{error}} Try another input.",
+    elapsedSr: "Elapsed time",
+    audioSource: "Audio source",
+    microphone: "Microphone",
+    defaultMic: "Default microphone",
+    defaultSuffix: " (default)",
+    compactTitle: "Shrink to a small window that stays on top of other apps ({{shortcut}})",
+    miniWindow: "Mini window",
+    openSettings: "Open settings",
+    switching: "Switching input…",
+    dropsWarning:
+      "Some audio is being lost because this computer or the connection can’t keep up. Close other busy apps or check your internet connection.",
+  },
 } as const
 
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> }
