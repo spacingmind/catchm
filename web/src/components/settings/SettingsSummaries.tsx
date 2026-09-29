@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { Check, ShieldAlert, TriangleAlert } from "lucide-react"
 import i18next from "i18next"
-import { useTranslation } from "react-i18next"
+import { Trans, useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -628,9 +628,10 @@ export function SettingsSummaries() {
           ) : (
             <div className="grid gap-1 text-sm text-muted-foreground">
               <p>
-                {t("settings.summaries.step1Free")}{" "}
-                <ExternalLink href={OLLAMA_DOWNLOAD}>{t("settings.summaries.step1DownloadLink")}</ExternalLink>
-                {t("settings.summaries.step1Install")}
+                <Trans
+                  i18nKey="settings.summaries.step1Download"
+                  components={{ ext: <ExternalLink href={OLLAMA_DOWNLOAD}>{null}</ExternalLink> }}
+                />
               </p>
               {ollamaFound === false && <p>{t("settings.summaries.step1OpenOnce")}</p>}
             </div>
@@ -866,31 +867,30 @@ export function SettingsSummaries() {
           )
         }
       />
-      <SettingRow label="Free summaries today" id="summary-cloud-quota" description={quotaText} control={null} />
+      <SettingRow label={t("settings.summaries.quotaLabel")} id="summary-cloud-quota" description={quotaText} control={null} />
     </SettingsSection>
   )
 
   const keySet = config.summary_openai_api_key_set
   const openaiDetails = (
     <SettingsSection
-      title="Your Cloudflare account"
-      description="Workers AI on your own Cloudflare account writes the summary. Only the transcript is sent (never the audio), and it stays under your account."
+      title={t("settings.summaries.providerCloudflare")}
+      description={t("settings.summaries.cloudflareDesc")}
     >
       {baseUrl && !isCloudflareUrl(baseUrl) && (
         <p className="py-3 text-sm text-muted-foreground">
-          This was set to another service (<span translate="no" className="break-all">{baseUrl}</span>). Enter your
-          Cloudflare Account ID to switch to Cloudflare.
+          {t("settings.summaries.wasOtherService")} (<span translate="no" className="break-all">{baseUrl}</span>).{" "}
+          {t("settings.summaries.switchToCloudflare")}
         </p>
       )}
       <SettingRow
-        label="Account ID"
+        label={t("settings.summaries.accountIdLabel")}
         htmlFor="summary-cloudflare-account"
         description={
-          <>
-            From your Cloudflare dashboard. Then{" "}
-            <ExternalLink href={CLOUDFLARE_TOKENS_URL}>create an API token</ExternalLink> with the Workers AI
-            permission and add it below.
-          </>
+          <Trans
+            i18nKey="settings.summaries.accountIdDesc"
+            components={{ ext: <ExternalLink href={CLOUDFLARE_TOKENS_URL}>{null}</ExternalLink> }}
+          />
         }
         control={
           <div className="grid w-72 justify-items-end gap-1">
@@ -920,12 +920,10 @@ export function SettingsSummaries() {
         }
       />
       <SettingRow
-        label="API token"
+        label={t("settings.summaries.apiTokenLabel")}
         htmlFor={keyEditing ? "summary-openai-key" : undefined}
         id="summary-openai-key"
-        description={
-          "The Workers AI API token from the link above. The token stays on this computer."
-        }
+        description={t("settings.summaries.apiTokenDesc")}
         control={
           keyEditing ? (
             <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
@@ -940,7 +938,7 @@ export function SettingsSummaries() {
                 onKeyDown={(e) => {
                   if (e.key === "Escape" && !keySaving) closeKeyEditor()
                 }}
-                placeholder="New API token…"
+                placeholder={t("settings.summaries.newTokenPlaceholder")}
                 readOnly={keySaving}
                 aria-invalid={keyError ? true : undefined}
                 aria-describedby={
@@ -950,10 +948,10 @@ export function SettingsSummaries() {
               />
               <div className="flex gap-2">
                 <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
-                  {keySaving ? "Saving…" : "Save"}
+                  {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
                 </Button>
               </div>
               <StatusMessage id={OPENAI_KEY_ERROR_ID} tone="error">
@@ -965,7 +963,7 @@ export function SettingsSummaries() {
               {keySet && (
                 <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                  Token set
+                  {t("settings.summaries.tokenSet")}
                 </span>
               )}
               <Button
@@ -975,17 +973,18 @@ export function SettingsSummaries() {
                 onClick={startReplaceKey}
                 aria-describedby={descId("summary-openai-key")}
               >
-                {keySet ? "Replace token" : "Add token"}
+                {keySet ? t("settings.summaries.replaceToken") : t("settings.summaries.addToken")}
               </Button>
             </div>
           )
         }
       />
-      <Disclosure label="Model (optional)">
+      <Disclosure label={t("settings.summaries.modelOptional")}>
+
         <SettingRow
-          label="Model"
+          label={t("settings.summaries.modelLegend")}
           htmlFor="summary-openai-model"
-          description={`A Workers AI model. Leave this as ${CLOUDFLARE_MODEL} unless you know a better one.`}
+          description={t("settings.summaries.workersModelDesc", { model: CLOUDFLARE_MODEL })}
           control={
             <Input
               id="summary-openai-model"
@@ -1003,7 +1002,7 @@ export function SettingsSummaries() {
         />
       </Disclosure>
       <p className="py-3 text-sm text-muted-foreground">
-        Workers AI includes a free daily allowance; beyond it, your Cloudflare plan’s rates apply.
+        {t("settings.summaries.workersFreeAllowance")}
       </p>
       <div className="flex items-center justify-end">
         <SaveStatus state={openaiSave.save.state} error={openaiSave.save.error} />
@@ -1015,13 +1014,13 @@ export function SettingsSummaries() {
   return (
     <div>
       <SettingsSection
-        title="Summaries"
-        description="After a meeting, CatchM can write a summary, the decisions and the action items. Choose where that happens. Changes save right away."
+        title={t("settings.nav.summaries")}
+        description={t("settings.summaries.topDesc")}
       >
         <fieldset className="border-b border-border pb-4" aria-describedby="summary-provider-help">
-          <legend className="text-sm font-medium">Write summaries with</legend>
+          <legend className="text-sm font-medium">{t("settings.summaries.writeSummariesWith")}</legend>
           <p id="summary-provider-help" className="sr-only">
-            Choose one. On this computer is free and private.
+            {t("settings.summaries.providerHelp")}
           </p>
           <div className="mt-2 grid gap-2">
             {PROVIDERS.map((p) => (
@@ -1044,7 +1043,7 @@ export function SettingsSummaries() {
           <SaveStatus state={providerSave.save.state} error={providerSave.save.error} className="mt-2" />
         </fieldset>
         <StatusMessage tone="error" className="mt-3 break-words">
-          {statusError && `Couldn’t check whether summaries are ready: ${statusError}. Try again with “Check again”.`}
+          {statusError && t("settings.summaries.statusCheckError", { error: statusError, check: t("settings.translation.checkAgain") })}
         </StatusMessage>
         {readiness}
       </SettingsSection>
@@ -1082,6 +1081,7 @@ function SetupStep({
   done: boolean | null
   children: ReactNode
 }) {
+  const { t } = useTranslation()
   return (
     <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 border-b border-border py-4 last:border-b-0">
       <span
@@ -1096,20 +1096,20 @@ function SetupStep({
       <div className="min-w-0">
         <h3 className="mb-1 flex flex-wrap items-center gap-2 text-sm font-medium">
           <span>
-            <span className="sr-only">{`Step ${n}: `}</span>
+            <span className="sr-only">{t("settings.summaries.stepAria", { n })}</span>
             {title}
           </span>
           <span className="sr-only">, </span>
           {done === null ? (
             <Badge variant="outline" className="motion-safe:animate-pulse">
-              Checking…
+              {t("settings.system.checking")}
             </Badge>
           ) : done ? (
             <Badge variant="secondary" className="border-transparent bg-primary/15 text-primary">
-              Done
+              {t("settings.summaries.doneBadge")}
             </Badge>
           ) : (
-            <Badge variant="outline">To do</Badge>
+            <Badge variant="outline">{t("settings.summaries.todoBadge")}</Badge>
           )}
         </h3>
         {children}
