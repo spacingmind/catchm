@@ -99,6 +99,25 @@ export const en = {
     loadingActionItems: "Loading action items…",
     loadingSettings: "Loading settings…",
   },
+  updateBanner: {
+    region: "App update",
+    confirmTitle: "Install version {{version}}?",
+    confirmBody:
+      "CatchM will quit to update, and Windows may ask for permission. Your meetings and settings are untouched.",
+    downloading: "Downloading version {{version}}…",
+    cancelling: "Cancelling the download…",
+    applying: "Installing version {{version}} and restarting CatchM…",
+    available: "Version {{version}} is available",
+    released: " (released {{date}})",
+    releaseNotes: "Release notes",
+    notNow: "Not now",
+    installRestart: "Install & restart",
+    cancelDownload: "Cancel download",
+    cancellingShort: "Cancelling…",
+    downloadUpdate: "Download update",
+    downloadCancelled: "Download cancelled.",
+    cancelFailed: "Couldn’t cancel the download. Try again.",
+  },
 } as const
 
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> }

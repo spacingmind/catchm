@@ -87,4 +87,23 @@ export const vi: Messages = {
     loadingActionItems: "Đang tải việc cần làm…",
     loadingSettings: "Đang tải cài đặt…",
   },
+  updateBanner: {
+    region: "Cập nhật ứng dụng",
+    confirmTitle: "Cài đặt phiên bản {{version}}?",
+    confirmBody:
+      "CatchM sẽ thoát để cập nhật và Windows có thể hỏi quyền. Cuộc họp và cài đặt của bạn không bị ảnh hưởng.",
+    downloading: "Đang tải phiên bản {{version}}…",
+    cancelling: "Đang hủy tải xuống…",
+    applying: "Đang cài đặt phiên bản {{version}} và khởi động lại CatchM…",
+    available: "Đã có phiên bản {{version}}",
+    released: " (phát hành {{date}})",
+    releaseNotes: "Ghi chú phát hành",
+    notNow: "Để sau",
+    installRestart: "Cài đặt & khởi động lại",
+    cancelDownload: "Hủy tải xuống",
+    cancellingShort: "Đang hủy…",
+    downloadUpdate: "Tải bản cập nhật",
+    downloadCancelled: "Đã hủy tải xuống.",
+    cancelFailed: "Không hủy được tải xuống. Hãy thử lại.",
+  },
 }
