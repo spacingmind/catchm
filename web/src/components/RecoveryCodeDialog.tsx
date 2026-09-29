@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import { StatusMessage } from "@/components/StatusMessage"
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,7 @@ import {
  * discards it.
  */
 export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onAcked: () => void }) {
+  const { t } = useTranslation()
   // Keyed on the code it was for, so a later code never inherits a stale
   // "Copied" from the previous one (no effect needed to reset it).
   const [copy, setCopy] = useState<{ code: string; ok: boolean } | null>(null)
@@ -56,12 +58,8 @@ export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onA
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>Save your recovery code</DialogTitle>
-          <DialogDescription>
-            If you ever forget your password, this code is the only way back into your synced meetings. CatchM
-            can’t reset it for you, because only you can unlock your meetings. You’ll see this code only once, so
-            write it down or save it in a password manager now.
-          </DialogDescription>
+          <DialogTitle>{t("recoveryCode.title")}</DialogTitle>
+          <DialogDescription>{t("recoveryCode.description")}</DialogDescription>
         </DialogHeader>
         <p
           translate="no"
@@ -70,18 +68,14 @@ export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onA
           {code}
         </p>
         <StatusMessage tone={copyResult?.ok === false ? "error" : "success"}>
-          {copyResult
-            ? copyResult.ok
-              ? "Copied to clipboard."
-              : "Couldn’t copy. Select the code above and copy it manually."
-            : null}
+          {copyResult ? (copyResult.ok ? t("recoveryCode.copied") : t("recoveryCode.copyFailed")) : null}
         </StatusMessage>
         <DialogFooter>
           <Button type="button" onClick={copyCode} variant="outline">
-            Copy code
+            {t("recoveryCode.copyCode")}
           </Button>
           <Button type="button" onClick={onAcked}>
-            I’ve saved my recovery code
+            {t("recoveryCode.acked")}
           </Button>
         </DialogFooter>
       </DialogContent>
