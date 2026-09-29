@@ -11,7 +11,10 @@
  * - Variables: `{{name}}`. Plurals: `key_one` / `key_other` + `{ count }`
  *   (vi only needs `_other`, but must mirror both keys).
  * - Inline markup (links, <strong>, <kbd>): `<Trans i18nKey components>`
- *   with `<0>…</0>` placeholders, never string concatenation.
+ *   with named tags (`<ext>…</ext>` + `components={{ ext: <X /> }}`),
+ *   never string concatenation. The component must render its children.
+ *   Never name a tag after an HTML void element (link, br, img, input…):
+ *   Trans parses it as self-closing and the text lands outside it.
  * - Translate aria-label, title, placeholder and alt too.
  * - Never translate: brand/product names (CatchM, Soniox, Whisper,
  *   Ollama, OpenAI, Zoom…), key names, file paths, user data, wire values.
@@ -146,6 +149,51 @@ export const en = {
       urlsLabel: "Server addresses",
       sonioxUrlDesc: "Where CatchM sends audio when you use “{{engine}}”.",
       sonioxUrlError: "Enter a full address that starts with ws:// or wss://, like wss://stt-rt.soniox.com/transcribe-websocket.",
+    },
+    translation: {
+      desc: "Translate meetings into another language.",
+      descOllama: "Translation runs on this computer with Ollama, a free app. Install it from <ext>ollama.com</ext>, then download the models below. Changes save when you leave a field.",
+      loadError: "Couldn’t load translation settings: {{error}}. Try again, or restart CatchM if it keeps failing.",
+      loading: "Loading translation settings…",
+      hostLabel: "Ollama address",
+      hostDesc: "Where CatchM finds Ollama. Keep this address unless you changed Ollama’s settings.",
+      hostError: "Enter a full address that starts with http:// or https://, like http://127.0.0.1:11434.",
+      liveModel: "Model during meetings",
+      liveModelDesc: "Small and fast. Translates what people say while the meeting is recording.",
+      batchModel: "Model after meetings",
+      batchModelDesc: "Bigger and more accurate. Used by “$t(meetingDetail.createSummary)” to translate the whole recording after the meeting.",
+      statusTitle: "Status",
+      statusDesc: "Whether Ollama is running and the models are downloaded.",
+      statusCheckError: "Couldn’t check Ollama: {{error}}. Try again, or restart CatchM if it keeps failing.",
+      checkAgain: "Check again",
+      ollamaLabel: "Ollama",
+      ollamaDown: "Open the Ollama app. If it isn’t installed yet, <ext>download it from ollama.com</ext>.",
+      ollamaMustRun: "Must be running for translation to work.",
+      running: "Running",
+      notRunning: "Not running",
+      checkingOllama: "Checking Ollama…",
+      downloaded: "Downloaded",
+      notDownloaded: "Not downloaded",
+      downloadModel: "Download model",
+      downloadProgressAria: "{{model}} download progress",
+      pullErrorHint: "{{error}}. Check that Ollama is running and the model name is correct, then download again.",
+      pullingStarting: "Starting…",
+      pullingPercent: "Downloading… {{percent}}%",
+      pullingFinishing: "Finishing…",
+      pullingPreparing: "Preparing…",
+      pullingDone: "Done.",
+      tryTitle: "Try it out",
+      tryDesc: "Translate a short sentence to check that everything works.",
+      testTextLabel: "Text",
+      testTextPlaceholder: "Good morning, everyone…",
+      testTextRequired: "Enter some text to translate.",
+      testLangLabel: "Target language",
+      testLangRequired: "Choose a target language.",
+      choosePlaceholder: "Choose…",
+      modelLabel: "Model",
+      testButton: "Test translation",
+      translating: "Translating…",
+      testErrorHint: "Couldn’t translate: {{error}}. Check the status above, then try again.",
     },
     appearance: {
       title: "Appearance",
