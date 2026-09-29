@@ -664,6 +664,7 @@ export const en = {
     createNew: "New project “{{name}}”",
     typeNameHint: "Type a name for the new project, then press Enter.",
     findOrCreate: "Find or create a project",
+    findOrCreatePlaceholder: "Find or create a project…",
     typeNameError: "Type a name for the project.",
     renameError: "Couldn’t rename the project: {{error}} Try again.",
     renameDescCount_one: "The meeting in “{{name}}” gets the new name.",

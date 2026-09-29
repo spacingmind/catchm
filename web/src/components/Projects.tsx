@@ -297,7 +297,7 @@ export function ProjectPicker({
             setHint(null)
           }}
           onKeyDown={onKeyDown}
-          placeholder={t("projects.findOrCreate")}
+          placeholder={t("projects.findOrCreatePlaceholder")}
         />
         {hint && (
           <p id={`${baseId}-hint`} className="px-1 text-xs text-muted-foreground">

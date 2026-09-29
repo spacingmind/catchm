@@ -739,6 +739,7 @@ export const vi: Messages = {
     createNew: "Dự án mới “{{name}}”",
     typeNameHint: "Nhập tên cho dự án mới, rồi nhấn Enter.",
     findOrCreate: "Tìm hoặc tạo dự án",
+    findOrCreatePlaceholder: "Tìm hoặc tạo dự án…",
     typeNameError: "Nhập tên cho dự án.",
     renameError: "Không đổi tên được dự án: {{error}} Hãy thử lại.",
     renameDescCount_one: "Cuộc họp trong “{{name}}” sẽ nhận tên mới.",
