@@ -435,7 +435,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     if (renaming) return
     const title = renameTitle.trim()
     if (!title) {
-      setRenameError("Title is required.")
+      setRenameError(t("meetingDetail.titleRequired"))
       renameInputRef.current?.focus()
       return
     }
@@ -446,7 +446,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       setMeeting(m)
       setRenameOpen(false)
     } catch (err) {
-      setRenameError(`${sentence(errorText(err))} Try again.`)
+      setRenameError(t("meetingDetail.renameFailed", { reason: sentence(errorText(err)) }))
     } finally {
       setRenaming(false)
     }
@@ -465,7 +465,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       await deleteMeeting(meetingId)
       onDeleted()
     } catch (err) {
-      setDeleteError(`${sentence(errorText(err))} Try again.`)
+      setDeleteError(t("meetingDetail.deleteFailed", { reason: sentence(errorText(err)) }))
       setDeleting(false)
     }
   }

@@ -232,6 +232,10 @@ export const vi: Messages = {
     refineWhisperDown:
       "Chép lời trên máy này (máy chủ Whisper) không phản hồi. Hãy kiểm tra Cài đặt → Chép lời, rồi thử lại.",
     refineGeneric: "Không tạo được tóm tắt: {{reason}} Hãy thử lại.",
+
+    titleRequired: "Cần có tiêu đề.",
+    renameFailed: "{{reason}} Hãy thử lại.",
+    deleteFailed: "{{reason}} Hãy thử lại.",
     summariesReady: "Tóm tắt đã được thiết lập. Bạn có thể tạo tóm tắt ngay bây giờ.",
     summariesNotReady: "Tóm tắt chưa được thiết lập.",
   },

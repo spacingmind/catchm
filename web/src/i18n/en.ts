@@ -316,6 +316,10 @@ export const en = {
     refineWhisperDown:
       "Transcription on this computer (the Whisper server) isn’t responding. Check Settings → Transcription, then try again.",
     refineGeneric: "Couldn’t create the summary: {{reason}} Try again.",
+
+    titleRequired: "Title is required.",
+    renameFailed: "{{reason}} Try again.",
+    deleteFailed: "{{reason}} Try again.",
     summariesReady: "Summaries are set up. You can create the summary now.",
     summariesNotReady: "Summaries aren’t set up yet.",
   },
