@@ -293,6 +293,7 @@ function ReadyBadge({ ready, children }: { ready: boolean | null; children?: Rea
 }
 
 export function SettingsSummaries() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -404,7 +405,7 @@ export function SettingsSummaries() {
   const commitCustomModel = () => {
     const v = customModel.trim()
     if (!v) {
-      setCustomModelError("Enter a model name from ollama.com, like qwen3.5:9b.")
+      setCustomModelError(t("settings.summaries.customModelRequired"))
       return
     }
     setCustomModelError(null)
@@ -415,7 +416,7 @@ export function SettingsSummaries() {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
-    setPull({ running: true, percent: null, statusText: "Starting…", error: null })
+    setPull({ running: true, percent: null, statusText: t("settings.translation.pullingStarting"), error: null })
     let failed = false
     try {
       await pullTranslateModel(
@@ -434,18 +435,22 @@ export function SettingsSummaries() {
             return {
               running: true,
               percent,
-              statusText: match ? `Downloading… ${percent}%` : percent !== null ? "Finishing…" : "Preparing…",
+              statusText: match
+                ? t("settings.translation.pullingPercent", { percent: percent ?? 0 })
+                : percent !== null
+                  ? t("settings.translation.pullingFinishing")
+                  : t("settings.translation.pullingPreparing"),
               error: null,
             }
           })
         },
         controller.signal,
       )
-      if (!failed) setPull((prev) => ({ ...prev, running: false, statusText: "Done." }))
+      if (!failed) setPull((prev) => ({ ...prev, running: false, statusText: t("settings.translation.pullingDone") }))
       refreshStatus()
     } catch (err) {
       if (controller.signal.aborted) {
-        setPull({ running: false, percent: null, statusText: "Download cancelled.", error: null })
+        setPull({ running: false, percent: null, statusText: t("updateBanner.downloadCancelled"), error: null })
       } else {
         setPull((prev) => ({ ...prev, running: false, error: errorMessage(err) }))
       }
@@ -459,7 +464,7 @@ export function SettingsSummaries() {
   const commitCloudflareAccount = () => {
     const id = cloudflareAccount.trim()
     if (!id) {
-      setCloudflareError("Enter your Cloudflare Account ID.")
+      setCloudflareError(t("settings.summaries.cloudflareAccountRequired"))
       return
     }
     setCloudflareError(null)
@@ -501,7 +506,7 @@ export function SettingsSummaries() {
     if (keySaving) return
     const key = keyInput.trim()
     if (!key) {
-      setKeyError("Enter an API key first.")
+      setKeyError(t("settings.transcription.enterKey"))
       keyInputRef.current?.focus()
       return
     }
@@ -513,7 +518,7 @@ export function SettingsSummaries() {
       closeKeyEditor()
       refreshStatus()
     } else {
-      setKeyError("Couldn’t save the key. Try again, or restart CatchM if it keeps failing.")
+      setKeyError(t("settings.transcription.keySaveError"))
       keyInputRef.current?.focus()
     }
   }
@@ -525,13 +530,13 @@ export function SettingsSummaries() {
 
   if (loadError) {
     return (
-      <SettingsSection title="Summaries" description="Who writes the summary, decisions and action items.">
+      <SettingsSection title={t("settings.nav.summaries")} description={t("settings.summaries.desc")}>
         <div className="grid justify-items-start gap-3">
           <StatusMessage tone="error">
-            Couldn’t load summary settings: {loadError}. Try again, or restart CatchM if it keeps failing.
+            {t("settings.summaries.loadError", { error: loadError })}
           </StatusMessage>
           <Button size="sm" variant="outline" onClick={retryLoad}>
-            Try again
+            {t("common.tryAgain")}
           </Button>
         </div>
       </SettingsSection>
@@ -541,7 +546,7 @@ export function SettingsSummaries() {
   if (!config) {
     return (
       <div aria-busy="true" className="grid gap-4">
-        <span className="sr-only">Loading summary settings…</span>
+        <span className="sr-only">{t("settings.summaries.loading")}</span>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-20 w-full rounded-xl" />
         <Skeleton className="h-20 w-full rounded-xl" />
@@ -558,20 +563,20 @@ export function SettingsSummaries() {
 
   const readiness = (
     <SettingRow
-      label="Status"
+      label={t("settings.summaries.statusLabel")}
       id="summary-status"
       description={
         current
           ? current.ready
-            ? "Ready. Open a meeting and choose “Create summary & action items”."
-            : (current.reason ?? "Not ready yet.")
-          : "Checking…"
+            ? t("settings.summaries.statusReady", { create: t("meetingDetail.createSummary") })
+            : (current.reason ?? t("settings.summaries.notReadyYet"))
+          : t("settings.system.checking")
       }
       control={
         <div className="grid justify-items-end gap-2">
           <ReadyBadge ready={ready} />
           <Button size="sm" variant="outline" onClick={refreshStatus} disabled={checking}>
-            {checking ? "Checking…" : "Check again"}
+            {checking ? t("settings.system.checking") : t("settings.translation.checkAgain")}
           </Button>
         </div>
       }
