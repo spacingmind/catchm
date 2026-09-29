@@ -1,3 +1,5 @@
+import i18next from "i18next"
+
 // Typed client for the CatchM REST API served by internal/server.
 //
 // Every export here corresponds 1:1 to a route registered in
@@ -293,16 +295,52 @@ export interface UpdateConfigRequest {
   }
 }
 
-/** Thrown by every client function below on a non-2xx response. body is
+/** Stable codes the Go server attaches to user-reachable errors
+ *  (internal/server/server.go's httpErrorCode), mapped to dictionary
+ *  keys. Codes outside this map fall back to the raw English message. */
+const ERROR_KEYS = {
+  meeting_not_found: "errors.meetingNotFound",
+  meeting_active: "errors.meetingActive",
+  no_audio: "errors.noAudio",
+  action_item_not_found: "errors.actionItemNotFound",
+  no_live_pipeline: "errors.noLivePipeline",
+  summary_required: "errors.summaryRequired",
+  file_too_large: "errors.fileTooLarge",
+  whisper_wav_only: "errors.whisperWavOnly",
+  file_required: "errors.fileRequired",
+  invalid_credentials: "errors.invalidCredentials",
+  email_taken: "errors.emailTaken",
+  rate_limited: "errors.rateLimited",
+  cloud_storage_full: "errors.cloudStorageFull",
+  invalid_recovery_code: "errors.invalidRecoveryCode",
+  not_logged_in: "errors.notLoggedIn",
+  logout_required: "errors.logoutRequired",
+} as const
+
+/** The user-facing text for an error body: translated when the server
+ *  sent a known code, otherwise the original English message. */
+const localized = (message: string, code: string | undefined): string =>
+  code && Object.hasOwn(ERROR_KEYS, code) ? i18next.t(ERROR_KEYS[code as keyof typeof ERROR_KEYS]) : message
+
+/** Thrown by every client function below on a non-2xx response. message
+ *  is user-facing (translated when the server sent a known code);
+ *  serverMessage and body keep the original English for logs. body is
  *  the parsed JSON error body when there was one. */
 export class ApiError extends Error {
   status: number
   body?: Record<string, unknown>
+  /** The server's stable error code, when it sent one (ERROR_KEYS). */
+  code?: string
+  /** Original English message from the server, untranslated. */
+  serverMessage: string
   constructor(message: string, status: number, body?: Record<string, unknown>) {
-    super(message)
+    const code = typeof body?.code === "string" ? body.code : undefined
+    super(localized(message, code))
     this.name = "ApiError"
     this.status = status
     this.body = body
+    this.code = code
+    this.serverMessage = message
   }
 }
 
@@ -330,7 +368,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers },
   })
   if (!res.ok) {
-    let message = res.statusText || `request failed with status ${res.status}`
+    const fallback = i18next.t("errors.requestFailed", { status: res.status })
+    let message = res.statusText || fallback
     let errBody: Record<string, unknown> | undefined
     try {
       const body: unknown = await res.json()
@@ -704,7 +743,8 @@ export function importRecording(
     }
     const fail = () => {
       const body = (xhr.response ?? undefined) as Record<string, unknown> | undefined
-      let message = xhr.statusText || `import failed with status ${xhr.status}`
+      const fallback = i18next.t("errors.requestFailed", { status: xhr.status })
+      let message = xhr.statusText || fallback
       const kind = body?.kind
       if (typeof body?.error === "string") message = body.error
       if (typeof kind === "string") {
@@ -721,8 +761,8 @@ export function importRecording(
         fail()
       }
     }
-    xhr.onerror = () => reject(new ApiError("Import request failed (network error).", xhr.status))
-    xhr.onabort = () => reject(new ApiError("Import was cancelled.", xhr.status))
+    xhr.onerror = () => reject(new ApiError(i18next.t("errors.importNetwork"), xhr.status))
+    xhr.onabort = () => reject(new ApiError(i18next.t("errors.importCancelled"), xhr.status))
     // Fields before the file: the server reads parts in order, so a bad
     // engine/format choice is rejected before the whole upload is sent.
     const form = new FormData()
@@ -882,7 +922,7 @@ export async function pullTranslateModel(
     signal,
   })
   if (!res.ok || !res.body) {
-    throw new ApiError(res.statusText || "pull request failed", res.status)
+    throw new ApiError(res.statusText || i18next.t("errors.requestFailed", { status: res.status }), res.status)
   }
 
   const reader = res.body.getReader()

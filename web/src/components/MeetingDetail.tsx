@@ -116,8 +116,9 @@ function refineErrorText(err: unknown): string {
     }
   }
   if (err instanceof ApiError && err.status === 404) return i18next.t("meetingDetail.refineGone")
-  if (/still active/i.test(raw)) return i18next.t("meetingDetail.refineStillRecording")
-  if (/no audio/i.test(raw)) return i18next.t("meetingDetail.refineNoAudio")
+  // Codes, not message text: the message is already translated.
+  if (err instanceof ApiError && err.code === "meeting_active") return i18next.t("meetingDetail.refineStillRecording")
+  if (err instanceof ApiError && err.code === "no_audio") return i18next.t("meetingDetail.refineNoAudio")
   if (/whisper|inference|connection refused|dial tcp/i.test(raw)) {
     return i18next.t("meetingDetail.refineWhisperDown")
   }
