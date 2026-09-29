@@ -15,7 +15,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
 import type { Section as SettingsSection } from "@/components/settings/Settings"
 import { addNote, endMeeting, getTranscript, type AudioSource, type Meeting, type Utterance } from "@/lib/api"
-import { languageLabel } from "@/lib/languages"
 import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
 import { readStartedDevice, writeStartedDevice } from "@/lib/recordPrefs"
 
@@ -77,11 +76,6 @@ const UtteranceRow = memo(function UtteranceRow({
       )}
       {viewMode !== "translation-only" && u.translated && (
         <p className="min-w-0 max-w-[72ch] break-words leading-[1.6] text-muted-foreground" style={{ fontSize }}>
-          {u.lang && (
-            <span className="mr-1 text-xs text-muted-foreground">
-              <span aria-hidden="true">→</span> {languageLabel(u.lang)}
-            </span>
-          )}
           {u.translated}
         </p>
       )}

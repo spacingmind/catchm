@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
 import { getMeetingLevels, type AudioSource, type EngineLevelsStatus, type Utterance } from "@/lib/api"
 import { SOURCE_SHORT_LABEL } from "@/lib/labels"
-import { languageLabel } from "@/lib/languages"
 import type { TranscriptViewMode } from "@/lib/livePrefs"
 
 /** How many of the most recent utterances the compact strip keeps on
@@ -140,11 +139,6 @@ export function CompactOverlay({
                     <p className="min-w-0 break-words">{u.text}</p>
                     {u.translated && (
                       <p className="min-w-0 break-words text-muted-foreground">
-                        {u.lang && (
-                          <span className="mr-1 text-xs text-muted-foreground">
-                            <span aria-hidden="true">→</span> {languageLabel(u.lang)}
-                          </span>
-                        )}
                         {u.translated}
                       </p>
                     )}
@@ -154,11 +148,6 @@ export function CompactOverlay({
                     <p className="break-words">{u.text}</p>
                     {u.translated && (
                       <p className="break-words text-muted-foreground">
-                        {u.lang && (
-                          <span className="mr-1 text-xs text-muted-foreground">
-                            <span aria-hidden="true">→</span> {languageLabel(u.lang)}
-                          </span>
-                        )}
                         {u.translated}
                       </p>
                     )}

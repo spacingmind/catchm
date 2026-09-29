@@ -47,7 +47,6 @@ import {
 } from "@/lib/api"
 import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
-import { languageLabel } from "@/lib/languages"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { meetingTab, navigate, useRoute, type MeetingTab } from "@/lib/route"
 
@@ -1002,11 +1001,6 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                         <p className="break-words text-base">{u.text}</p>
                         {u.translated && (
                           <p className="break-words text-base text-muted-foreground">
-                            {u.lang && (
-                              <span className="mr-1 text-xs text-muted-foreground">
-                                <span aria-hidden="true">→</span> {languageLabel(u.lang)}
-                              </span>
-                            )}
                             {u.translated}
                           </p>
                         )}
