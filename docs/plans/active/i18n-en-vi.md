@@ -127,3 +127,46 @@ browser, not the user's choice.
   mode.
 - `go test ./...`, `go vet`, gofmt, `bun run build`, `bun run lint`
   green.
+
+## Progress
+
+Steps 1–4 done on `feat/i18n-en-vi` (coded by GLM via paseo, reviewed
+and committed step by step). Step 5 (user review of `vi.ts` wording)
+and the visual check are open.
+
+## Decisions made during implementation
+
+- `ui_language` is also applied at startup from `main.tsx`; an older
+  backend without the field is treated as `"system"`.
+- Date formatters use the browser's regional tag when it matches the
+  UI language (`en-GB` keeps day-first dates), else the bare language.
+- Memoized translated text depends on the language: memo components
+  call `useTranslation()` themselves; `useMemo` deps include `t` or
+  `i18n.language` (meeting-list group headers, flow/mind-map layouts).
+- Quoted UI names inside messages use i18next nesting
+  (`“$t(labels.engine.whisper)”`) so they always match the real label.
+- `<Trans>` tags must not be HTML void element names: `<link>` parsed
+  as self-closing and rendered an empty anchor; renamed `<ext>`.
+- Error codes: `ApiError` translates known codes in its constructor, so
+  every existing `err.message` call site is localized without changes;
+  `serverMessage` keeps the English. Code-based checks replaced two
+  regexes on the message text in MeetingDetail.
+
+## Validation
+
+- `go vet ./...`, gofmt, case-collision check, `go test ./...` green;
+  `TestConfigEndpointUILanguage` and the error-code tests cover step 1/4.
+- `bun run build` + `bun run lint` green (only the 3 pre-existing
+  `components/ui` warnings).
+- Type guard: a missing key in vi, an extra key in vi, and an unknown
+  `t()` key each fail `tsc` (checked by hand).
+- 742 keys; a script comparing `{{vars}}`, `$t()` nesting and tags per
+  key between en and vi: 0 mismatches.
+- An audit of every English string removed from components on this
+  branch against en.ts found one lost paragraph (Cloud sync encryption
+  explanation, restored) and one lost ellipsis (fixed); the rest were
+  CSS classes, code, or text now produced by nesting/interpolation.
+- `<Trans>` messages with links/kbd rendered with react-dom/server in
+  both languages.
+- Still to do: visual check (macOS + Windows, default size + compact
+  mode) with Vietnamese strings, and the user's pass over `vi.ts`.
