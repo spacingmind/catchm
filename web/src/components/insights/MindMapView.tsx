@@ -3,7 +3,9 @@ import "./flow.css"
 import { useMemo, useState, type KeyboardEvent } from "react"
 import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react"
 import { hierarchy, tree } from "d3-hierarchy"
+import type { TFunction } from "i18next"
 import { CheckSquare, ChevronRight, Circle, GitBranch } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { Disclosure } from "@/components/Disclosure"
 import { SourceLink } from "@/components/insights/Evidence"
@@ -68,16 +70,23 @@ type MindData = MindFields & {
 
 type MindFlowNode = Node<MindData, "mind">
 
-const KIND_LABEL: Record<MindKind, string> = {
-  root: "Meeting",
-  topic: "Topic",
-  decision: "Decision",
-  action: "Action item",
-  item: "Item",
+function kindLabel(t: TFunction, kind: MindKind): string {
+  switch (kind) {
+    case "root":
+      return t("insights.kindMeeting")
+    case "topic":
+      return t("insights.kindTopic")
+    case "decision":
+      return t("insights.kindDecision")
+    case "action":
+      return t("insights.kindAction")
+    case "item":
+      return t("insights.kindItem")
+  }
 }
 
-function itemsText(n: number): string {
-  return n === 1 ? "1 item" : `${n} items`
+function itemsText(t: TFunction, n: number): string {
+  return t("insights.itemCount", { count: n })
 }
 
 function LeafIcon({ kind, color }: { kind: MindKind; color: string }) {
@@ -86,6 +95,7 @@ function LeafIcon({ kind, color }: { kind: MindKind; color: string }) {
 }
 
 function MindNodeView({ data }: NodeProps<MindFlowNode>) {
+  const { t } = useTranslation()
   const color = data.branch ? `var(--branch-${data.branch})` : "var(--primary)"
   const hasChildren = data.count > 0 && !data.collapsed
   let body
@@ -110,7 +120,7 @@ function MindNodeView({ data }: NodeProps<MindFlowNode>) {
         />
         <div className="min-w-0">
           <p className="line-clamp-2 text-sm font-medium">{data.label}</p>
-          <p className="text-xs text-muted-foreground">{itemsText(data.count)}</p>
+          <p className="text-xs text-muted-foreground">{itemsText(t, data.count)}</p>
         </div>
       </div>
     )
@@ -154,15 +164,15 @@ function MindNodeView({ data }: NodeProps<MindFlowNode>) {
 const nodeTypes = { mind: MindNodeView }
 
 /** Screen-reader text for a node (React Flow puts it on the focusable wrapper). */
-function ariaLabelFor(d: MindData): string {
+function ariaLabelFor(t: TFunction, d: MindData): string {
   switch (d.kind) {
     case "root":
-      return `Meeting: ${d.label}`
+      return t("insights.srMeeting", { label: d.label })
     case "topic":
-      return `Topic: ${d.label}, ${itemsText(d.count)}`
+      return t("insights.srTopic", { label: d.label, items: itemsText(t, d.count) })
     default: {
-      const parts = [`${KIND_LABEL[d.kind]}: ${d.label}`]
-      if (d.owner) parts.push(`Owner: ${d.owner}`)
+      const parts: string[] = [t("insights.srKind", { kind: kindLabel(t, d.kind), label: d.label })]
+      if (d.owner) parts.push(t("insights.srOwner", { owner: d.owner }))
       if (d.due) parts.push(d.due)
       return parts.join(". ")
     }
@@ -191,6 +201,17 @@ function describe(a: Analysis, n: IdNode, depth: number, canJump: boolean): Mind
   return { kind: ref.kind, label: n.node.label, count, jump }
 }
 
+function ariaLabels(t: TFunction) {
+  return {
+    "node.a11yDescription.default": t("insights.mindNodeHelp"),
+    "node.a11yDescription.keyboardDisabled": t("insights.mindNodeHelp"),
+    "controls.ariaLabel": t("insights.zoomControls"),
+    "controls.zoomIn.ariaLabel": t("insights.zoomIn"),
+    "controls.zoomOut.ariaLabel": t("insights.zoomOut"),
+    "controls.fitView.ariaLabel": t("insights.fitView"),
+  }
+}
+
 export function MindMapView({
   analysis,
   mindmap,
@@ -202,6 +223,7 @@ export function MindMapView({
   canJump: boolean
   onJump: JumpToEvidence
 }) {
+  const { t } = useTranslation()
   const root = useMemo(() => withIds(mindmap), [mindmap])
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -229,7 +251,7 @@ export function MindMapView({
         type: "mind",
         position: { x: columnX(p.depth), y: p.x },
         data,
-        ariaLabel: ariaLabelFor(data),
+        ariaLabel: ariaLabelFor(t, data),
         ariaRole: interactive ? "button" : "group",
         domAttributes: data.kind === "topic" ? { "aria-expanded": !data.collapsed } : undefined,
       })
@@ -245,7 +267,7 @@ export function MindMapView({
       }
     })
     return { nodes, edges, byId }
-  }, [root, collapsed, analysis, canJump])
+  }, [root, collapsed, analysis, canJump, t])
 
   const activate = (id: string) => {
     const d = byId.get(id)
@@ -276,13 +298,11 @@ export function MindMapView({
   return (
     <div className="grid gap-3">
       <p className="text-sm text-muted-foreground">
-        {canJump
-          ? "Click a topic to open or close it. Click a decision or action item to see where it was said."
-          : "Click a topic to open or close it."}
+        {canJump ? t("insights.hintJump") : t("insights.hintFold")}
       </p>
       <div className="catchm-flow h-[min(65vh,560px)] min-h-72 overflow-hidden rounded-xl border border-border">
         <ReactFlow
-          aria-label={`Mind map of ${mindmap.label}`}
+          aria-label={t("insights.mapOf", { name: mindmap.label })}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -302,28 +322,17 @@ export function MindMapView({
           fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
           minZoom={0.2}
           maxZoom={1.5}
-          ariaLabelConfig={ARIA_LABELS}
+          ariaLabelConfig={ariaLabels(t)}
         >
           <Background gap={20} size={1} />
           <Controls showInteractive={false} position="bottom-left" />
         </ReactFlow>
       </div>
-      <Disclosure label="List view" defaultOpen={narrowScreen()}>
+      <Disclosure label={t("insights.listView")} defaultOpen={narrowScreen()}>
         <MindList node={root} depth={0} analysis={analysis} canJump={canJump} onJump={onJump} />
       </Disclosure>
     </div>
   )
-}
-
-/** React Flow's built-in screen-reader text, in the app's words. */
-const NODE_HELP = "Press Enter to open or close a topic, or to see where an item was said in the transcript."
-const ARIA_LABELS = {
-  "node.a11yDescription.default": NODE_HELP,
-  "node.a11yDescription.keyboardDisabled": NODE_HELP,
-  "controls.ariaLabel": "Zoom controls",
-  "controls.zoomIn.ariaLabel": "Zoom in",
-  "controls.zoomOut.ariaLabel": "Zoom out",
-  "controls.fitView.ariaLabel": "Fit to view",
 }
 
 /** The same tree as nested lists: the map's text alternative. */
@@ -340,6 +349,7 @@ function MindList({
   canJump: boolean
   onJump: JumpToEvidence
 }) {
+  const { t } = useTranslation()
   const d = describe(analysis, node, depth, canJump)
   const topicEvidence = depth === 1 && canJump ? (resolveRef(analysis, node.node.ref)?.item.evidence ?? []) : []
   const jump = d.jump.length > 0 ? d.jump : topicEvidence
@@ -361,7 +371,7 @@ function MindList({
   return (
     <li className="break-words text-sm">
       <span className={cn(d.kind === "topic" && "font-medium")}>
-        {d.kind !== "topic" && <span className="text-muted-foreground">{KIND_LABEL[d.kind]}: </span>}
+        {d.kind !== "topic" && <span className="text-muted-foreground">{kindLabel(t, d.kind)}: </span>}
         {d.label}
       </span>
       {(d.owner || d.due) && (
