@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next"
 import type { ReactNode } from "react"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -31,13 +32,14 @@ export function InsightEmpty({ icon, title, children }: { icon: ReactNode; title
 }
 
 export function InsightLoadError({ what, error, onRetry }: { what: string; error: string; onRetry: () => void }) {
+  const { t } = useTranslation()
   return (
     <div className="grid justify-items-start gap-3">
       <StatusMessage tone="error">
-        Couldn’t load {what} ({error}). Try again.
+        {t("insights.loadError", { what, error })}
       </StatusMessage>
       <Button size="sm" variant="outline" onClick={onRetry}>
-        Try again
+        {t("common.tryAgain")}
       </Button>
     </div>
   )

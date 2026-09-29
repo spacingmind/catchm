@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { Loader2, Route as RouteIcon, Search } from "lucide-react"
 
 import { evidenceMatchesTranscript, type JumpToEvidence } from "@/components/insights/evidenceData"
@@ -11,9 +12,6 @@ import { navigate } from "@/lib/route"
 
 // React Flow and dagre load with this tab, not with the app.
 const FlowsView = lazy(() => import("@/components/insights/FlowsView").then((m) => ({ default: m.FlowsView })))
-
-const FLOWS_HELP =
-  "CatchM can look for step-by-step processes described in this meeting, like how a request gets approved. Most meetings don’t have one."
 
 /**
  * The Flows tab: the on-demand flows pass ("Find flows") and the processes
@@ -41,17 +39,18 @@ export function FlowsTab({
   finder: FindFlowsState
   onJump: JumpToEvidence
 }) {
-  if (error) return <InsightLoadError what="the processes" error={error} onRetry={onRetry} />
-  if (data === undefined) return <GraphSkeleton label="Loading processes…" />
+  const { t } = useTranslation()
+  if (error) return <InsightLoadError what={t("insights.whatFlows")} error={error} onRetry={onRetry} />
+  if (data === undefined) return <GraphSkeleton label={t("insights.loadingFlows")} />
   if (data === null) {
     return (
-      <InsightEmpty icon={<RouteIcon aria-hidden="true" className="size-4" />} title="No processes yet">
+      <InsightEmpty icon={<RouteIcon aria-hidden="true" className="size-4" />} title={t("insights.noFlowsYet")}>
         <p>
           {refined
-            ? "This summary was made before CatchM could look for processes. Redo the summary first."
+            ? t("insights.flowsPredates")
             : ended
-              ? "Create a summary first. Then CatchM can look for step-by-step processes in this meeting."
-            : "End the meeting and create a summary first. Then CatchM can look for step-by-step processes in this meeting."}
+              ? t("insights.flowsNeedsSummary")
+            : t("insights.flowsNeedsEnd")}
         </p>
         {ended && summaryAction}
       </InsightEmpty>
@@ -69,9 +68,9 @@ export function FlowsTab({
         <p className="min-w-0 flex-1 text-sm text-muted-foreground text-pretty">
           {found
             ? canJump
-              ? "Processes found in this meeting. Click a step to see where it was said."
-              : "Processes found in this meeting."
-            : FLOWS_HELP}
+              ? t("insights.flowsFoundHintJump")
+              : t("insights.flowsFoundHint")
+            : t("insights.flowsHelp")}
         </p>
         <Button
           variant={found ? "outline" : "default"}
@@ -84,27 +83,27 @@ export function FlowsTab({
           ) : (
             <Search aria-hidden="true" />
           )}
-          {finder.pending ? "Looking for processes…" : found ? "Find again" : "Find flows"}
+          {finder.pending ? t("insights.finding") : found ? t("insights.findAgain") : t("insights.findFlows")}
         </Button>
       </div>
 
-      <StatusMessage>{finder.pending ? "Looking for processes… this can take a minute." : null}</StatusMessage>
+      <StatusMessage>{finder.pending ? t("insights.findingLong") : null}</StatusMessage>
       <div className={finder.needsSetup && finder.error ? "flex flex-wrap items-center gap-3" : undefined}>
         <StatusMessage tone="error" className={finder.needsSetup ? "min-w-0 flex-1" : undefined}>
           {finder.error}
         </StatusMessage>
         {finder.needsSetup && finder.error && (
           <Button size="sm" variant="outline" onClick={() => navigate({ name: "settings", section: "summaries" })}>
-            Open settings
+            {t("statusRow.openSettings")}
           </Button>
         )}
       </div>
       {/* The result, spoken once; the visible text below says the same. */}
       <StatusMessage className="sr-only">{finder.announcement}</StatusMessage>
 
-      {noneFound && <p className="text-sm text-muted-foreground">No step-by-step process was found in this meeting.</p>}
+      {noneFound && <p className="text-sm text-muted-foreground">{t("insights.flowsNoneFound")}</p>}
       {found && (
-        <Suspense fallback={<GraphSkeleton label="Loading processes…" />}>
+        <Suspense fallback={<GraphSkeleton label={t("insights.loadingFlows")} />}>
           <FlowsView analysis={data.analysis} canJump={canJump} onJump={onJump} />
         </Suspense>
       )}

@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react"
+import { useTranslation } from "react-i18next"
 import { Network } from "lucide-react"
 
 import { evidenceMatchesTranscript, type JumpToEvidence } from "@/components/insights/evidenceData"
@@ -32,17 +33,18 @@ export function MindMapTab({
   summaryAction: ReactNode
   onJump: JumpToEvidence
 }) {
-  if (error) return <InsightLoadError what="the mind map" error={error} onRetry={onRetry} />
-  if (data === undefined) return <GraphSkeleton label="Loading mind map…" />
+  const { t } = useTranslation()
+  if (error) return <InsightLoadError what={t("insights.whatMindmap")} error={error} onRetry={onRetry} />
+  if (data === undefined) return <GraphSkeleton label={t("insights.loadingMindmap")} />
   if (data === null) {
     return (
-      <InsightEmpty icon={<Network aria-hidden="true" className="size-4" />} title="No mind map yet">
+      <InsightEmpty icon={<Network aria-hidden="true" className="size-4" />} title={t("insights.noMindmapYet")}>
         <p>
           {refined
-            ? "This summary was made before CatchM could draw mind maps. Redo the summary to see one."
+            ? t("insights.mindmapPredates")
             : ended
-              ? "Create a summary first to see the mind map."
-              : "End the meeting, then create a summary to see the mind map."}
+              ? t("insights.mindmapNeedsSummary")
+              : t("insights.mindmapNeedsEnd")}
         </p>
         {ended && summaryAction}
       </InsightEmpty>
@@ -51,17 +53,17 @@ export function MindMapTab({
   const { analysis, mindmap } = data
   if (!analysis.topics?.length) {
     return (
-      <InsightEmpty icon={<Network aria-hidden="true" className="size-4" />} title="No mind map for this summary">
+      <InsightEmpty icon={<Network aria-hidden="true" className="size-4" />} title={t("insights.noMindmapForSummary")}>
         <p>
           {analysis.generated?.provider === "catchm-cloud"
-            ? "CatchM Cloud doesn’t sort a meeting into topics yet, so it can’t draw a mind map. To get one, switch to “On this computer” in Settings → Summaries, then redo the summary."
-            : "This summary has no topics, so there’s nothing to draw. Redo the summary to try again."}
+            ? t("insights.cloudNoTopics")
+            : t("insights.noTopicsRedo")}
         </p>
       </InsightEmpty>
     )
   }
   return (
-    <Suspense fallback={<GraphSkeleton label="Loading mind map…" />}>
+    <Suspense fallback={<GraphSkeleton label={t("insights.loadingMindmap")} />}>
       <MindMapView
         analysis={analysis}
         mindmap={mindmap}
