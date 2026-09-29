@@ -380,6 +380,23 @@ export const vi: Messages = {
     hintFold: "Nhấp vào một chủ đề để mở hoặc đóng.",
     mapOf: "Sơ đồ tư duy của {{name}}",
   },
+  actionItems: {
+    loadError: "Không tải được việc cần làm: {{error}}. Hãy thử lại, hoặc khởi động lại CatchM nếu vẫn lỗi.",
+    toggleDoneError: "Không đánh dấu hoàn thành được: {{error}}. Hãy thử lại.",
+    toggleReopenError: "Không mở lại được: {{error}}. Hãy thử lại.",
+    openError: "Không mở được “{{title}}”: {{error}}. Có thể nó đã bị xóa.",
+    overdue: "Quá hạn",
+    emptyBody:
+      "Việc cần làm xuất hiện sau khi bạn tạo tóm tắt cho cuộc họp. Mở một cuộc họp và chọn “$t(meetingDetail.createSummary)”.",
+    grouping: "Nhóm theo",
+    byMeeting: "Theo cuộc họp",
+    byDueDate: "Theo ngày hạn",
+    owner: "Người thực hiện",
+    meeting: "Cuộc họp",
+    noMatches: "Không có việc cần làm nào khớp các bộ lọc này.",
+    allCaughtUp: "Bạn đã xử lý hết rồi.",
+    done: "Đã xong",
+  },
   statusRow: {
     sourceShortcuts: "Phím tắt: {{mod}}1 {{mic}}, {{mod}}2 {{system}}, {{mod}}3 {{both}}",
     hintSoniox: "Kiểm tra kết nối internet và API key Soniox trong Cài đặt → Chép lời.",

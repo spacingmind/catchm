@@ -302,6 +302,23 @@ export const en = {
     hintFold: "Click a topic to open or close it.",
     mapOf: "Mind map of {{name}}",
   },
+  actionItems: {
+    loadError: "Couldn’t load action items: {{error}}. Try again, or restart CatchM if it keeps failing.",
+    toggleDoneError: "Couldn’t mark this done: {{error}}. Try again.",
+    toggleReopenError: "Couldn’t reopen this: {{error}}. Try again.",
+    openError: "Couldn’t open “{{title}}”: {{error}}. It may have been deleted.",
+    overdue: "Overdue",
+    emptyBody:
+      "Action items appear after you create a summary for a meeting. Open a meeting and choose “$t(meetingDetail.createSummary)”.",
+    grouping: "Grouping",
+    byMeeting: "By meeting",
+    byDueDate: "By due date",
+    owner: "Owner",
+    meeting: "Meeting",
+    noMatches: "No action items match these filters.",
+    allCaughtUp: "All caught up.",
+    done: "Done",
+  },
   statusRow: {
     sourceShortcuts: "Shortcuts: {{mod}}1 {{mic}}, {{mod}}2 {{system}}, {{mod}}3 {{both}}",
     hintSoniox: "Check your internet connection and the Soniox API key in Settings → Transcription.",
