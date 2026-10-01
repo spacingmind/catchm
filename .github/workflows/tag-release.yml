@@ -16,7 +16,7 @@
 #   - the tag points at origin/develop HEAD (never a local checkout
 #     or a stale branch)
 #
-# Model note (see docs/plans/active/release-process.md): this is the
+# Model note (see docs/plans/completed/release-process.md): this is the
 # single-branch model goreleaser itself uses (bot-pushed tags,
 # releases authored by github-actions[bot]) -- deliberately NOT
 # release-please + a release-only master branch, which needs three
