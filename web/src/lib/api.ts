@@ -362,27 +362,32 @@ export class RefineError extends ApiError {
   }
 }
 
+/** The ApiError for a non-2xx response: the JSON body's error/code when
+ *  there is one, else the status text. */
+async function apiErrorFrom(res: Response): Promise<ApiError> {
+  let message = res.statusText || i18next.t("errors.requestFailed", { status: res.status })
+  let errBody: Record<string, unknown> | undefined
+  try {
+    const body: unknown = await res.json()
+    if (body && typeof body === "object") {
+      errBody = body as Record<string, unknown>
+      if (typeof errBody.error === "string") {
+        message = errBody.error
+      }
+    }
+  } catch {
+    // Body wasn't JSON (or was empty) — fall back to statusText above.
+  }
+  return new ApiError(message, res.status, errBody)
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   })
   if (!res.ok) {
-    const fallback = i18next.t("errors.requestFailed", { status: res.status })
-    let message = res.statusText || fallback
-    let errBody: Record<string, unknown> | undefined
-    try {
-      const body: unknown = await res.json()
-      if (body && typeof body === "object") {
-        errBody = body as Record<string, unknown>
-        if (typeof errBody.error === "string") {
-          message = errBody.error
-        }
-      }
-    } catch {
-      // Body wasn't JSON (or was empty) — fall back to statusText above.
-    }
-    throw new ApiError(message, res.status, errBody)
+    throw await apiErrorFrom(res)
   }
   if (res.status === 204) {
     return undefined as T
@@ -654,6 +659,24 @@ export async function getTranscript(
     `/api/meetings/${encodeURIComponent(id)}/transcript?cursor=${cursor}${q}`,
   )
   return { utterances: res.utterances ?? [], cursor: res.cursor, source: res.source ?? "live" }
+}
+
+/** Export formats served by GET /api/meetings/{id}/export. */
+export type ExportFormat = "txt" | "md" | "docx"
+
+/** GET /api/meetings/{id}/export?format=…&lang=… — for browser
+ *  downloads via an <a download>; the desktop shell saves natively. */
+export function exportUrl(id: string, format: ExportFormat, lang: string): string {
+  return `/api/meetings/${encodeURIComponent(id)}/export?format=${format}&lang=${encodeURIComponent(lang)}`
+}
+
+/** GET /api/meetings/{id}/export as text, for clipboard copies. */
+export async function fetchExportText(id: string, format: "txt" | "md", lang: string): Promise<string> {
+  const res = await fetch(exportUrl(id, format, lang))
+  if (!res.ok) {
+    throw await apiErrorFrom(res)
+  }
+  return res.text()
 }
 
 /** POST /api/meetings/{id}/notes */

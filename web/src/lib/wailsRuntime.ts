@@ -42,6 +42,7 @@ interface WailsWindowRuntime {
   WindowSetDarkTheme(): void
   WindowSetBackgroundColour(r: number, g: number, b: number, a: number): void
   EventsOn(eventName: string, callback: (...data: unknown[]) => void): () => void
+  ClipboardSetText(text: string): Promise<boolean>
 }
 
 /** Matches cmd/catchm-desktop/desktop_settings.go's ShortcutsInfo. */
@@ -72,6 +73,7 @@ declare global {
           CancelDownload?(): Promise<void>
           ApplyUpdate?(): Promise<void>
           DeferUpdate?(): void
+          SaveExport?(meetingID: string, format: string, lang: string): Promise<string>
         }
       }
     }
@@ -201,6 +203,12 @@ export function notifyCompactMode(active: boolean): void {
  *  OS) — surfaced inline, never silently dropped. */
 export function getShortcuts(): Promise<ShortcutsInfo> {
   return window.go!.main!.DesktopBridge!.GetShortcuts!()
+}
+
+/** Saves a meeting export natively (cmd/catchm-desktop/export.go);
+ *  returns the path written, or "" when the user cancelled. */
+export function saveExport(meetingID: string, format: string, lang: string): Promise<string> {
+  return window.go!.main!.DesktopBridge!.SaveExport!(meetingID, format, lang)
 }
 
 /** Replaces the bindings and re-registers every hotkey; same shape as
