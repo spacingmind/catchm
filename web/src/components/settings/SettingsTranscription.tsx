@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { useTranslation } from "react-i18next"
 
 import { Disclosure } from "@/components/Disclosure"
 import { StatusMessage } from "@/components/StatusMessage"
@@ -17,7 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getConfig, type AppConfig, type SttEngine } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
-import { ENGINE_HINT, ENGINE_LABEL } from "@/lib/labels"
+import { engineHint, engineLabel } from "@/lib/labels"
 import { isAbsoluteUrl } from "@/lib/url"
 
 const ENGINES: SttEngine[] = ["whisper", "soniox"]
@@ -30,6 +31,7 @@ const WHISPER_URL_ERROR_ID = "stt-whisper-url-error"
 const SONIOX_URL_ERROR_ID = "stt-soniox-url-error"
 
 export function SettingsTranscription() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [keyInput, setKeyInput] = useState("")
@@ -94,7 +96,7 @@ export function SettingsTranscription() {
     if (keySaving) return
     const key = keyInput.trim()
     if (!key) {
-      setKeyError("Enter an API key first.")
+      setKeyError(t("settings.transcription.enterKey"))
       keyInputRef.current?.focus()
       return
     }
@@ -105,7 +107,7 @@ export function SettingsTranscription() {
     if (ok) {
       closeKeyEditor()
     } else {
-      setKeyError("Couldn’t save the key. Try again, or restart CatchM if it keeps failing.")
+      setKeyError(t("settings.transcription.keySaveError"))
       keyInputRef.current?.focus()
     }
   }
@@ -113,7 +115,7 @@ export function SettingsTranscription() {
   const commitWhisperUrl = () => {
     const v = whisperUrl.trim()
     if (!isAbsoluteUrl(v, ["http", "https"])) {
-      setUrlErrors((e) => ({ ...e, whisper: "Enter a full address that starts with http:// or https://, like http://127.0.0.1:8080." }))
+      setUrlErrors((e) => ({ ...e, whisper: t("settings.transcription.whisperUrlError") }))
       return
     }
     setUrlErrors((e) => ({ ...e, whisper: undefined }))
@@ -125,10 +127,7 @@ export function SettingsTranscription() {
     // The Soniox engine dials this with a WebSocket client, which only
     // speaks ws:// and wss:// (the default is wss://).
     if (!isAbsoluteUrl(v, ["ws", "wss"])) {
-      setUrlErrors((e) => ({
-        ...e,
-        soniox: "Enter a full address that starts with ws:// or wss://, like wss://stt-rt.soniox.com/transcribe-websocket.",
-      }))
+      setUrlErrors((e) => ({ ...e, soniox: t("settings.transcription.sonioxUrlError") }))
       return
     }
     setUrlErrors((e) => ({ ...e, soniox: undefined }))
@@ -137,13 +136,13 @@ export function SettingsTranscription() {
 
   if (loadError) {
     return (
-      <SettingsSection title="Transcription" description="How CatchM turns speech into text.">
+      <SettingsSection title={t("settings.nav.transcription")} description={t("settings.transcription.desc")}>
         <div className="grid justify-items-start gap-3">
           <StatusMessage tone="error">
-            Couldn’t load transcription settings: {loadError}. Try again, or restart CatchM if it keeps failing.
+            {t("settings.transcription.loadError", { error: loadError })}
           </StatusMessage>
           <Button size="sm" variant="outline" onClick={retryLoad}>
-            Try again
+            {t("common.tryAgain")}
           </Button>
         </div>
       </SettingsSection>
@@ -153,7 +152,7 @@ export function SettingsTranscription() {
   if (!config) {
     return (
       <div aria-busy="true" className="grid gap-4">
-        <span className="sr-only">Loading transcription settings…</span>
+        <span className="sr-only">{t("settings.transcription.loading")}</span>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-16 w-full rounded-xl" />
         <Skeleton className="h-16 w-full rounded-xl" />
@@ -170,17 +169,16 @@ export function SettingsTranscription() {
   // section with a set-up link; otherwise it stays under Advanced.
   const whisperRow = (
     <SettingRow
-      label="Whisper server address"
+      label={t("settings.transcription.whisperUrlLabel")}
       htmlFor="stt-whisper-url"
       description={
         engine === "whisper" ? (
           <>
-            “{ENGINE_LABEL.whisper}” needs the free whisper.cpp server running on this computer. Keep this address
-            unless you started the server on a different one.{" "}
-            <ExternalLink href={WHISPER_SERVER_DOCS}>How to set up the server</ExternalLink>
+            {t("settings.transcription.whisperUrlActive", { engine: engineLabel("whisper") })}{" "}
+            <ExternalLink href={WHISPER_SERVER_DOCS}>{t("settings.transcription.whisperSetupLink")}</ExternalLink>
           </>
         ) : (
-          "Where CatchM finds the whisper.cpp server on this computer."
+          t("settings.transcription.whisperUrlDesc")
         )
       }
       control={
@@ -211,15 +209,15 @@ export function SettingsTranscription() {
   return (
     <div>
       <SettingsSection
-        title="Transcription"
-        description="How CatchM turns speech into text. Saved on this computer."
+        title={t("settings.nav.transcription")}
+        description={t("settings.transcription.descSaved")}
       >
         <SettingRow
-          label="Engine"
+          label={t("settings.transcription.engineLabel")}
           id="stt-engine"
           description={
             <>
-              Used when you start a meeting. {ENGINE_HINT[engine]}
+              {t("settings.transcription.engineDescPrefix")} {engineHint(engine)}
             </>
           }
           control={
@@ -229,19 +227,19 @@ export function SettingsTranscription() {
               describedBy={descId("stt-engine")}
               value={engine}
               onChange={setEngine}
-              options={ENGINES.map((e) => ({ value: e, label: ENGINE_LABEL[e] }))}
+              options={ENGINES.map((e) => ({ value: e, label: engineLabel(e) }))}
             />
           }
         />
         {engine === "whisper" && whisperRow}
         <SettingRow
-          label="Soniox API key"
+          label={t("settings.transcription.keyLabel")}
           htmlFor={keyEditing ? "soniox-key" : undefined}
           id="soniox-key"
           description={
             <>
-              Only needed for “{ENGINE_LABEL.soniox}”. The key stays on this computer.{" "}
-              <ExternalLink href={SONIOX_SITE}>Get a key from Soniox</ExternalLink>
+              {t("settings.transcription.keyDesc", { engine: engineLabel("soniox") })}{" "}
+              <ExternalLink href={SONIOX_SITE}>{t("settings.transcription.getKeyLink")}</ExternalLink>
             </>
           }
           control={
@@ -258,7 +256,7 @@ export function SettingsTranscription() {
                   onKeyDown={(e) => {
                     if (e.key === "Escape" && !keySaving) closeKeyEditor()
                   }}
-                  placeholder="New API key…"
+                  placeholder={t("settings.transcription.keyPlaceholder")}
                   // readOnly, not disabled, so focus can return here on failure.
                   readOnly={keySaving}
                   aria-invalid={keyError ? true : undefined}
@@ -268,10 +266,10 @@ export function SettingsTranscription() {
                 />
                 <div className="flex gap-2">
                   <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
-                    Cancel
+                    {t("common.cancel")}
                   </Button>
                   <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
-                    {keySaving ? "Saving…" : "Save key"}
+                    {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
                   </Button>
                 </div>
                 <StatusMessage id={KEY_ERROR_ID} tone="error">
@@ -284,15 +282,15 @@ export function SettingsTranscription() {
                   <>
                     <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                       <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                      Key set
+                      {t("settings.transcription.keySet")}
                     </span>
                     <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
-                      Replace key
+                      {t("settings.transcription.replaceKey")}
                     </Button>
                   </>
                 ) : (
                   <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
-                    Add key
+                    {t("settings.transcription.addKey")}
                   </Button>
                 )}
               </div>
@@ -304,14 +302,14 @@ export function SettingsTranscription() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Advanced" description="You only need to change these if you run your own servers.">
-        <Disclosure label={engine === "whisper" ? "Soniox server address" : "Server addresses"}>
+      <SettingsSection title={t("settings.transcription.advancedTitle")} description={t("settings.transcription.advancedDesc")}>
+        <Disclosure label={engine === "whisper" ? t("settings.transcription.sonioxUrlLabel") : t("settings.transcription.urlsLabel")}>
           <div className="grid gap-2">
             {engine !== "whisper" && whisperRow}
             <SettingRow
-              label="Soniox server address"
+              label={t("settings.transcription.sonioxUrlLabel")}
               htmlFor="stt-soniox-url"
-              description={`Where CatchM sends audio when you use “${ENGINE_LABEL.soniox}”.`}
+              description={t("settings.transcription.sonioxUrlDesc", { engine: engineLabel("soniox") })}
               control={
                 <div className="grid w-96 justify-items-end gap-1">
                   <Input

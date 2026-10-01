@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import i18next from "i18next"
 import { AlertTriangle } from "lucide-react"
 import { cn } from "cn"
 
@@ -17,7 +19,7 @@ import {
   type EngineLevelsStatus,
   type MeetingLevels,
 } from "@/lib/api"
-import { SOURCE_LABEL, SOURCE_SHORT_LABEL } from "@/lib/labels"
+import { sourceLabel, sourceShortLabel } from "@/lib/labels"
 import { DEFAULT_DEVICE_VALUE, deviceSelectValue } from "@/lib/recordPrefs"
 
 /** How often a Whisper meeting re-checks GET /api/stt/status. The
@@ -37,15 +39,7 @@ const NO_SIGNAL_AFTER_MS = 4000
  *  single burst doesn't flash on and off between polls. */
 const DROPS_WARNING_HOLD_MS = 5000
 
-const SOURCE_OPTIONS: { value: AudioSource; label: string }[] = [
-  { value: "mic", label: SOURCE_LABEL.mic },
-  { value: "system", label: SOURCE_LABEL.system },
-  { value: "both", label: SOURCE_LABEL.both },
-]
-
-/** Shown when the backend says system audio is unsupported but gives no
- *  reason. */
-const SYSTEM_UNAVAILABLE_FALLBACK = "Computer audio isn’t available on this computer."
+const SOURCES: AudioSource[] = ["mic", "system", "both"]
 
 /** Shortcuts as the user would type them: ⌘ only on macOS (the key
  *  handlers accept either modifier). */
@@ -55,18 +49,20 @@ const COMPACT_SHORTCUT = IS_MAC ? "⌘⇧L" : "Ctrl+Shift+L"
 
 /** The Ctrl/⌘+1/2/3 source shortcuts, as a hover hint on the source
  *  control (SegmentedControl has no per-option tooltip). */
-const SOURCE_SHORTCUTS_HINT = `Shortcuts: ${MOD}1 ${SOURCE_LABEL.mic}, ${MOD}2 ${SOURCE_LABEL.system}, ${MOD}3 ${SOURCE_LABEL.both}`
+const sourceShortcutsHint = () =>
+  i18next.t("statusRow.sourceShortcuts", {
+    mod: MOD,
+    mic: sourceLabel("mic"),
+    system: sourceLabel("system"),
+    both: sourceLabel("both"),
+  })
 
 /** What to do about an engine error, per engine: the local Whisper
  *  server and the Soniox cloud fail for different reasons. */
 function engineErrorHint(engine: string | undefined): string {
-  if (engine === "soniox") {
-    return "Check your internet connection and the Soniox API key in Settings → Transcription."
-  }
-  if (engine === "whisper") {
-    return "The Whisper server on this computer isn’t responding. Set it up, or switch to the cloud engine, in Settings → Transcription."
-  }
-  return "Check the transcription settings in Settings → Transcription."
+  if (engine === "soniox") return i18next.t("statusRow.hintSoniox")
+  if (engine === "whisper") return i18next.t("statusRow.hintWhisper")
+  return i18next.t("statusRow.hintGeneric")
 }
 
 /** A server message as a sentence, so a next step can follow it. */
@@ -87,29 +83,33 @@ function formatElapsed(startedAt: string): string {
 
 /** Short pill label + tone for the engine state. The raw error text is
  *  shown in full on its own line, not squeezed into the pill. */
-function engineLabel(engine: EngineLevelsStatus | undefined): { label: string; className: string } {
+function engineStateLabel(engine: EngineLevelsStatus | undefined): { label: string; className: string } {
   if (!engine) {
-    return { label: "Transcription: checking…", className: "border-border text-muted-foreground" }
+    return { label: i18next.t("statusRow.engineChecking"), className: "border-border text-muted-foreground" }
   }
   switch (engine.state) {
     case "streaming":
-      return { label: "Transcription on", className: "border-transparent bg-primary/15 text-primary" }
+      return { label: i18next.t("statusRow.engineOn"), className: "border-transparent bg-primary/15 text-primary" }
     case "connecting":
     case "reconnecting":
       return {
-        label: engine.state === "connecting" ? "Transcription connecting…" : "Transcription reconnecting…",
+        label:
+          engine.state === "connecting"
+            ? i18next.t("statusRow.engineConnecting")
+            : i18next.t("statusRow.engineReconnecting"),
         className: "border-warning/30 bg-warning/10 text-warning",
       }
     case "error":
-      return { label: "Transcription error", className: "border-transparent bg-destructive/10 text-destructive" }
+      return { label: i18next.t("statusRow.engineError"), className: "border-transparent bg-destructive/10 text-destructive" }
     default:
-      return { label: "Transcription: checking…", className: "border-border text-muted-foreground" }
+      return { label: i18next.t("statusRow.engineChecking"), className: "border-border text-muted-foreground" }
   }
 }
 
 /** Compact horizontal bar meter, filled by peak (0-1). Decorative — the
  *  "No signal" text carries the meaning for assistive tech. */
 function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms: number; peak: number } | undefined; noSignal: boolean }) {
+  const { t } = useTranslation()
   const fill = Math.min(1, Math.max(0, levels?.peak ?? 0))
   return (
     <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -120,7 +120,7 @@ function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms:
           style={{ transform: `scaleX(${fill})` }}
         />
       </div>
-      {noSignal && <span className="shrink-0 text-muted-foreground">No signal</span>}
+      {noSignal && <span className="shrink-0 text-muted-foreground">{t("statusRow.noSignal")}</span>}
     </div>
   )
 }
@@ -157,6 +157,7 @@ export function StatusRow({
   compactAvailable,
   onToggleCompact,
 }: StatusRowProps) {
+  const { t } = useTranslation()
   const [elapsed, setElapsed] = useState(() => formatElapsed(startedAt))
   const [devices, setDevices] = useState<Device[]>([])
   const [systemAvailable, setSystemAvailable] = useState(false)
@@ -189,7 +190,7 @@ export function StatusRow({
       if (document.visibilityState !== "visible") return
       getSttStatus()
         .then((st) => {
-          if (!cancelled) setWhisperDown(st.whisper.ready ? null : (st.whisper.reason ?? "The Whisper server isn’t responding."))
+          if (!cancelled) setWhisperDown(st.whisper.ready ? null : (st.whisper.reason ?? i18next.t("statusRow.whisperDownFallback")))
         })
         .catch(() => undefined)
     }
@@ -293,7 +294,12 @@ export function StatusRow({
     } catch (err) {
       // 422: the old input stays live server-side — keep the old
       // selection here too and surface the reason inline.
-      setSwitchError(`Couldn’t switch ${what}: ${sentence(err instanceof Error ? err.message : String(err))} Try another input.`)
+      const reason = sentence(err instanceof Error ? err.message : String(err))
+      setSwitchError(
+        what === "source"
+          ? i18next.t("statusRow.switchSourceFailed", { error: reason })
+          : i18next.t("statusRow.switchMicFailed", { error: reason }),
+      )
     } finally {
       setPending(null)
     }
@@ -323,16 +329,15 @@ export function StatusRow({
   const shownSource = pending?.source ?? source
   const shownDevice = pending?.device ?? device
   const engineError = levels?.engine?.state === "error" ? levels.engine.error : undefined
-  const engine =
-    whisperDown && !engineError
-      ? { label: "Transcription not working", className: "border-transparent bg-destructive/10 text-destructive" }
-      : engineLabel(levels?.engine)
+  const engine = whisperDown && !engineError
+    ? { label: t("statusRow.engineNotWorking"), className: "border-transparent bg-destructive/10 text-destructive" }
+    : engineStateLabel(levels?.engine)
   const engineErrorText = engineError
-    ? `Transcription stopped working: ${sentence(engineError)} ${engineErrorHint(engineId)}`
+    ? t("statusRow.errorStopped", { error: sentence(engineError), hint: engineErrorHint(engineId) })
     : whisperDown
-      ? `Transcription isn’t working: ${sentence(whisperDown)} Fix it in Settings → Transcription.`
+      ? t("statusRow.whisperNotWorking", { reason: sentence(whisperDown) })
       : null
-  const unavailableReason = systemReason || SYSTEM_UNAVAILABLE_FALLBACK
+  const unavailableReason = systemReason || i18next.t("statusRow.systemUnavailableFallback")
   const now = Date.now()
   const micNoSignal = source !== "system" && now - lastSignalRef.current.mic > NO_SIGNAL_AFTER_MS
   const sysNoSignal = source !== "mic" && now - lastSignalRef.current.system > NO_SIGNAL_AFTER_MS
@@ -343,19 +348,19 @@ export function StatusRow({
         {/* role=timer is not announced every tick (implicit aria-live
             off); the sr-only prefix names the value when read. */}
         <span role="timer" className="font-mono text-sm tabular-nums text-muted-foreground">
-          <span className="sr-only">Elapsed time </span>
+          <span className="sr-only">{t("statusRow.elapsedSr")} </span>
           {elapsed}
         </span>
 
-        <div title={SOURCE_SHORTCUTS_HINT}>
+        <div title={sourceShortcutsHint()}>
           <SegmentedControl
             id="live-source"
-            label="Audio source"
+            label={t("statusRow.audioSource")}
             value={shownSource}
             onChange={(v) => void handleSourceChange(v)}
-            options={SOURCE_OPTIONS.map((o) => {
-              const disabled = (o.value === "system" || o.value === "both") && !systemAvailable
-              return { ...o, disabled, reason: disabled ? unavailableReason : undefined }
+            options={SOURCES.map((value) => {
+              const disabled = (value === "system" || value === "both") && !systemAvailable
+              return { value, label: sourceLabel(value), disabled, reason: disabled ? unavailableReason : undefined }
             })}
           />
         </div>
@@ -365,15 +370,15 @@ export function StatusRow({
             value={deviceSelectValue(shownDevice, devices)}
             onValueChange={(v) => void handleDeviceChange(v)}
           >
-            <SelectTrigger className="h-8 w-48" aria-label="Microphone">
+            <SelectTrigger className="h-8 w-48" aria-label={t("statusRow.microphone")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={DEFAULT_DEVICE_VALUE}>Default microphone</SelectItem>
+              <SelectItem value={DEFAULT_DEVICE_VALUE}>{t("statusRow.defaultMic")}</SelectItem>
               {devices.map((d) => (
                 <SelectItem key={d.ID} value={d.ID}>
                   {d.Name}
-                  {d.IsDefault ? " (default)" : ""}
+                  {d.IsDefault ? t("statusRow.defaultSuffix") : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -395,10 +400,10 @@ export function StatusRow({
             variant="outline"
             className="ml-auto"
             onClick={onToggleCompact}
-            title={`Shrink to a small window that stays on top of other apps (${COMPACT_SHORTCUT})`}
+            title={t("statusRow.compactTitle", { shortcut: COMPACT_SHORTCUT })}
             aria-keyshortcuts={IS_MAC ? "Meta+Shift+L" : "Control+Shift+L"}
           >
-            Mini window
+            {t("statusRow.miniWindow")}
           </Button>
         )}
       </div>
@@ -410,27 +415,26 @@ export function StatusRow({
           </p>
           {onOpenTranscriptionSettings && (
             <Button size="sm" variant="outline" onClick={onOpenTranscriptionSettings}>
-              Open settings
+              {t("statusRow.openSettings")}
             </Button>
           )}
         </div>
       )}
 
       <StatusMessage tone={switchError ? "error" : "muted"} className="break-words">
-        {switchError ?? (pending ? "Switching input…" : null)}
+        {switchError ?? (pending ? t("statusRow.switching") : null)}
       </StatusMessage>
 
       <div className="flex flex-wrap items-center gap-4">
-        {source !== "system" && <LevelMeter label={SOURCE_SHORT_LABEL.mic} levels={levels?.mic} noSignal={micNoSignal} />}
-        {source !== "mic" && <LevelMeter label={SOURCE_SHORT_LABEL.system} levels={levels?.system} noSignal={sysNoSignal} />}
+        {source !== "system" && <LevelMeter label={sourceShortLabel("mic")} levels={levels?.mic} noSignal={micNoSignal} />}
+        {source !== "mic" && <LevelMeter label={sourceShortLabel("system")} levels={levels?.system} noSignal={sysNoSignal} />}
       </div>
 
       <StatusMessage tone="warning" className="flex items-center gap-1.5 text-xs font-medium">
         {dropsWarning && (
           <>
             <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
-            Some audio is being lost because this computer or the connection can’t keep up. Close other busy apps or
-            check your internet connection.
+            {t("statusRow.dropsWarning")}
           </>
         )}
       </StatusMessage>

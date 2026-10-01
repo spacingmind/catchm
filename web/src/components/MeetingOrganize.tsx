@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react"
+import { useTranslation } from "react-i18next"
 
 import { ProjectPicker } from "@/components/Projects"
 import { StatusMessage } from "@/components/StatusMessage"
@@ -15,6 +16,7 @@ const sentence = (s: string) => `${s.replace(/[.\s]+$/, "")}.`
  * `project:` tag in that list (docs/plans/active/projects.md).
  */
 export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSaved: (m: Meeting) => void }) {
+  const { t } = useTranslation()
   const projects = useProjects()
   const project = projectOf(meeting.tags)
   const tags = plainTags(meeting.tags)
@@ -51,7 +53,7 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
       setAllTags((prev) => [...new Set([...prev, ...plainTags(next)])].sort((a, b) => a.localeCompare(b)))
       void refreshProjects()
     } catch (err) {
-      setStatus({ tone: "error", text: `Couldn’t save the change: ${sentence(errorText(err))} Try again.` })
+      setStatus({ tone: "error", text: t("meetingOrganize.saveError", { error: sentence(errorText(err)) }) })
     } finally {
       setSaving(false)
     }
@@ -59,19 +61,19 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
 
   const changeProject = (name: string) => {
     if (name === project) return
-    void save(withProject(meeting.tags, name), name ? `Moved to “${name}”.` : "Removed from the project.")
+    void save(withProject(meeting.tags, name), name ? t("meetingOrganize.movedTo", { name }) : t("meetingOrganize.removedFromProject"))
   }
 
   const changeTags = (next: string[]) => {
     const added = next.length > tags.length
-    void save(project ? withProject(next, project) : next, added ? "Tag added." : "Tag removed.")
+    void save(project ? withProject(next, project) : next, added ? t("meetingOrganize.tagAdded") : t("meetingOrganize.tagRemoved"))
   }
 
   return (
     <div className="mt-3 grid gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <span id={projectLabelId} className="w-14 shrink-0 text-xs font-medium text-muted-foreground">
-          Project
+          {t("meetingOrganize.project")}
         </span>
         <ProjectPicker
           value={project}
@@ -83,7 +85,7 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
       </div>
       <div className="flex flex-wrap items-start gap-2">
         <span id={tagsLabelId} className="w-14 shrink-0 pt-1.5 text-xs font-medium text-muted-foreground">
-          Tags
+          {t("meetingOrganize.tags")}
         </span>
         <div className="min-w-0 flex-1">
           <TagEditor
@@ -96,7 +98,7 @@ export function MeetingOrganize({ meeting, onSaved }: { meeting: Meeting; onSave
         </div>
       </div>
       <StatusMessage tone={status?.tone ?? "muted"}>
-        {saving ? "Saving…" : status?.text}
+        {saving ? t("meetingOrganize.saving") : status?.text}
       </StatusMessage>
     </div>
   )

@@ -12,7 +12,7 @@ func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Engine != defaultEngine || c.WhisperURL != defaultWhisperURL || c.Soniox.URL != defaultSonioxURL {
+	if c.Engine != defaultEngine || c.UILanguage != defaultUILanguage || c.WhisperURL != defaultWhisperURL || c.Soniox.URL != defaultSonioxURL {
 		t.Fatalf("defaults not applied: %+v", c)
 	}
 	if c.Translate.Host != defaultOllamaHost || c.Translate.LiveModel != defaultLiveModel || c.Translate.BatchModel != defaultBatchModel {
@@ -81,7 +81,7 @@ translate:
 		t.Fatalf("translate overrides not applied: %+v", c.Translate)
 	}
 	// Unset fields still get their defaults.
-	if c.WhisperURL != defaultWhisperURL || c.Soniox.URL != defaultSonioxURL {
+	if c.UILanguage != defaultUILanguage || c.WhisperURL != defaultWhisperURL || c.Soniox.URL != defaultSonioxURL {
 		t.Fatalf("defaults not preserved alongside overrides: %+v", c)
 	}
 }
@@ -91,6 +91,7 @@ func TestConfigSaveLoadRoundTrip(t *testing.T) {
 	want := &Config{
 		Engine:     "soniox",
 		Lang:       "vi",
+		UILanguage: "vi",
 		WhisperURL: "http://localhost:9999",
 		Soniox:     SonioxConfig{APIKey: "sk-secret", URL: "wss://example.com/ws"},
 		Cloud:      CloudConfig{APIBaseURL: defaultCloudURL},

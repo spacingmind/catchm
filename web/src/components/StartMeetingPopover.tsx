@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react"
 import { flushSync } from "react-dom"
+import { useTranslation } from "react-i18next"
+import i18next from "i18next"
 import { ArrowLeftRight, Loader2 } from "lucide-react"
 
 import { Disclosure } from "@/components/Disclosure"
@@ -37,7 +39,8 @@ import {
   readSourcePref,
   writeStartedDevice,
 } from "@/lib/recordPrefs"
-import { ENGINE_HINT, ENGINE_LABEL, SOURCE_HINT, SOURCE_LABEL } from "@/lib/labels"
+import { engineHint, engineLabel, sourceHint, sourceLabel } from "@/lib/labels"
+import { activeLocale } from "@/i18n"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
@@ -71,22 +74,15 @@ function writeLast(p: StartPrefs) {
 /** Backend requires a non-empty title; generate from date/time. */
 function defaultTitle(): string {
   const now = new Date()
-  return `Meeting ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+  return i18next.t("startMeeting.defaultTitle", {
+    date: now.toLocaleDateString(activeLocale()),
+    time: now.toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" }),
+  })
 }
 
 /** Radix Select can't have an item with value "", which is what "auto"
  *  (from) / "none" (to) mean on the wire; this stands in for it. */
 const UNSET_LANG = "__unset__"
-
-/** Why Computer audio/Both are disabled when an older (pre-M19) backend
- *  has no /api/audio/sources at all. */
-const OLD_BACKEND_REASON = "Update CatchM to use computer audio."
-/** When the backend says unsupported but gives no reason. */
-const SYSTEM_UNAVAILABLE_FALLBACK = "Computer audio can’t be recorded on this computer."
-/** When /api/stt/status says not ready but gives no reason. */
-const STT_NOT_READY_FALLBACK = "It isn’t set up yet."
-const TRANSLATE_NOT_READY =
-  "Translation needs Ollama running and its model downloaded — set it up in Settings → Translation."
 
 interface StartMeetingPopoverProps {
   open: boolean
@@ -99,6 +95,7 @@ interface StartMeetingPopoverProps {
 }
 
 export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onOpenSettings }: StartMeetingPopoverProps) {
+  const { t } = useTranslation()
   const [last] = useState<StartPrefs>(readLast)
   const [title, setTitle] = useState("")
   const [source, setSource] = useState<AudioSource>("mic")
@@ -137,7 +134,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
         if (cancelled) return
         setDevices(s.mic_devices ?? [])
         setSystemAvailable(s.system?.supported === true)
-        setSystemReason(s.system?.reason || SYSTEM_UNAVAILABLE_FALLBACK)
+        setSystemReason(s.system?.reason || i18next.t("startMeeting.systemUnavailableFallback"))
         setSource(effectiveSource(readSourcePref(), s))
       })
       .catch(() =>
@@ -146,7 +143,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
             if (cancelled) return
             setDevices(ds)
             setSystemAvailable(false)
-            setSystemReason(OLD_BACKEND_REASON)
+            setSystemReason(i18next.t("startMeeting.oldBackendReason"))
             setSource(effectiveSource(readSourcePref(), null))
           })
           .catch(() => {
@@ -184,8 +181,8 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const usableEngines: { value: SttEngine; label: string }[] =
     sonioxKeySet === true
       ? [
-          { value: "whisper", label: ENGINE_LABEL.whisper },
-          { value: "soniox", label: ENGINE_LABEL.soniox },
+          { value: "whisper", label: engineLabel("whisper") },
+          { value: "soniox", label: engineLabel("soniox") },
         ]
       : []
   const activeEngine = usableEngines.length > 0 ? engine : configEngine
@@ -195,7 +192,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const engineStatus = sttStatus?.[activeEngine]
   const sttBlocked = engineStatus?.ready === false
   const sttWarning = sttBlocked
-    ? `Transcription isn’t ready. ${engineStatus.reason || STT_NOT_READY_FALLBACK}`
+    ? t("startMeeting.sttNotReady", { reason: engineStatus.reason || t("startMeeting.sttNotReadyFallback") })
     : null
   const canSwitchToSoniox =
     sttBlocked && activeEngine === "whisper" && usableEngines.length > 1 && sttStatus?.soniox.ready === true
@@ -220,7 +217,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   }, [open, needsOllama])
   const translateWarning =
     needsOllama && translateStatus && (!translateStatus.ollama_reachable || !translateStatus.live_model.installed)
-      ? TRANSLATE_NOT_READY
+      ? t("startMeeting.translateNotReady")
       : null
 
   const openSettings = (section: SettingsSection) => {
@@ -230,12 +227,12 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
 
   const optionsSummary = [
     translateTo
-      ? `${lang ? languageLabel(lang) : "Auto-detect"} ${twoWay ? "↔" : "→"} ${languageLabel(translateTo)}`
+      ? `${lang ? languageLabel(lang) : t("startMeeting.autoDetect")} ${twoWay ? "↔" : "→"} ${languageLabel(translateTo)}`
       : lang
         ? languageLabel(lang)
         : null,
-    twoWay ? "two-way" : null,
-    ENGINE_LABEL[activeEngine],
+    twoWay ? t("startMeeting.twoWayShort") : null,
+    engineLabel(activeEngine),
   ]
     .filter(Boolean)
     .join(" · ")
@@ -276,13 +273,13 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
     if (submitting) return
     const project = choiceProject(projectChoice, projects)
     if (projectChoice.isNew && !project) {
-      setProjectError("Type a name for the new project, or choose No project.")
+      setProjectError(t("startMeeting.projectError"))
       document.getElementById("start-project-name")?.focus()
       return
     }
     setProjectError(null)
     if (twoWay && (!lang || !translateTo)) {
-      setPairError("Two-way translation needs both languages. Pick the first and second language.")
+      setPairError(t("startMeeting.pairError"))
       // The language selects live inside Options, which unmounts its
       // content while collapsed: open it synchronously so there's a
       // trigger to focus.
@@ -316,7 +313,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
       setError(null)
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
-      setError(`Couldn’t start the meeting: ${reason}`)
+      setError(t("startMeeting.startFailed", { reason }))
     } finally {
       setSubmitting(false)
     }
@@ -328,7 +325,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
       <PopoverContent className="w-96" collisionPadding={16}>
         <form onSubmit={handleStart} className="grid gap-4" aria-busy={submitting || undefined}>
           <div className="grid gap-1.5">
-            <Label htmlFor="start-title">Title</Label>
+            <Label htmlFor="start-title">{t("startMeeting.title")}</Label>
             <Input
               id="start-title"
               name="title"
@@ -340,7 +337,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               {...noAutofill}
             />
             <p id="start-title-hint" className="text-xs text-muted-foreground">
-              Optional. If left blank, it’s named after today’s date and time.
+              {t("startMeeting.titleHint")}
             </p>
           </div>
 
@@ -357,7 +354,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
 
           <div className="grid gap-1.5">
             <span id="start-source-label" className="text-sm font-medium">
-              Audio source
+              {t("startMeeting.audioSource")}
             </span>
             <SegmentedControl
               id="start-source"
@@ -366,34 +363,34 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               value={source}
               onChange={setSource}
               options={[
-                { value: "mic", label: SOURCE_LABEL.mic },
+                { value: "mic", label: sourceLabel("mic") },
                 {
                   value: "system",
-                  label: SOURCE_LABEL.system,
+                  label: sourceLabel("system"),
                   disabled: !systemAvailable,
                   reason: systemReason || undefined,
                 },
-                { value: "both", label: SOURCE_LABEL.both, disabled: !systemAvailable, reason: systemReason || undefined },
+                { value: "both", label: sourceLabel("both"), disabled: !systemAvailable, reason: systemReason || undefined },
               ]}
             />
             <p id="start-source-hint" className="text-xs text-muted-foreground">
-              {SOURCE_HINT}
+              {sourceHint()}
             </p>
           </div>
 
           {source !== "system" && (
             <div className="grid gap-1.5">
-              <Label htmlFor="start-device">Microphone</Label>
+              <Label htmlFor="start-device">{t("startMeeting.microphone")}</Label>
               <Select value={deviceSelectValue(startDevice, devices)} onValueChange={(v) => setDevice(v === DEFAULT_DEVICE_VALUE ? "" : v)}>
                 <SelectTrigger id="start-device" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={DEFAULT_DEVICE_VALUE}>Default microphone</SelectItem>
+                  <SelectItem value={DEFAULT_DEVICE_VALUE}>{t("startMeeting.defaultMic")}</SelectItem>
                   {devices.map((d) => (
                     <SelectItem key={d.ID} value={d.ID}>
                       {d.Name}
-                      {d.IsDefault ? " (default)" : ""}
+                      {d.IsDefault ? t("startMeeting.defaultSuffix") : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -406,10 +403,10 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
             onOpenChange={setOptionsOpen}
             label={
               <>
-                Options
+                {t("startMeeting.options")}
                 <span className="min-w-0 truncate font-normal text-muted-foreground">
                   <span aria-hidden="true">· </span>
-                  {optionsSummary || "Defaults"}
+                  {optionsSummary || t("startMeeting.defaults")}
                 </span>
               </>
             }
@@ -418,7 +415,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               <div role="group" aria-labelledby="start-translation-label" className="grid gap-1.5">
                 <div className="flex items-center justify-between">
                   <span id="start-translation-label" className="text-sm font-medium">
-                    Translation
+                    {t("startMeeting.translation")}
                   </span>
                   <Toggle
                     size="sm"
@@ -428,7 +425,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     aria-describedby="start-two-way-hint"
                   >
                     <ArrowLeftRight aria-hidden="true" />
-                    Two-way
+                    {t("startMeeting.twoWayLabel")}
                   </Toggle>
                 </div>
                 <div className="flex items-center gap-2">
@@ -437,17 +434,17 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                       id="start-lang"
                       ref={langRef}
                       className="w-40"
-                      aria-label={twoWay ? "First language" : "Spoken language"}
+                      aria-label={twoWay ? t("startMeeting.firstLanguage") : t("startMeeting.spokenLanguage")}
                       aria-invalid={pairError && !lang ? true : undefined}
                       aria-describedby={pairError ? "start-pair-error" : undefined}
                     >
-                      <SelectValue placeholder="First language" />
+                      <SelectValue placeholder={t("startMeeting.firstLanguage")} />
                     </SelectTrigger>
                     <SelectContent>
-                      {!twoWay && <SelectItem value={UNSET_LANG}>Detect automatically</SelectItem>}
+                      {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.detectAuto")}</SelectItem>}
                       {LANGUAGES.map((l) => (
                         <SelectItem key={l.code} value={l.code}>
-                          {l.label}
+                          {languageLabel(l.code)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -459,26 +456,24 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     <SelectTrigger
                       id="start-translate-to"
                       className="w-40"
-                      aria-label={twoWay ? "Second language" : "Translate into"}
+                      aria-label={twoWay ? t("startMeeting.secondLanguage") : t("startMeeting.translateInto")}
                       aria-invalid={pairError && !translateTo ? true : undefined}
                       aria-describedby={pairError ? "start-pair-error" : undefined}
                     >
-                      <SelectValue placeholder="Second language" />
+                      <SelectValue placeholder={t("startMeeting.secondLanguage")} />
                     </SelectTrigger>
                     <SelectContent>
-                      {!twoWay && <SelectItem value={UNSET_LANG}>No translation</SelectItem>}
+                      {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.noTranslation")}</SelectItem>}
                       {LANGUAGES.map((l) => (
                         <SelectItem key={l.code} value={l.code}>
-                          {l.label}
+                          {languageLabel(l.code)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <p id="start-two-way-hint" className="text-xs text-muted-foreground">
-                  {twoWay
-                    ? "Whatever is said in one language is translated into the other."
-                    : "People speaking two languages? Turn on two-way to translate both ways."}
+                  {twoWay ? t("startMeeting.twoWayHint") : t("startMeeting.twoWayOffHint")}
                 </p>
                 <StatusMessage id="start-pair-error" tone="error">
                   {pairError}
@@ -488,7 +483,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               {usableEngines.length > 1 && (
                 <div className="grid gap-1.5">
                   <span id="start-engine-label" className="text-sm font-medium">
-                    Transcribe with
+                    {t("startMeeting.transcribeWith")}
                   </span>
                   <SegmentedControl
                     id="start-engine"
@@ -499,7 +494,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     options={usableEngines}
                   />
                   <p id="start-engine-hint" className="text-xs text-muted-foreground">
-                    {ENGINE_HINT[engine]}
+                    {engineHint(engine)}
                   </p>
                 </div>
               )}
@@ -514,12 +509,12 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               <div className="flex flex-wrap gap-2">
                 {canSwitchToSoniox && (
                   <Button type="button" size="sm" variant="outline" onClick={() => setEngine("soniox")}>
-                    Use {ENGINE_LABEL.soniox} instead
+                    {t("startMeeting.useInstead", { engine: engineLabel("soniox") })}
                   </Button>
                 )}
                 {onOpenSettings && (
                   <Button type="button" size="sm" variant="outline" onClick={() => openSettings("transcription")}>
-                    Open settings
+                    {t("startMeeting.openSettings")}
                   </Button>
                 )}
               </div>
@@ -533,7 +528,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
             {translateWarning && onOpenSettings && (
               <div className="flex">
                 <Button type="button" size="sm" variant="outline" onClick={() => openSettings("translation")}>
-                  Open translation settings
+                  {t("startMeeting.openTranslationSettings")}
                 </Button>
               </div>
             )}
@@ -552,7 +547,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                 onClick={() => void start()}
                 aria-describedby="start-stt-warning"
               >
-                Start anyway
+                {t("startMeeting.startAnyway")}
               </Button>
             )}
             <Button
@@ -562,7 +557,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
               aria-describedby={sttBlocked ? "start-stt-warning" : undefined}
             >
               {submitting && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
-              {submitting ? "Starting…" : "Start meeting"}
+              {submitting ? t("startMeeting.starting") : t("sidebar.startMeeting")}
             </Button>
           </div>
         </form>

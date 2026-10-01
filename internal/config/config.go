@@ -55,6 +55,7 @@ type OpenAICompatConfig struct {
 type Config struct {
 	Engine     string          `yaml:"engine"`
 	Lang       string          `yaml:"lang"`
+	UILanguage string          `yaml:"ui_language"` // "system" (default) | "en" | "vi"; UI text language, not the STT Lang
 	WhisperURL string          `yaml:"whisper_url"`
 	Soniox     SonioxConfig    `yaml:"soniox"`
 	Translate  TranslateConfig `yaml:"translate"`
@@ -70,6 +71,8 @@ const (
 	defaultLiveModel  = "translategemma:4b"
 	defaultBatchModel = "translategemma:12b"
 
+	defaultUILanguage = "system"
+
 	defaultSummaryProvider = "ollama"
 	defaultSummaryModel    = "qwen3.5:9b"
 
@@ -84,6 +87,7 @@ const (
 func defaults() *Config {
 	return &Config{
 		Engine:     defaultEngine,
+		UILanguage: defaultUILanguage,
 		WhisperURL: defaultWhisperURL,
 		Soniox:     SonioxConfig{URL: defaultSonioxURL},
 		Translate: TranslateConfig{

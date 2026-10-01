@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type ComponentType, type ReactNode, type RefObject } from "react"
+import { useTranslation } from "react-i18next"
 import { CheckSquare, FolderOpen, ListVideo, Mic, PanelLeftClose, PanelLeftOpen, Radio, Settings2, Upload } from "lucide-react"
 import { cn } from "cn"
 
@@ -94,6 +95,7 @@ function ProjectsNav({
   onNavigate: (view: View) => void
   onOpenProject: (name: string) => void
 }) {
+  const { t } = useTranslation()
   const projects = useProjects()
   const headingId = useId()
   const activeKey = activeProject ? projectKey(activeProject) : null
@@ -102,7 +104,7 @@ function ProjectsNav({
     return (
       <NavButton
         icon={FolderOpen}
-        label="Projects"
+        label={t("sidebar.projects")}
         collapsed
         active={view === "projects" || activeKey !== null}
         onClick={() => onNavigate("projects")}
@@ -117,11 +119,11 @@ function ProjectsNav({
   return (
     <div role="group" aria-labelledby={headingId} className="grid gap-1">
       <span id={headingId} className="sr-only">
-        Projects
+        {t("sidebar.projects")}
       </span>
       <NavButton
         icon={FolderOpen}
-        label="Projects"
+        label={t("sidebar.projects")}
         collapsed={false}
         active={view === "projects"}
         onClick={() => onNavigate("projects")}
@@ -176,6 +178,7 @@ export function AppSidebar({
   startButtonRef,
   onImportRecording,
 }: AppSidebarProps) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
@@ -210,7 +213,7 @@ export function AppSidebar({
           type="button"
           onClick={() => onNavigate("list")}
           title={collapsed ? "CatchM" : undefined}
-          aria-label="CatchM — go to meetings"
+          aria-label={t("sidebar.goHome")}
           className="-m-1 flex min-w-0 cursor-pointer items-center gap-2 rounded-md p-1 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <img src={logo} alt="" className="size-6 shrink-0 rounded-md" />
@@ -224,35 +227,35 @@ export function AppSidebar({
           variant="ghost"
           size="icon-sm"
           onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
           aria-expanded={!collapsed}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
         >
           <ToggleIcon />
         </Button>
       </div>
 
-      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label="Main">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3" aria-label={t("sidebar.mainNav")}>
         <NavButton
           icon={ListVideo}
-          label="Meetings"
+          label={t("sidebar.meetings")}
           collapsed={collapsed}
           active={(view === "list" && !activeProject) || view === "detail"}
           onClick={() => onNavigate("list")}
         />
         <NavButton
           icon={Radio}
-          label={liveTitle ?? "Live"}
+          label={liveTitle ?? t("sidebar.live")}
           title={liveTitle ?? undefined}
           collapsed={collapsed}
           active={view === "live"}
           disabled={!liveTitle}
           onClick={() => onNavigate("live")}
-          srSuffix={liveTitle ? " (recording)" : undefined}
+          srSuffix={liveTitle ? t("sidebar.recordingSr") : undefined}
         >
           {liveTitle && <span className="size-1.5 shrink-0 motion-safe:animate-pulse rounded-full bg-primary" aria-hidden="true" />}
         </NavButton>
-        <NavButton icon={CheckSquare} label="Action items" collapsed={collapsed} active={view === "action-items"} onClick={() => onNavigate("action-items")} />
+        <NavButton icon={CheckSquare} label={t("sidebar.actionItems")} collapsed={collapsed} active={view === "action-items"} onClick={() => onNavigate("action-items")} />
         <ProjectsNav
           view={view}
           activeProject={activeProject}
@@ -269,22 +272,22 @@ export function AppSidebar({
             size="lg"
             className={cn("w-full", collapsed && "px-0")}
             onClick={onStartMeeting}
-            title={`Start meeting${shortcutHint("N")}`}
+            title={`${t("sidebar.startMeeting")}${shortcutHint("N")}`}
           >
             <Mic />
-            <span className={collapsed ? "sr-only" : undefined}>Start meeting</span>
+            <span className={collapsed ? "sr-only" : undefined}>{t("sidebar.startMeeting")}</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             className={cn("w-full", collapsed && "px-0")}
             onClick={onImportRecording}
-            title="Import recording"
+            title={t("sidebar.importRecording")}
           >
             <Upload />
-            <span className={collapsed ? "sr-only" : undefined}>Import recording</span>
+            <span className={collapsed ? "sr-only" : undefined}>{t("sidebar.importRecording")}</span>
           </Button>
-          <NavButton icon={Settings2} label="Settings" title={`Settings${shortcutHint(",")}`} collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
+          <NavButton icon={Settings2} label={t("sidebar.settings")} title={`${t("sidebar.settings")}${shortcutHint(",")}`} collapsed={collapsed} active={view === "settings"} onClick={() => onNavigate("settings")} />
         </div>
       </div>
     </aside>

@@ -1,3 +1,4 @@
+import i18next from "i18next"
 import { useSyncExternalStore } from "react"
 
 import {
@@ -76,7 +77,11 @@ async function download() {
   setState({ phase: "downloading", error: null, notice: null })
   try {
     const result = await downloadUpdate()
-    setState(result.cancelled ? { phase: "idle", notice: "Download cancelled." } : { phase: "confirm", error: null })
+    setState(
+      result.cancelled
+        ? { phase: "idle", notice: i18next.t("updateBanner.downloadCancelled") }
+        : { phase: "confirm", error: null },
+    )
   } catch (err) {
     setState({ error: errorMessage(err), phase: "idle" })
   }
@@ -94,7 +99,7 @@ async function cancel() {
     // asking): say so and offer Cancel again.
     // getSnapshot(), not state: TS keeps the pre-await narrowing.
     if (getSnapshot().phase === "cancelling") {
-      setState({ phase: "downloading", error: "Couldn’t cancel the download. Try again." })
+      setState({ phase: "downloading", error: i18next.t("updateBanner.cancelFailed") })
     }
   }
 }

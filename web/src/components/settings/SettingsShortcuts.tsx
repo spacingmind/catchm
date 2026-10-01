@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from "react"
+import { Trans, useTranslation } from "react-i18next"
 
 import { StatusMessage } from "@/components/StatusMessage"
 import { SettingRow, SettingsSection, SaveStatus, descId } from "@/components/settings/pieces"
@@ -13,21 +14,16 @@ import { getShortcuts, setShortcuts } from "@/lib/wailsRuntime"
 const MOD_KEY = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"
 
 /** Matches internal/hotkeys.Action string values exactly. */
-const ACTIONS: { id: string; label: string; description: ReactNode }[] = [
-  { id: "show_hide", label: "Show/hide CatchM", description: "Works even when another app is focused." },
-  { id: "start_stop_meeting", label: "Start/stop meeting", description: "Starts a new meeting, or ends the active one." },
-  {
-    id: "toggle_compact",
-    label: "Show/hide mini window",
-    description: (
-      <>
-        Different from the in-app{" "}
-        <kbd className="rounded border border-border bg-muted px-1 font-mono text-xs">{MOD_KEY}+Shift+L</kbd>, which only
-        works while CatchM is focused.
-      </>
-    ),
-  },
-]
+const ACTIONS = [
+  { id: "show_hide", labelKey: "settings.shortcuts.showHide", descKey: "settings.shortcuts.showHideDesc" },
+  { id: "start_stop_meeting", labelKey: "settings.shortcuts.startStop", descKey: "settings.shortcuts.startStopDesc" },
+  { id: "toggle_compact", labelKey: "settings.shortcuts.toggleCompact", descKey: "settings.shortcuts.toggleCompactDesc" },
+] as const
+
+/** <Trans> fills in the key combo from the message's <kbd>…</kbd>. */
+function Kbd({ children }: { children?: ReactNode }) {
+  return <kbd className="rounded border border-border bg-muted px-1 font-mono text-xs">{children}</kbd>
+}
 
 type Load = "loading" | "ready" | "error"
 
@@ -89,6 +85,7 @@ function comboMods(e: KeyboardEvent): string[] {
  * reverts it. Typing or pasting still works as a fallback.
  */
 export function SettingsShortcuts() {
+  const { t } = useTranslation()
   const [bindings, setBindings] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -151,7 +148,7 @@ export function SettingsShortcuts() {
         }
         return next
       })
-    }, "Couldn’t save that shortcut. Try again, or restart CatchM if it keeps failing.")
+    }, t("settings.shortcuts.saveError"))
   }
 
   const setPressHint = (id: string, hint: string | null) =>
@@ -186,9 +183,9 @@ export function SettingsShortcuts() {
     e.stopPropagation()
     const key = comboKey(e)
     if (!key) {
-      setPressHint(id, "That key can’t be used. Try a letter, a number, or F1–F20.")
+      setPressHint(id, t("settings.shortcuts.badKey"))
     } else if (mods.length === 0) {
-      setPressHint(id, "Hold Ctrl, Alt, Shift, or Win while you press the key.")
+      setPressHint(id, t("settings.shortcuts.noModifier"))
     } else {
       setPressHint(id, null)
       setDrafts((d) => ({ ...d, [id]: [...mods, key].join("+") }))
@@ -198,15 +195,13 @@ export function SettingsShortcuts() {
   if (load !== "ready") {
     return (
       <div>
-        <SettingsSection title="Shortcuts" description="Global keyboard shortcuts that work even when CatchM isn’t focused.">
+        <SettingsSection title={t("settings.nav.shortcuts")} description={t("settings.shortcuts.desc")}>
           <StatusMessage tone={load === "error" ? "error" : "muted"}>
-            {load === "loading"
-              ? "Loading shortcuts…"
-              : "Couldn’t load your shortcuts. Try again, or restart CatchM if it keeps failing."}
+            {load === "loading" ? t("settings.shortcuts.loading") : t("settings.shortcuts.loadError")}
           </StatusMessage>
           {load === "error" && (
             <Button size="sm" variant="outline" className="mt-3" onClick={retryLoad}>
-              Try again
+              {t("common.tryAgain")}
             </Button>
           )}
         </SettingsSection>
@@ -216,22 +211,29 @@ export function SettingsShortcuts() {
 
   return (
     <div>
-      <SettingsSection title="Shortcuts" description="Global keyboard shortcuts that work even when CatchM isn’t focused.">
-        {ACTIONS.map(({ id, label, description }) => {
+      <SettingsSection title={t("settings.nav.shortcuts")} description={t("settings.shortcuts.desc")}>
+        {ACTIONS.map(({ id, labelKey, descKey }) => {
           const inputId = `shortcut-${id}`
           return (
             <SettingRow
               key={id}
-              label={label}
+              label={t(labelKey)}
               htmlFor={inputId}
               description={
                 pressHints[id] ? (
                   <span className="text-destructive">{pressHints[id]}</span>
                 ) : errors[id] ? (
-                  <span className="text-destructive">{sentence(errors[id])} Try a different combination.</span>
+                  <span className="text-destructive">
+                    {t("settings.shortcuts.backendError", { error: sentence(errors[id]) })}
+                  </span>
                 ) : (
                   <>
-                    {description} Click, then press the keys.
+                    {id === "toggle_compact" ? (
+                      <Trans i18nKey={descKey} values={{ combo: MOD_KEY }} components={{ kbd: <Kbd /> }} />
+                    ) : (
+                      t(descKey)
+                    )}
+                    {t("settings.shortcuts.clickThenPress")}
                   </>
                 )
               }
@@ -241,7 +243,7 @@ export function SettingsShortcuts() {
                   name={inputId}
                   {...noAutofill}
                   className="w-40"
-                  placeholder="Press keys…"
+                  placeholder={t("settings.shortcuts.pressKeys")}
                   value={drafts[id] ?? ""}
                   onChange={(e) => setDrafts((d) => ({ ...d, [id]: e.target.value }))}
                   aria-invalid={Boolean(errors[id] || pressHints[id])}

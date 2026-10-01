@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react"
 import { Loader2, Upload } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { ProjectSelectField } from "@/components/Projects"
 import { SegmentedControl } from "@/components/settings/pieces"
@@ -21,8 +22,9 @@ import { Toggle } from "@/components/ui/toggle"
 import { ArrowLeftRight } from "lucide-react"
 import { ApiError, getConfig, importRecording, type Meeting } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
-import { ENGINE_LABEL } from "@/lib/labels"
-import { LANGUAGES } from "@/lib/languages"
+import type { TFunction } from "i18next"
+import { engineLabel } from "@/lib/labels"
+import { LANGUAGES, languageLabel } from "@/lib/languages"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Radix Select can't hold an item with value ""; stands in for "unset". */
@@ -32,12 +34,6 @@ const ACCEPT = ".wav,.mp3,.m4a,.mp4,.ogg,.webm,.flac,.aac"
 
 const SONIOX_RATE_PER_HOUR = 0.1
 
-const PRIVACY_LINE = "The audio is uploaded to Soniox, processed, and deleted right after."
-
-const WHISPER_FORMAT_REASON =
-  "On this computer only reads .wav files. Use Cloud (Soniox) for other formats."
-const SONIOX_NO_KEY_REASON = "Cloud (Soniox) needs a Soniox API key. Add one in Settings → Transcription."
-
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 const titleFromFile = (name: string) => name.replace(/\.[^.]+$/, "")
@@ -45,17 +41,17 @@ const titleFromFile = (name: string) => name.replace(/\.[^.]+$/, "")
 const isWav = (file: File) => /\.wav$/i.test(file.name) || file.type === "audio/wav"
 
 /** "about $0.05" from seconds at Soniox's rate. */
-function estimateCost(seconds: number): string {
+function estimateCost(t: TFunction, seconds: number): string {
   const dollars = (seconds / 3600) * SONIOX_RATE_PER_HOUR
-  return `about $${dollars.toFixed(2)}`
+  return t("importRecording.costLine", { cost: dollars.toFixed(2) })
 }
 
 /** "12 min 34 s" style, rounded. */
-function formatDuration(seconds: number): string {
+function formatDuration(t: TFunction, seconds: number): string {
   const m = Math.round(seconds / 60)
-  if (m < 60) return `${m} min`
+  if (m < 60) return t("importRecording.durationMin", { minutes: m })
   const h = Math.floor(m / 60)
-  return `${h} h ${m % 60} min`
+  return t("importRecording.durationHourMin", { hours: h, minutes: m % 60 })
 }
 
 /** Reads an audio file's duration in the browser; resolves null when the
@@ -88,6 +84,7 @@ interface ImportRecordingDialogProps {
 }
 
 export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMeeting, onOpenSettings }: ImportRecordingDialogProps) {
+  const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState("")
   const [lang, setLang] = useState("")
@@ -176,7 +173,7 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
     if (submitting || !file) return
     const project = choiceProject(projectChoice, projects)
     if (projectChoice.isNew && !project) {
-      setProjectError("Type a name for the new project, or choose No project.")
+      setProjectError(t("startMeeting.projectError"))
       document.getElementById("import-project-name")?.focus()
       return
     }
@@ -211,11 +208,9 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
         err instanceof ApiError && typeof err.body?.meeting_id === "string" ? err.body.meeting_id : null
       if (meetingId) {
         setFailedMeetingId(meetingId)
-        setError(
-          `The recording was saved, but it couldn’t be transcribed. ${errorText(err)}`,
-        )
+        setError(t("importRecording.savedNotTranscribed", { error: errorText(err) }))
       } else {
-        setError(`${errorText(err)} Try again.`)
+        setError(t("importRecording.genericError", { error: errorText(err) }))
       }
     } finally {
       setSubmitting(false)
@@ -225,8 +220,8 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
 
   const status = submitting
     ? uploadDone || progress === null
-      ? "Transcribing… this can take a few minutes. Keep CatchM open."
-      : `Uploading… ${progress}%`
+      ? t("importRecording.transcribing")
+      : t("importRecording.uploading", { progress })
     : null
 
   return (
@@ -243,14 +238,12 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
       <DialogContent>
         <form onSubmit={submit} noValidate className="grid gap-4" aria-busy={submitting || undefined}>
           <DialogHeader>
-            <DialogTitle>Import a recording</DialogTitle>
-            <DialogDescription>
-              Turn an audio file you already have into a meeting with a transcript.
-            </DialogDescription>
+            <DialogTitle>{t("importRecording.title")}</DialogTitle>
+            <DialogDescription>{t("importRecording.description")}</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="import-file">Audio file</Label>
+            <Label htmlFor="import-file">{t("importRecording.file")}</Label>
             <Input
               ref={fileInputRef}
               id="import-file"
@@ -262,20 +255,20 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
               className="w-full"
             />
             <p id="import-file-hint" className="text-xs text-muted-foreground">
-              WAV, MP3, M4A, MP4, OGG, WEBM, FLAC or AAC, up to 5 hours long.
-              {file && duration !== null && ` Length: about ${formatDuration(duration)}.`}
+              {t("importRecording.fileHint")}
+              {file && duration !== null && ` ${t("importRecording.lengthAbout", { duration: formatDuration(t, duration) })}`}
             </p>
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="import-title">Title</Label>
+            <Label htmlFor="import-title">{t("startMeeting.title")}</Label>
             <Input
               id="import-title"
               name="title"
               {...noAutofill}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={file ? titleFromFile(file.name) : "Weekly sync…"}
+              placeholder={file ? titleFromFile(file.name) : t("importRecording.titlePlaceholder")}
             />
           </div>
 
@@ -293,7 +286,7 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
           <div role="group" aria-labelledby="import-translation-label" className="grid gap-1.5">
             <div className="flex items-center justify-between">
               <span id="import-translation-label" className="text-sm font-medium">
-                Translation
+                {t("startMeeting.translation")}
               </span>
               <Toggle
                 size="sm"
@@ -303,7 +296,7 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                 aria-describedby="import-two-way-hint"
               >
                 <ArrowLeftRight aria-hidden="true" />
-                Two-way
+                {t("startMeeting.twoWayLabel")}
               </Toggle>
             </div>
             <div className="flex items-center gap-2">
@@ -311,15 +304,15 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                 <SelectTrigger
                   id="import-lang"
                   className="w-40"
-                  aria-label={twoWay ? "First language" : "Spoken language"}
+                  aria-label={twoWay ? t("startMeeting.firstLanguage") : t("startMeeting.spokenLanguage")}
                 >
-                  <SelectValue placeholder="First language" />
+                  <SelectValue placeholder={t("startMeeting.firstLanguage")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {!twoWay && <SelectItem value={UNSET_LANG}>Detect automatically</SelectItem>}
+                  {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.detectAuto")}</SelectItem>}
                   {LANGUAGES.map((l) => (
                     <SelectItem key={l.code} value={l.code}>
-                      {l.label}
+                      {languageLabel(l.code)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -331,30 +324,28 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                 <SelectTrigger
                   id="import-translate-to"
                   className="w-40"
-                  aria-label={twoWay ? "Second language" : "Translate into"}
+                  aria-label={twoWay ? t("startMeeting.secondLanguage") : t("startMeeting.translateInto")}
                 >
-                  <SelectValue placeholder="Second language" />
+                  <SelectValue placeholder={t("startMeeting.secondLanguage")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {!twoWay && <SelectItem value={UNSET_LANG}>No translation</SelectItem>}
+                  {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.noTranslation")}</SelectItem>}
                   {LANGUAGES.map((l) => (
                     <SelectItem key={l.code} value={l.code}>
-                      {l.label}
+                      {languageLabel(l.code)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <p id="import-two-way-hint" className="text-xs text-muted-foreground">
-              {twoWay
-                ? "Whatever is said in one language is translated into the other."
-                : "People speaking two languages? Turn on two-way to translate both ways."}
+              {twoWay ? t("startMeeting.twoWayHint") : t("startMeeting.twoWayOffHint")}
             </p>
           </div>
 
           <div className="grid gap-1.5">
             <span id="import-engine-label" className="text-sm font-medium">
-              Transcribe with
+              {t("startMeeting.transcribeWith")}
             </span>
             <SegmentedControl
               id="import-engine"
@@ -363,17 +354,27 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
               value={activeEngine}
               onChange={setEngine}
               options={[
-                { value: "soniox", label: ENGINE_LABEL.soniox, disabled: sonioxDisabled, reason: sonioxDisabled ? SONIOX_NO_KEY_REASON : undefined },
-                { value: "whisper", label: ENGINE_LABEL.whisper, disabled: whisperDisabled, reason: whisperDisabled ? WHISPER_FORMAT_REASON : undefined },
+                {
+                  value: "soniox",
+                  label: engineLabel("soniox"),
+                  disabled: sonioxDisabled,
+                  reason: sonioxDisabled ? t("importRecording.sonioxNoKey") : undefined,
+                },
+                {
+                  value: "whisper",
+                  label: engineLabel("whisper"),
+                  disabled: whisperDisabled,
+                  reason: whisperDisabled ? t("importRecording.whisperFormat") : undefined,
+                },
               ]}
             />
             <p id="import-engine-reason" className="text-xs text-muted-foreground">
-              {activeEngine === "soniox" ? "More accurate and tells speakers apart." : "Free and private."}
+              {activeEngine === "soniox" ? t("importRecording.sonioxHintShort") : t("importRecording.freePrivate")}
             </p>
             {sonioxDisabled && onOpenSettings && !submitting && (
               <div>
                 <Button type="button" size="sm" variant="outline" onClick={onOpenSettings}>
-                  Open Settings → Transcription
+                  {t("importRecording.openTranscriptionSettings")}
                 </Button>
               </div>
             )}
@@ -381,13 +382,13 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
 
           {activeEngine === "soniox" && (
             <p className="text-xs text-muted-foreground">
-              {showCost && `Estimated cost: ${estimateCost(duration)} at $0.10 per hour. `}
-              {PRIVACY_LINE}
+              {showCost && `${estimateCost(t, duration ?? 0)} `}
+              {t("meetingDetail.sonioxPrivacy")}
             </p>
           )}
 
           {submitting && progress !== null && !uploadDone && (
-            <Progress value={progress} aria-label="Upload progress" />
+            <Progress value={progress} aria-label={t("importRecording.uploadProgress")} />
           )}
           <StatusMessage id="import-status">{status}</StatusMessage>
           <StatusMessage id="import-error" tone="error" className="break-words">
@@ -396,18 +397,18 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
           {failedMeetingId && !submitting && (
             <div>
               <Button type="button" size="sm" variant="outline" onClick={() => onOpenMeeting(failedMeetingId)}>
-                Open meeting
+                {t("importRecording.openMeeting")}
               </Button>
             </div>
           )}
 
           <DialogFooter>
             <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={submitting || !file} aria-busy={submitting || undefined}>
               {submitting ? <Loader2 aria-hidden="true" className="motion-safe:animate-spin" /> : <Upload aria-hidden="true" />}
-              {submitting ? "Importing…" : "Import recording"}
+              {submitting ? t("importRecording.importing") : t("importRecording.importRecording")}
             </Button>
           </DialogFooter>
         </form>

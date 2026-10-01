@@ -1,11 +1,30 @@
-// Locale-aware date/time formatting. Every formatter uses the user's
-// locale (undefined) and is built once at module load — constructing
-// Intl.DateTimeFormat is far more expensive than calling format().
-// Unparseable input comes back as the raw string, never "Invalid Date".
+// Locale-aware date/time formatting. Every formatter uses the active
+// UI language's locale (i18n's activeLocale) and is built once per
+// locale, cached and rebuilt lazily when the language changes —
+// constructing Intl.DateTimeFormat is far more expensive than calling
+// format(). Unparseable input comes back as the raw string, never
+// "Invalid Date".
 
-const dateTimeFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
-const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: "short" })
-const dayFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
+import { activeLocale } from "@/i18n"
+
+const fmts = (() => {
+  let locale = ""
+  let dateTime: Intl.DateTimeFormat
+  let time: Intl.DateTimeFormat
+  let day: Intl.DateTimeFormat
+  let month: Intl.DateTimeFormat
+  return () => {
+    const l = activeLocale()
+    if (l !== locale) {
+      locale = l
+      dateTime = new Intl.DateTimeFormat(l, { dateStyle: "medium", timeStyle: "short" })
+      time = new Intl.DateTimeFormat(l, { timeStyle: "short" })
+      day = new Intl.DateTimeFormat(l, { dateStyle: "medium" })
+      month = new Intl.DateTimeFormat(l, { month: "long", year: "numeric" })
+    }
+    return { dateTime, time, day, month }
+  }
+})()
 
 function parseIso(iso: string | null | undefined): Date | null {
   if (!iso) return null
@@ -16,13 +35,13 @@ function parseIso(iso: string | null | undefined): Date | null {
 /** "Sep 27, 2026, 3:04 PM" (locale-dependent), no seconds. */
 export function formatDateTime(iso: string | null | undefined): string {
   const d = parseIso(iso)
-  return d ? dateTimeFmt.format(d) : (iso ?? "")
+  return d ? fmts().dateTime.format(d) : (iso ?? "")
 }
 
 /** "3:04 PM" (locale-dependent), no seconds. */
 export function formatTime(iso: string | null | undefined): string {
   const d = parseIso(iso)
-  return d ? timeFmt.format(d) : (iso ?? "")
+  return d ? fmts().time.format(d) : (iso ?? "")
 }
 
 /**
@@ -34,8 +53,8 @@ export function formatDateRange(startIso: string, endIso?: string | null): strin
   const start = parseIso(startIso)
   if (!start) return startIso ?? ""
   const end = parseIso(endIso)
-  if (!end || end < start) return dateTimeFmt.format(start)
-  return dateTimeFmt.formatRange(start, end)
+  if (!end || end < start) return fmts().dateTime.format(start)
+  return fmts().dateTime.formatRange(start, end)
 }
 
 /**
@@ -61,5 +80,10 @@ export function parseLocalDate(ymd: string | null | undefined): Date | null {
  */
 export function formatDay(ymd: string | null | undefined): string {
   const d = parseLocalDate(ymd) ?? parseIso(ymd)
-  return d ? dayFmt.format(d) : (ymd ?? "")
+  return d ? fmts().day.format(d) : (ymd ?? "")
+}
+
+/** "September 2026" (locale-dependent) — meeting list month headers. */
+export function formatMonth(d: Date): string {
+  return fmts().month.format(d)
 }

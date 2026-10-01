@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import { Check, ChevronDown, Folder, Loader2, Plus } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -20,7 +21,6 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { MAX_PROJECT_NAME, normalizeProject, projectKey, renameProject, type Project } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import { findProject, projectColor, refreshProjects, type ProjectChoice } from "@/lib/projects"
-import { pluralize } from "@/lib/utils"
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const sentence = (s: string) => `${s.replace(/[.\s]+$/, "")}.`
@@ -32,11 +32,12 @@ export function ProjectDot({ name, className }: { name: string; className?: stri
 
 /** A meeting's project, shown apart from plain tag chips. */
 export function ProjectBadge({ name, className }: { name: string; className?: string }) {
+  const { t } = useTranslation()
   return (
-    <Badge variant="outline" className={cn("max-w-full gap-1.5", className)} title={`Project: ${name}`}>
+    <Badge variant="outline" className={cn("max-w-full gap-1.5", className)} title={t("projects.badgeTitle", { name })}>
       <Folder aria-hidden="true" />
       <ProjectDot name={name} />
-      <span className="sr-only">Project: </span>
+      <span className="sr-only">{t("projects.badgeSr", { name })}</span>
       <span className="min-w-0 truncate">{name}</span>
     </Badge>
   )
@@ -66,6 +67,7 @@ export function ProjectSelectField({
   projects: readonly Project[] | null
   error?: string | null
 }) {
+  const { t } = useTranslation()
   const nameRef = useRef<HTMLInputElement>(null)
   // Set when "New project…" is picked: the select then hands focus to
   // the name field instead of back to its trigger.
@@ -75,7 +77,7 @@ export function ProjectSelectField({
 
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor={id}>Project</Label>
+      <Label htmlFor={id}>{t("meetingOrganize.project")}</Label>
       <Select
         value={selectValue}
         onValueChange={(v) => {
@@ -99,7 +101,7 @@ export function ProjectSelectField({
             else window.setTimeout(() => nameRef.current?.focus(), 0)
           }}
         >
-          <SelectItem value={NONE}>No project</SelectItem>
+          <SelectItem value={NONE}>{t("meetingList.noProject")}</SelectItem>
           {projects && projects.length > 0 && <SelectSeparator />}
           {projects?.map((p) => (
             <SelectItem key={p.name} value={p.name}>
@@ -110,14 +112,14 @@ export function ProjectSelectField({
           <SelectSeparator />
           <SelectItem value={NEW}>
             <Plus aria-hidden="true" />
-            New project…
+            {t("projects.newProject")}
           </SelectItem>
         </SelectContent>
       </Select>
       {value.isNew && (
         <div className="grid gap-1">
           <Label htmlFor={`${id}-name`} className="text-xs font-normal text-muted-foreground">
-            Name of the new project
+            {t("projects.newProjectName")}
           </Label>
           <Input
             ref={nameRef}
@@ -127,14 +129,14 @@ export function ProjectSelectField({
             value={value.name}
             maxLength={MAX_PROJECT_NAME}
             onChange={(e) => onChange({ name: e.target.value, isNew: true })}
-            placeholder="For example: Website redesign"
+            placeholder={t("projects.newProjectPlaceholder")}
             aria-invalid={error ? true : undefined}
             aria-describedby={`${id}-error`}
           />
         </div>
       )}
       <p id={`${id}-hint`} className="text-xs text-muted-foreground">
-        Group meetings that belong together. You can change this later.
+        {t("projects.selectHint")}
       </p>
       <StatusMessage id={`${id}-error`} tone="error">
         {error}
@@ -172,6 +174,7 @@ export function ProjectPicker({
   /** id of the visible "Project" label. */
   labelledBy: string
 }) {
+  const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [active, setActive] = useState(0)
@@ -184,16 +187,17 @@ export function ProjectPicker({
     const q = normalizeProject(query)
     const qKey = q.toLowerCase()
     const list: PickerOption[] = []
-    if (!q) list.push({ kind: "none", id: `${baseId}-none`, label: "No project" })
+    if (!q) list.push({ kind: "none", id: `${baseId}-none`, label: t("meetingList.noProject") })
     const matches = (projects ?? []).filter((p) => !qKey || projectKey(p.name).includes(qKey))
     matches.forEach((p, i) => list.push({ kind: "project", id: `${baseId}-p${i}`, label: p.name, name: p.name }))
     if (q && !findProject(projects, q)) {
-      list.push({ kind: "create", id: `${baseId}-create`, label: `New project “${q}”`, name: q })
+      list.push({ kind: "create", id: `${baseId}-create`, label: t("projects.createNew", { name: q }), name: q })
     } else if (!q) {
-      list.push({ kind: "new", id: `${baseId}-new`, label: "New project…" })
+      list.push({ kind: "new", id: `${baseId}-new`, label: t("projects.newProject") })
     }
     return list
-  }, [projects, query, baseId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, query, baseId, t, i18n.language])
 
   const activeIndex = Math.min(active, options.length - 1)
   const activeOption = options[activeIndex]
@@ -213,7 +217,7 @@ export function ProjectPicker({
   const pick = (opt: PickerOption) => {
     switch (opt.kind) {
       case "new":
-        setHint("Type a name for the new project, then press Enter.")
+        setHint(t("projects.typeNameHint"))
         inputRef.current?.focus()
         return
       case "none":
@@ -269,7 +273,7 @@ export function ProjectPicker({
           )}
           {value && <ProjectDot name={value} />}
           <span id={`${baseId}-value`} className={cn("min-w-0 truncate", !value && "text-muted-foreground")}>
-            {value || "No project"}
+            {value || t("meetingList.noProject")}
           </span>
           <ChevronDown aria-hidden="true" className="opacity-60" />
         </Button>
@@ -278,7 +282,7 @@ export function ProjectPicker({
         <Input
           ref={inputRef}
           role="combobox"
-          aria-label="Find or create a project"
+          aria-label={t("projects.findOrCreate")}
           aria-expanded="true"
           aria-controls={listId}
           aria-autocomplete="list"
@@ -293,14 +297,14 @@ export function ProjectPicker({
             setHint(null)
           }}
           onKeyDown={onKeyDown}
-          placeholder="Find or create a project…"
+          placeholder={t("projects.findOrCreatePlaceholder")}
         />
         {hint && (
           <p id={`${baseId}-hint`} className="px-1 text-xs text-muted-foreground">
             {hint}
           </p>
         )}
-        <ul id={listId} role="listbox" aria-label="Projects" className="grid max-h-64 gap-0.5 overflow-y-auto">
+        <ul id={listId} role="listbox" aria-label={t("meetingList.projectsTitle")} className="grid max-h-64 gap-0.5 overflow-y-auto">
           {options.map((opt, i) => {
             const selected =
               opt.kind === "none" ? !value : opt.kind === "project" && projectKey(opt.name) === projectKey(value)
@@ -357,6 +361,7 @@ export function RenameProjectDialog({
   onOpenChange: (open: boolean) => void
   onRenamed: (to: string, count: number) => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState(project ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -376,7 +381,7 @@ export function RenameProjectDialog({
     e.preventDefault()
     if (!project || saving) return
     if (!to) {
-      setError("Type a name for the project.")
+      setError(t("projects.typeNameError"))
       return
     }
     if (to === project) {
@@ -393,7 +398,7 @@ export function RenameProjectDialog({
       onRenamed(finalName, renamed)
       onOpenChange(false)
     } catch (err) {
-      setError(`Couldn’t rename the project: ${sentence(errorText(err))} Try again.`)
+      setError(t("projects.renameError", { error: sentence(errorText(err)) }))
     } finally {
       setSaving(false)
     }
@@ -412,17 +417,15 @@ export function RenameProjectDialog({
       <DialogContent>
         <form onSubmit={submit} noValidate className="grid gap-4" aria-busy={saving || undefined}>
           <DialogHeader>
-            <DialogTitle>Rename project</DialogTitle>
+            <DialogTitle>{t("meetingList.renameProject")}</DialogTitle>
             <DialogDescription>
-              {count === 1
-                ? `The meeting in “${project}” gets the new name.`
-                : count > 1
-                  ? `All ${pluralize(count, "meeting")} in “${project}” get the new name.`
-                  : `Every meeting in “${project}” gets the new name.`}
+              {count === 0
+                ? t("projects.renameDescEvery", { name: project ?? "" })
+                : t("projects.renameDescCount", { count, name: project ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
-            <Label htmlFor="rename-project">New name</Label>
+            <Label htmlFor="rename-project">{t("projects.newName")}</Label>
             <Input
               id="rename-project"
               name="project"
@@ -437,7 +440,7 @@ export function RenameProjectDialog({
               aria-describedby="rename-project-note rename-project-error"
             />
             <StatusMessage id="rename-project-note" tone="warning">
-              {merging && `“${target.name}” already exists. Its meetings and these will be put together in “${target.name}”.`}
+              {merging && t("projects.mergeNote", { name: target.name })}
             </StatusMessage>
             <StatusMessage id="rename-project-error" tone="error">
               {error}
@@ -445,11 +448,11 @@ export function RenameProjectDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={saving} aria-busy={saving || undefined}>
               {saving && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
-              {merging ? "Merge projects" : "Rename"}
+              {merging ? t("projects.mergeProjects") : t("meetingList.rename")}
             </Button>
           </DialogFooter>
         </form>

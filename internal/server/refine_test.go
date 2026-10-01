@@ -339,6 +339,23 @@ func (f engineFunc) TranscribeFile(ctx context.Context, path string, opts stt.Op
 	return f(ctx, path, opts)
 }
 
+func TestImportWithoutFileIsFileRequired(t *testing.T) {
+	s, _ := newTestServer(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("title", "No file")
+	mw.Close()
+	w := doImport(t, s, &body, mw.FormDataContentType())
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	if v["code"] != "file_required" {
+		t.Fatalf("code = %v, want file_required", v["code"])
+	}
+}
+
 func TestImportBadExtension(t *testing.T) {
 	s, _ := newTestServer(t)
 	body, ct := importRequest(t, "notes.txt", nil)

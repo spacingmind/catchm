@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react"
+import { useTranslation } from "react-i18next"
 import { ExternalLink } from "lucide-react"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -30,32 +31,35 @@ function openExternal(e: MouseEvent<HTMLAnchorElement>) {
  * — manual=true bypasses the deferred flag Go-side).
  */
 export function UpdateBanner() {
+  const { t } = useTranslation()
   const { phase, error, notice, status, download, cancel, apply, dismiss } = useUpdateInstall()
 
   if (!status) return null
 
   const notesURL = status.notesURL && isAbsoluteUrl(status.notesURL, ["https", "http"]) ? status.notesURL : null
+  // Optional in the wire shape; interpolation needs a string (the old
+  // template rendered an empty gap when absent, so "" preserves that).
+  const version = status.latestVersion ?? ""
 
   return (
-    <section aria-label="App update" className="border-b border-border bg-card px-6 py-3">
+    <section aria-label={t("updateBanner.region")} className="border-b border-border bg-card px-6 py-3">
       <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <StatusMessage className="text-foreground">
             {phase === "confirm" ? (
               <>
-                <span className="font-medium">Install version {status.latestVersion}?</span> CatchM will quit to
-                update, and Windows may ask for permission. Your meetings and settings are untouched.
+                <span className="font-medium">{t("updateBanner.confirmTitle", { version })}</span> {t("updateBanner.confirmBody")}
               </>
             ) : phase === "downloading" ? (
-              <>Downloading version {status.latestVersion}…</>
+              <>{t("updateBanner.downloading", { version })}</>
             ) : phase === "cancelling" ? (
-              <>Cancelling the download…</>
+              <>{t("updateBanner.cancelling")}</>
             ) : phase === "applying" ? (
-              <>Installing version {status.latestVersion} and restarting CatchM…</>
+              <>{t("updateBanner.applying", { version })}</>
             ) : (
               <>
-                <span className="font-medium">Version {status.latestVersion} is available</span>
-                {status.publishedAt ? ` (released ${formatDay(status.publishedAt)})` : ""}
+                <span className="font-medium">{t("updateBanner.available", { version })}</span>
+                {status.publishedAt ? t("updateBanner.released", { date: formatDay(status.publishedAt) }) : ""}
               </>
             )}
           </StatusMessage>
@@ -69,31 +73,31 @@ export function UpdateBanner() {
           {notesURL && (
             <Button asChild size="sm" variant="ghost">
               <a href={notesURL} target="_blank" rel="noreferrer" onClick={openExternal}>
-                <ExternalLink /> Release notes
-                <span className="sr-only"> (opens in your browser)</span>
+                <ExternalLink /> {t("updateBanner.releaseNotes")}
+                <span className="sr-only">{t("settings.pieces.opensInBrowser")}</span>
               </a>
             </Button>
           )}
           {phase === "confirm" ? (
             <>
               <Button size="sm" variant="outline" onClick={dismiss}>
-                Not now
+                {t("updateBanner.notNow")}
               </Button>
               <Button size="sm" onClick={() => void apply()}>
-                Install &amp; restart
+                {t("updateBanner.installRestart")}
               </Button>
             </>
           ) : phase === "downloading" || phase === "cancelling" ? (
             <Button size="sm" variant="outline" disabled={phase === "cancelling"} onClick={() => void cancel()}>
-              {phase === "cancelling" ? "Cancelling…" : "Cancel download"}
+              {phase === "cancelling" ? t("updateBanner.cancellingShort") : t("updateBanner.cancelDownload")}
             </Button>
           ) : phase === "idle" ? (
             <>
               <Button size="sm" variant="ghost" onClick={dismiss}>
-                Dismiss
+                {t("app.dismiss")}
               </Button>
               <Button size="sm" onClick={() => void download()}>
-                Download update
+                {t("updateBanner.downloadUpdate")}
               </Button>
             </>
           ) : null}

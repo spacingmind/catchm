@@ -1,3 +1,5 @@
+import i18next from "i18next"
+
 import type { Analysis, AnalysisAction, AnalysisDecision, AnalysisTopic } from "@/lib/api"
 import { formatDay } from "@/lib/format"
 
@@ -59,8 +61,8 @@ export function ownerName(a: Analysis, owner: string | undefined): string | unde
 
 /** "due Fri, Oct 3", or the deadline as it was said ("thứ Sáu tuần sau"). */
 export function dueLabel(action: AnalysisAction): string | undefined {
-  if (action.due) return `due ${formatDay(action.due)}`
-  if (action.due_text) return `due ${action.due_text}`
+  if (action.due) return i18next.t("insights.dueDate", { date: formatDay(action.due) })
+  if (action.due_text) return i18next.t("insights.dueDate", { date: action.due_text })
   return undefined
 }
 

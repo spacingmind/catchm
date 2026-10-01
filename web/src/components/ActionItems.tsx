@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react"
 import { CheckSquare } from "lucide-react"
+import i18next from "i18next"
+import { useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { FilterChip } from "@/components/FilterChip"
@@ -58,6 +60,7 @@ interface ActionItemsProps {
 }
 
 export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
+  const { t } = useTranslation()
   const [items, setItems] = useState<ActionItemRef[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -79,7 +82,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
         setError(null)
       })
       .catch((err: unknown) =>
-        setError(`Couldn’t load action items: ${errorText(err)}. Try again, or restart CatchM if it keeps failing.`),
+        setError(i18next.t("actionItems.loadError", { error: errorText(err) })),
       )
   }, [loadAttempt])
 
@@ -116,7 +119,9 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       flip(item.status ?? "")
       setRowError(
         key,
-        `Couldn’t ${status === "done" ? "mark this done" : "reopen this"}: ${errorText(err)}. Try again.`,
+        status === "done"
+          ? t("actionItems.toggleDoneError", { error: errorText(err) })
+          : t("actionItems.toggleReopenError", { error: errorText(err) }),
       )
     })
   }
@@ -125,7 +130,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
     getMeeting(item.meeting_id)
       .then(onOpenMeeting)
       .catch((err: unknown) =>
-        setError(`Couldn’t open “${item.meeting_title}”: ${errorText(err)}. It may have been deleted.`),
+        setError(t("actionItems.openError", { title: item.meeting_title, error: errorText(err) })),
       )
   }
 
@@ -183,7 +188,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
       </StatusMessage>
       {error && items === null && (
         <Button size="sm" variant="outline" onClick={retryLoad}>
-          Try again
+          {t("common.tryAgain")}
         </Button>
       )}
     </div>
@@ -191,7 +196,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
 
   const heading = (
     <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold text-balance">
-      <CheckSquare className="size-6" /> Action items
+      <CheckSquare className="size-6" /> {t("sidebar.actionItems")}
     </h1>
   )
 
@@ -203,7 +208,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
         {!error && (
           <div className="grid gap-3" aria-busy="true">
             <p className="sr-only" role="status">
-              Loading action items…
+              {t("viewSkeletons.loadingActionItems")}
             </p>
             {[0, 1, 2].map((i) => (
               <div key={i} className="rounded-xl border border-border bg-card p-6">
@@ -245,8 +250,12 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
             </button>
             {item.meeting_project && <ProjectBadge name={projectName(item.meeting_project)} />}
             {item.owner && <Badge variant="outline">{item.owner}</Badge>}
-            {item.due && <span className={overdue ? "text-destructive" : undefined}>due {formatDay(item.due)}</span>}
-            {overdue && <Badge variant="destructive">Overdue</Badge>}
+            {item.due && (
+              <span className={overdue ? "text-destructive" : undefined}>
+                {t("meetingDetail.due", { date: formatDay(item.due) })}
+              </span>
+            )}
+            {overdue && <Badge variant="destructive">{t("actionItems.overdue")}</Badge>}
           </div>
           <StatusMessage tone="error" className="pl-7 text-xs break-words">
             {rowErrors[key]}
@@ -267,34 +276,32 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
 
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
-          <p className="text-lg font-medium">No action items yet.</p>
-          <p className="mt-1 text-sm text-pretty text-muted-foreground">
-            Action items appear after you create a summary for a meeting. Open a meeting and choose “Create summary &amp; action items”.
-          </p>
+          <p className="text-lg font-medium">{t("meetingDetail.noActionsYet")}</p>
+          <p className="mt-1 text-sm text-pretty text-muted-foreground">{t("actionItems.emptyBody")}</p>
         </div>
       ) : (
         <div className="grid gap-3">
           <div className="grid gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <SegmentedControl
-                label="Grouping"
+                label={t("actionItems.grouping")}
                 value={view}
                 onChange={setView}
                 options={[
-                  { value: "grouped", label: "By meeting" },
-                  { value: "by-due", label: "By due date" },
+                  { value: "grouped", label: t("actionItems.byMeeting") },
+                  { value: "by-due", label: t("actionItems.byDueDate") },
                 ]}
               />
               {filtersActive && (
                 <Button size="sm" variant="ghost" onClick={clearFilters}>
-                  Clear filters
+                  {t("meetingList.clearFilters")}
                 </Button>
               )}
             </div>
             {projects.length > 0 && (
               <div role="group" aria-labelledby={projectLabelId} className="flex flex-wrap items-center gap-2">
                 <span id={projectLabelId} className="text-xs font-medium text-muted-foreground">
-                  Project
+                  {t("meetingList.projectLabel")}
                 </span>
                 {projects.map(([key, spelling]) => {
                   const name = projectName(spelling)
@@ -319,7 +326,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
             {owners.length > 0 && (
               <div role="group" aria-labelledby={ownerLabelId} className="flex flex-wrap items-center gap-2">
                 <span id={ownerLabelId} className="text-xs font-medium text-muted-foreground">
-                  Owner
+                  {t("actionItems.owner")}
                 </span>
                 {owners.map((o) => (
                   <FilterChip
@@ -335,7 +342,7 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
             {meetings.length > 0 && (
               <div role="group" aria-labelledby={meetingLabelId} className="flex flex-wrap items-center gap-2">
                 <span id={meetingLabelId} className="text-xs font-medium text-muted-foreground">
-                  Meeting
+                  {t("actionItems.meeting")}
                 </span>
                 {meetings.map((m) => (
                   <FilterChip
@@ -357,9 +364,9 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
 
           {visibleCount === 0 ? (
             <div className="grid justify-items-center gap-3 rounded-xl border border-dashed border-border px-6 py-10 text-center">
-              <p className="text-sm text-muted-foreground">No action items match these filters.</p>
+              <p className="text-sm text-muted-foreground">{t("actionItems.noMatches")}</p>
               <Button size="sm" variant="outline" onClick={clearFilters}>
-                Clear filters
+                {t("meetingList.clearFilters")}
               </Button>
             </div>
           ) : view === "grouped" ? (
@@ -374,11 +381,11 @@ export function ActionItems({ onOpenMeeting }: ActionItemsProps) {
           )}
 
           {closed.length > 0 && openCount === 0 && (
-            <p className="pt-2 text-sm font-medium text-muted-foreground">All caught up.</p>
+            <p className="pt-2 text-sm font-medium text-muted-foreground">{t("actionItems.allCaughtUp")}</p>
           )}
           {closed.length > 0 && (
             <section className="grid gap-2">
-              <h2 className="pt-2 text-sm font-medium text-muted-foreground">Done</h2>
+              <h2 className="pt-2 text-sm font-medium text-muted-foreground">{t("actionItems.done")}</h2>
               {closed.map(renderItem)}
             </section>
           )}

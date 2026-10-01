@@ -1,3 +1,4 @@
+import i18next from "i18next"
 import { useState } from "react"
 
 import { ApiError, findFlows, RefineError, type MeetingAnalysis } from "@/lib/api"
@@ -16,20 +17,20 @@ function findFlowsErrorText(err: unknown): string {
   if (err instanceof RefineError) {
     switch (err.kind) {
       case "summary_not_ready":
-        return `${sentence(raw)} You can change this in Settings → Summaries.`
+        return i18next.t("insights.flowsNotReady", { reason: sentence(raw) })
       case "quota_exceeded": {
-        const after = err.reset_at ? formatDateTime(err.reset_at) : "tomorrow"
-        return `Today’s free AI requests are used up. Try again after ${after}, or switch to “On this computer” in Settings → Summaries.`
+        const after = err.reset_at ? formatDateTime(err.reset_at) : i18next.t("meetingDetail.tomorrow")
+        return i18next.t("insights.flowsQuota", { after })
       }
       case "summary_failed":
-        return "CatchM couldn’t look for processes this time. Try again in a moment."
+        return i18next.t("insights.flowsFailed")
       case "consent_required":
         return sentence(raw)
     }
   }
-  if (err instanceof ApiError && err.status === 404) return "This meeting no longer exists. Go back to your meetings."
+  if (err instanceof ApiError && err.status === 404) return i18next.t("meetingDetail.refineGone")
   if (err instanceof ApiError && err.status === 409) return sentence(raw)
-  return `Couldn’t look for processes: ${sentence(raw)} Try again.`
+  return i18next.t("insights.flowsGeneric", { reason: sentence(raw) })
 }
 
 export interface FindFlowsState {
@@ -63,13 +64,7 @@ export function useFindFlows(meetingId: string, onResult: (r: MeetingAnalysis) =
       .then((r) => {
         onResult(r)
         const n = r.analysis.flows?.length ?? 0
-        setAnnouncement(
-          n === 0
-            ? "No step-by-step process was found in this meeting."
-            : n === 1
-              ? "Found 1 process."
-              : `Found ${n} processes.`,
-        )
+        setAnnouncement(i18next.t("insights.flowsFound", { count: n }))
       })
       .catch((err: unknown) => {
         setError(findFlowsErrorText(err))

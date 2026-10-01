@@ -1,4 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
+import i18next from "i18next"
+import { useTranslation } from "react-i18next"
 import { AudioLines, CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -70,7 +72,10 @@ const CLOUD_DEFAULT_LIMIT = 5
 
 /** Soniox's async transcription rate. */
 const SONIOX_RATE_PER_HOUR = 0.1
-const SONIOX_PRIVACY = "The audio is uploaded to Soniox, processed, and deleted right after."
+/** Shown next to the estimated cost in the Soniox confirm dialog. */
+function sonioxPrivacy(): string {
+  return i18next.t("meetingDetail.sonioxPrivacy")
+}
 
 /** The meeting's length in seconds (0 while live). */
 function meetingSeconds(m: Meeting): number {
@@ -82,12 +87,14 @@ function meetingSeconds(m: Meeting): number {
 
 /** "about $0.05" for a Soniox pass over the recording. */
 function sonioxCost(m: Meeting): string {
-  return `about $${((meetingSeconds(m) / 3600) * SONIOX_RATE_PER_HOUR).toFixed(2)}`
+  const cost = ((meetingSeconds(m) / 3600) * SONIOX_RATE_PER_HOUR).toFixed(2)
+  return i18next.t("meetingDetail.sonioxCost", { cost })
 }
 
 /** What "Create summary & action items" does, shown next to the button. */
-const SUMMARY_HELP =
-  "CatchM listens to the whole recording again for a more accurate transcript, then the AI writes the summary, decisions and action items. It takes a few minutes, so keep this page open."
+function summaryHelp(): string {
+  return i18next.t("meetingDetail.summaryHelp")
+}
 
 /** A refine failure in plain words, with what to do next. Summary
  *  failures carry a `kind` (RefineError); the rest are the raw messages
@@ -99,22 +106,23 @@ function refineErrorText(err: unknown): string {
   if (err instanceof RefineError) {
     switch (err.kind) {
       case "summary_not_ready":
-        return `Summaries aren’t set up yet. ${sentence(raw)} Fix this in Settings → Summaries, then try again.`
+        return i18next.t("meetingDetail.refineNotReady", { reason: sentence(raw) })
       case "quota_exceeded": {
-        const after = err.reset_at ? formatDateTime(err.reset_at) : "tomorrow"
-        return `Today’s free summaries are used up. Try again after ${after}, or switch to “On this computer” in Settings → Summaries.`
+        const after = err.reset_at ? formatDateTime(err.reset_at) : i18next.t("meetingDetail.tomorrow")
+        return i18next.t("meetingDetail.refineQuota", { after })
       }
       case "summary_failed":
-        return "CatchM couldn’t write the summary this time. Try again in a moment."
+        return i18next.t("meetingDetail.refineFailed")
     }
   }
-  if (err instanceof ApiError && err.status === 404) return "This meeting no longer exists. Go back to your meetings."
-  if (/still active/i.test(raw)) return "This meeting is still recording. End it first, then create the summary."
-  if (/no audio/i.test(raw)) return "This meeting has no saved recording, so a summary can’t be created."
+  if (err instanceof ApiError && err.status === 404) return i18next.t("meetingDetail.refineGone")
+  // Codes, not message text: the message is already translated.
+  if (err instanceof ApiError && err.code === "meeting_active") return i18next.t("meetingDetail.refineStillRecording")
+  if (err instanceof ApiError && err.code === "no_audio") return i18next.t("meetingDetail.refineNoAudio")
   if (/whisper|inference|connection refused|dial tcp/i.test(raw)) {
-    return "Transcription on this computer (the Whisper server) isn’t responding. Check Settings → Transcription, then try again."
+    return i18next.t("meetingDetail.refineWhisperDown")
   }
-  return `Couldn’t create the summary: ${sentence(raw)} Try again.`
+  return i18next.t("meetingDetail.refineGeneric", { reason: sentence(raw) })
 }
 
 /** Load a whole (ended) transcript by walking the cursor until a page
@@ -180,6 +188,7 @@ function Section({ title, icon, children }: { title: string; icon?: ReactNode; c
 }
 
 export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = onBack }: MeetingDetailProps) {
+  const { t } = useTranslation()
   const [meeting, setMeeting] = useState<Meeting | null>(initialMeeting ?? null)
   const [refining, setRefining] = useState(false)
   // Page-level errors (load, refine, action-item toggle). Rename/delete
@@ -223,8 +232,8 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const summaryAnnouncement = useAnnounceChange(
     summaryStatus
       ? summaryStatus.ready
-        ? "Summaries are set up. You can create the summary now."
-        : "Summaries aren’t set up yet."
+        ? t("meetingDetail.summariesReady")
+        : t("meetingDetail.summariesNotReady")
       : null,
   )
 
@@ -427,7 +436,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     if (renaming) return
     const title = renameTitle.trim()
     if (!title) {
-      setRenameError("Title is required.")
+      setRenameError(t("meetingDetail.titleRequired"))
       renameInputRef.current?.focus()
       return
     }
@@ -438,7 +447,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       setMeeting(m)
       setRenameOpen(false)
     } catch (err) {
-      setRenameError(`${sentence(errorText(err))} Try again.`)
+      setRenameError(t("meetingDetail.renameFailed", { reason: sentence(errorText(err)) }))
     } finally {
       setRenaming(false)
     }
@@ -457,7 +466,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       await deleteMeeting(meetingId)
       onDeleted()
     } catch (err) {
-      setDeleteError(`${sentence(errorText(err))} Try again.`)
+      setDeleteError(t("meetingDetail.deleteFailed", { reason: sentence(errorText(err)) }))
       setDeleting(false)
     }
   }
@@ -525,7 +534,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       await updateConfig({ summary: { provider: "catchm-cloud" } })
       afterCloudChosen()
     } catch (err) {
-      setCloudError(`Couldn’t switch to CatchM Cloud: ${sentence(errorText(err))} Try again.`)
+      setCloudError(t("meetingDetail.cloudSwitchFailed", { reason: sentence(errorText(err)) }))
     } finally {
       setCloudSaving(false)
     }
@@ -545,14 +554,14 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     })
     updateActionItemStatus(meetingId, index, status).catch((err: unknown) => {
       setMeeting(prev)
-      setError(`Couldn’t update “${item.text}”: ${sentence(errorText(err))} Try again.`)
+      setError(t("meetingDetail.actionUpdateFailed", { item: item.text, reason: sentence(errorText(err)) }))
     })
   }
 
   if (!meeting && !error) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-8" aria-busy="true">
-        <StatusMessage className="sr-only">Loading meeting…</StatusMessage>
+        <StatusMessage className="sr-only">{t("meetingDetail.loadingMeeting")}</StatusMessage>
         <Skeleton className="mb-4 h-9 w-32" />
         <Skeleton className="mb-6 h-8 w-3/5" />
         <Skeleton className="mb-2 h-4 w-2/5" />
@@ -576,10 +585,10 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     return (
       <div className="mx-auto max-w-3xl px-6 py-8">
         <Button variant="ghost" onClick={onBack}>
-          <span aria-hidden="true">←</span> Back to meetings
+          <span aria-hidden="true">←</span> {t("meetingDetail.backToMeetings")}
         </Button>
         <StatusMessage tone="error" className="mt-4">
-          Couldn’t load this meeting{error ? ` (${error})` : ""}. Go back and open it again.
+          {t("meetingDetail.loadFailedWith", { error: error ? ` (${error})` : "" })}
         </StatusMessage>
       </div>
     )
@@ -594,8 +603,8 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // ended, unsummarized meeting leads with the call to action.
   const showSummaryCta = !refined && Boolean(meeting.ended_at)
   const findHint = meeting.ended_at
-    ? "Create a summary to find them."
-    : "End the meeting, then create a summary to find them."
+    ? t("meetingDetail.findHintEnded")
+    : t("meetingDetail.findHintLive")
   const summaryButton = (
     <Button onClick={handleRefine} disabled={refining} variant={refined ? "outline" : "default"}>
       {refining ? (
@@ -603,7 +612,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       ) : (
         !refined && <Sparkles aria-hidden="true" />
       )}
-      {refining ? "Creating summary…" : refined ? "Redo summary" : "Create summary & action items"}
+      {refining ? t("meetingDetail.creatingSummary") : refined ? t("meetingDetail.redoSummary") : t("meetingDetail.createSummary")}
     </Button>
   )
 
@@ -637,7 +646,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     // The graphs get more room than the reading width text tabs keep.
     <div className={`mx-auto px-6 py-8 ${tab === "mindmap" || tab === "flows" ? "max-w-6xl" : "max-w-3xl"}`}>
       <Button variant="ghost" onClick={onBack} className="mb-4">
-        <span aria-hidden="true">←</span> Back to meetings
+        <span aria-hidden="true">←</span> {t("meetingDetail.backToMeetings")}
       </Button>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -646,7 +655,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             <h1 className="min-w-0 text-balance break-words text-2xl font-semibold">{meeting.title}</h1>
             {refined && (
               <Badge variant="secondary" className="mt-1.5 shrink-0">
-                Summary ready
+                {t("meetingDetail.summaryReadyBadge")}
               </Badge>
             )}
             <Button
@@ -654,7 +663,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               size="icon"
               className="mt-0.5 size-7 shrink-0 text-muted-foreground"
               onClick={openRename}
-              aria-label="Rename meeting"
+              aria-label={t("meetingDetail.renameAria")}
             >
               <Pencil aria-hidden="true" className="size-4" />
             </Button>
@@ -665,7 +674,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         <div className="flex gap-2">
           {refined && summaryButton}
           <Button variant="destructive" onClick={openDelete}>
-            <Trash2 aria-hidden="true" /> Delete
+            <Trash2 aria-hidden="true" /> {t("meetingDetail.delete")}
           </Button>
         </div>
       </div>
@@ -682,10 +691,10 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             }}
           >
             <AudioLines aria-hidden="true" />
-            Improve with Soniox
+            {t("meetingDetail.improveButton")}
           </Button>
           <p id="improve-soniox-desc" className="min-w-0 flex-1 text-sm text-muted-foreground">
-            Adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.
+            {t("meetingDetail.improveDesc")}
           </p>
         </div>
       )}
@@ -700,7 +709,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             variant="outline"
             onClick={() => navigate({ name: "settings", section: "summaries" })}
           >
-            Open settings
+            {t("statusRow.openSettings")}
           </Button>
         )}
       </div>
@@ -708,23 +717,23 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       {meeting.refined_with === "soniox" && (
         <StatusMessage className="mb-4">
           {improveSkipped
-            ? `Transcript improved with Soniox. The summary wasn’t rewritten: ${improveSkipped}`
-            : "Transcript improved with Soniox."}
+            ? t("meetingDetail.improvedSkipped", { reason: improveSkipped })
+            : t("meetingDetail.improved")}
         </StatusMessage>
       )}
       {refined && (
         <StatusMessage className="mb-4">
-          {refining ? "Creating a new summary. This takes a few minutes, so keep this page open." : null}
+          {refining ? t("meetingDetail.creatingNewSummary") : null}
         </StatusMessage>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6 flex w-fit max-w-full overflow-x-auto">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="mindmap">Mind map</TabsTrigger>
-          <TabsTrigger value="flows">Flows</TabsTrigger>
+          <TabsTrigger value="overview">{t("meetingDetail.tabOverview")}</TabsTrigger>
+          <TabsTrigger value="mindmap">{t("meetingDetail.tabMindmap")}</TabsTrigger>
+          <TabsTrigger value="flows">{t("meetingDetail.tabFlows")}</TabsTrigger>
           <TabsTrigger value="transcript">
-            Transcript
+            {t("meetingDetail.tabTranscript")}
             {meeting.refined_with === "soniox" && (
               <Badge variant="secondary">
                 Soniox
@@ -741,12 +750,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                   <CardTitle className="text-lg font-semibold">
                     <h2 className="flex items-center gap-2">
                       <Sparkles aria-hidden="true" className="size-4" />
-                      Summaries aren’t set up yet
+                      {t("meetingDetail.setupTitle")}
                     </h2>
                   </CardTitle>
                   <CardDescription className="text-pretty">
                     {summaryStatus.reason && `${sentence(summaryStatus.reason)} `}
-                    Choose how CatchM writes the summary, decisions and action items. You only do this once.
+                    {t("meetingDetail.setupDesc")}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3">
@@ -755,11 +764,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                       <div>
                         <h3 className="flex items-center gap-2 text-sm font-medium">
                           <HardDrive aria-hidden="true" className="size-4" />
-                          On this computer
+                          {t("labels.engine.whisper")}
                         </h3>
                         <p id="summary-setup-local-desc" className="mt-1 text-sm text-muted-foreground">
-                          Free and private. One-time download of{" "}
-                          {localGb != null ? `about ${formatGb(localGb)}` : "a few GB"}.
+                          {localGb != null
+                            ? t("meetingDetail.localDescGb", { size: formatGb(localGb) })
+                            : t("meetingDetail.localDescFewGb")}
                         </p>
                       </div>
                       <Button
@@ -767,7 +777,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                         onClick={() => navigate({ name: "settings", section: "summaries" })}
                         aria-describedby="summary-setup-local-desc"
                       >
-                        Set up on this computer
+                        {t("meetingDetail.setupLocalButton")}
                       </Button>
                     </li>
                     {offerCloud && (
@@ -775,11 +785,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                         <div>
                           <h3 className="flex items-center gap-2 text-sm font-medium">
                             <Cloud aria-hidden="true" className="size-4" />
-                            CatchM Cloud
+                            {t("meetingDetail.catchmCloud")}
                           </h3>
                           <p id="summary-setup-cloud-desc" className="mt-1 text-sm text-muted-foreground">
-                            Free, {cloud?.limit ?? CLOUD_DEFAULT_LIMIT} per day, needs a CatchM account.
-                            {cloudNeedsLogin && " Log in or sign up on the Cloud sync page, then come back here."}
+                            {t("meetingDetail.cloudDesc", { count: cloud?.limit ?? CLOUD_DEFAULT_LIMIT })}
+                            {cloudNeedsLogin && t("meetingDetail.cloudLoginHint")}
                           </p>
                         </div>
                         {cloudNeedsLogin ? (
@@ -799,7 +809,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                             disabled={cloudSaving}
                             aria-describedby="summary-setup-cloud-desc"
                           >
-                            {cloudSaving ? "Saving…" : "Use CatchM Cloud"}
+                            {cloudSaving ? t("meetingOrganize.saving") : t("meetingDetail.useCloud")}
                           </Button>
                         )}
                       </li>
@@ -813,7 +823,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                     className="h-auto justify-self-start px-0 text-muted-foreground"
                     onClick={() => void handleRefine()}
                   >
-                    Try anyway
+                    {t("meetingDetail.tryAnyway")}
                   </Button>
                 </CardContent>
               </Card>
@@ -823,17 +833,17 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                   <CardTitle className="text-lg font-semibold">
                     <h2 className="flex items-center gap-2">
                       <Sparkles aria-hidden="true" className="size-4" />
-                      Get a summary of this meeting
+                      {t("meetingDetail.getCtaTitle")}
                     </h2>
                   </CardTitle>
-                  <CardDescription className="text-pretty">{SUMMARY_HELP}</CardDescription>
+                  <CardDescription className="text-pretty">{summaryHelp()}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {checkingSetup ? <Skeleton aria-hidden="true" className="h-8 w-60" /> : summaryButton}
                 </CardContent>
               </Card>
             ))}
-          <Section title="Decisions" icon={<GitBranch aria-hidden="true" className="size-4" />}>
+          <Section title={t("meetingDetail.sectionDecisions")} icon={<GitBranch aria-hidden="true" className="size-4" />}>
             {meeting.decisions && meeting.decisions.length > 0 ? (
               <ul className="grid gap-2 text-base">
                 {meeting.decisions.map((d, i) => (
@@ -845,12 +855,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {refined ? "No decisions were found in this meeting." : `No decisions yet. ${findHint}`}
+                {refined ? t("meetingDetail.noDecisionsFound") : `${t("meetingDetail.noDecisionsYet")} ${findHint}`}
               </p>
             )}
           </Section>
 
-          <Section title="Action items" icon={<CheckSquare aria-hidden="true" className="size-4" />}>
+          <Section title={t("sidebar.actionItems")} icon={<CheckSquare aria-hidden="true" className="size-4" />}>
             {meeting.action_items && meeting.action_items.length > 0 ? (
               <ul className="grid gap-3">
                 {meeting.action_items.map((a, i) => (
@@ -872,7 +882,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                       </label>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         {a.owner && <Badge variant="outline">{a.owner}</Badge>}
-                        {a.due && <span>due {formatDay(a.due)}</span>}
+                        {a.due && <span>{t("meetingDetail.due", { date: formatDay(a.due) })}</span>}
                         {sourceLink(actionEvidence(i, a.text))}
                       </div>
                     </div>
@@ -882,33 +892,33 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             ) : (
               <p className="text-sm text-muted-foreground">
                 {refined
-                  ? "No action items were found in this meeting."
-                  : `No action items yet. ${findHint}`}
+                  ? t("meetingDetail.noActionsFound")
+                  : `${t("meetingDetail.noActionsYet")} ${findHint}`}
               </p>
             )}
           </Section>
 
-          <Section title="Summary">
+          <Section title={t("meetingDetail.sectionSummary")}>
             {meeting.summary ? (
               <p className="break-words text-base">{meeting.summary}</p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {refined ? "No summary was written for this meeting." : showSummaryCta
-                  ? "No summary yet. Create one with the button above."
-                  : "No summary yet. End the meeting, then create one."}
+                {refined ? t("meetingDetail.noSummaryFound") : showSummaryCta
+                  ? t("meetingDetail.noSummaryCta")
+                  : t("meetingDetail.noSummaryEnd")}
               </p>
             )}
           </Section>
 
-          <Section title="Participants">
+          <Section title={t("meetingDetail.sectionParticipants")}>
             {meeting.participants && meeting.participants.length > 0 ? (
               <p className="break-words text-base">{meeting.participants.join(", ")}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">No participants found.</p>
+              <p className="text-sm text-muted-foreground">{t("meetingDetail.noParticipants")}</p>
             )}
           </Section>
 
-          <Section title="Notes">
+          <Section title={t("meetingDetail.sectionNotes")}>
             {meeting.notes && meeting.notes.length > 0 ? (
               <ul className="grid gap-1 text-base">
                 {meeting.notes.map((n, i) => (
@@ -918,7 +928,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No notes.</p>
+              <p className="text-sm text-muted-foreground">{t("meetingDetail.noNotes")}</p>
             )}
           </Section>
         </TabsContent>
@@ -965,21 +975,21 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           {transcriptError ? (
             <div className="grid justify-items-start gap-3">
               <StatusMessage tone="error">
-                Couldn’t load the transcript ({transcriptError}). Try again.
+                {t("meetingDetail.transcriptLoadFailed", { error: transcriptError })}
               </StatusMessage>
               <Button size="sm" variant="outline" onClick={retryTranscript}>
-                Try again
+                {t("common.tryAgain")}
               </Button>
             </div>
           ) : transcript === null ? (
             <div className="grid gap-2" aria-busy="true">
-              <StatusMessage className="sr-only">Loading transcript…</StatusMessage>
+              <StatusMessage className="sr-only">{t("meetingDetail.loadingTranscript")}</StatusMessage>
               {[0, 1, 2, 3].map((i) => (
                 <Skeleton key={i} className="h-4 w-full" />
               ))}
             </div>
           ) : transcript.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No transcript was captured.</p>
+            <p className="text-sm text-muted-foreground">{t("meetingDetail.noTranscript")}</p>
           ) : (
             <div className="grid gap-6">
               {groups.map((g, gi) => (
@@ -1024,11 +1034,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         <DialogContent>
           <form onSubmit={handleRename} noValidate>
             <DialogHeader>
-              <DialogTitle>Rename meeting</DialogTitle>
-              <DialogDescription>Give this meeting a new title.</DialogDescription>
+              <DialogTitle>{t("meetingDetail.renameTitle")}</DialogTitle>
+              <DialogDescription>{t("meetingDetail.renameDesc")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-1.5 py-4">
-              <Label htmlFor="rename-title">Title</Label>
+              <Label htmlFor="rename-title">{t("startMeeting.title")}</Label>
               <Input
                 ref={renameInputRef}
                 id="rename-title"
@@ -1052,7 +1062,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             <DialogFooter>
               <Button type="submit" disabled={renaming} aria-busy={renaming || undefined}>
                 {renaming && <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />}
-                {renaming ? "Renaming…" : "Rename meeting"}
+                {renaming ? t("meetingDetail.renaming") : t("meetingDetail.renameMeeting")}
               </Button>
             </DialogFooter>
           </form>
@@ -1065,7 +1075,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           setConsentOpen(open)
           if (!open && !consentAccepted.current) {
             setError(
-              "No summary was created. CatchM Cloud needs your OK before it gets the transcript. To keep everything on this computer, switch to “On this computer” in Settings → Summaries.",
+              t("meetingDetail.consentDeclined"),
             )
             setNeedsSetup(true)
           }
@@ -1090,19 +1100,19 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           if (!next && improving) return
           setImproveOpen(next)
         }}
-        title="Improve this transcript with Soniox?"
+        title={t("meetingDetail.improveConfirmTitle")}
         description={
           <>
             <span className="block">
-              CatchM listens to the recording again and adds who said what (speaker names) and a more accurate
-              transcript, then rewrites the summary.
+              {t("meetingDetail.improveConfirmBody")}
             </span>
             <span className="mt-2 block">
-              Estimated cost: {sonioxCost(meeting)} ($0.10 per hour). {SONIOX_PRIVACY}
+              {t("meetingDetail.estimatedCost", { cost: sonioxCost(meeting) })}{" "}
+              {sonioxPrivacy()}
             </span>
           </>
         }
-        confirmLabel={improving ? "Improving…" : "Improve with Soniox"}
+        confirmLabel={improving ? t("meetingDetail.improving") : t("meetingDetail.improveButton")}
         pending={improving}
         error={improveError}
         onConfirm={() => void handleImprove()}
@@ -1111,9 +1121,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title="Delete meeting?"
-        description={<>This permanently removes “{meeting.title}” and its transcript. This can’t be undone.</>}
-        confirmLabel={deleting ? "Deleting…" : "Delete meeting"}
+        title={t("meetingDetail.deleteConfirmTitle")}
+        description={<>{t("meetingDetail.deleteConfirmBody", { title: meeting.title })}</>}
+        confirmLabel={deleting ? t("meetingDetail.deleting") : t("meetingDetail.deleteMeeting")}
         destructive
         pending={deleting}
         error={deleteError}

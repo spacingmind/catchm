@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next"
+
 import { StatusMessage } from "@/components/StatusMessage"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -24,9 +26,10 @@ function CardLines() {
 
 /** Same shape as MeetingDetail's own loading state. */
 export function MeetingDetailSkeleton() {
+  const { t } = useTranslation()
   return (
     <div className="mx-auto max-w-3xl px-6 py-8" aria-busy="true">
-      <StatusMessage className="sr-only">Loading meeting…</StatusMessage>
+      <StatusMessage className="sr-only">{t("viewSkeletons.loadingMeeting")}</StatusMessage>
       <Skeleton className="mb-4 h-9 w-32" />
       <Skeleton className="mb-6 h-8 w-3/5" />
       <Skeleton className="mb-2 h-4 w-2/5" />
@@ -41,9 +44,10 @@ export function MeetingDetailSkeleton() {
 
 /** Same shape as ActionItems' own loading state. */
 export function ActionItemsSkeleton() {
+  const { t } = useTranslation()
   return (
     <div className="mx-auto max-w-3xl px-6 py-8" aria-busy="true">
-      <StatusMessage className="sr-only">Loading action items…</StatusMessage>
+      <StatusMessage className="sr-only">{t("viewSkeletons.loadingActionItems")}</StatusMessage>
       <Skeleton className="mb-6 h-8 w-48" />
       <div className="grid gap-3">
         {[0, 1, 2].map((i) => (
@@ -64,9 +68,10 @@ export function ActionItemsSkeleton() {
 
 /** Settings' two-column layout: section nav on the left, a form card. */
 export function SettingsSkeleton() {
+  const { t } = useTranslation()
   return (
     <div className="mx-auto flex max-w-4xl gap-8 px-6 py-8" aria-busy="true">
-      <StatusMessage className="sr-only">Loading settings…</StatusMessage>
+      <StatusMessage className="sr-only">{t("viewSkeletons.loadingSettings")}</StatusMessage>
       <div className="grid w-52 shrink-0 content-start gap-1">
         <Skeleton className="mb-4 h-8 w-32" />
         {[0, 1, 2, 3].map((i) => (

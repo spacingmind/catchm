@@ -213,7 +213,7 @@ func (s *Server) handleMeetingAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := s.surface.Store().ReadAnalysis(id)
 	if errors.Is(err, meeting.ErrNoAnalysis) {
-		httpError(w, http.StatusNotFound, "This meeting has no analysis yet. Create a summary to make one.")
+		httpErrorCode(w, http.StatusNotFound, "summary_required", "This meeting has no analysis yet. Create a summary to make one.")
 		return
 	}
 	if err != nil {
@@ -253,7 +253,7 @@ func (s *Server) handleFindFlows(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	noAnalysis := func() { httpError(w, http.StatusConflict, "Create a summary first.") }
+	noAnalysis := func() { httpErrorCode(w, http.StatusConflict, "summary_required", "Create a summary first.") }
 	if _, err := s.surface.Store().ReadAnalysis(id); errors.Is(err, meeting.ErrNoAnalysis) {
 		noAnalysis()
 		return

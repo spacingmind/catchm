@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import i18next from "i18next"
+import { useTranslation } from "react-i18next"
 import { Folder, FolderOpen, ListVideo, Mic, Pencil, Search, X } from "lucide-react"
 
 import logo from "@/assets/logo.png"
@@ -13,11 +15,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { listMeetings, plainTags, projectKey, projectOf, type Meeting } from "@/lib/api"
-import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
+import { formatDateRange, formatDateTime, formatDay, formatMonth } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { findProject, readGroupBy, useProjects, writeGroupBy, type MeetingGroupBy } from "@/lib/projects"
 import { MEETINGS, navigate } from "@/lib/route"
-import { pluralize } from "@/lib/utils"
 
 interface MeetingListProps {
   /** Show only this project's meetings (from #/meetings?project=…). */
@@ -40,8 +41,6 @@ type SearchResult = { q: string; attempt: number; meetings: Meeting[] | null; er
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-const monthFmt = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" })
-
 /** Local midnight of the given time. */
 function dayStart(t: Date): number {
   const d = new Date(t)
@@ -52,13 +51,13 @@ function dayStart(t: Date): number {
 /** Date group heading: Today, Yesterday, Last 7 days, else the month. */
 function dateGroup(iso: string, today: number): string {
   const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return "Earlier"
+  if (Number.isNaN(d.getTime())) return i18next.t("meetingList.earlier")
   const day = dayStart(d)
   const daysAgo = Math.round((today - day) / 86_400_000)
-  if (daysAgo <= 0) return "Today"
-  if (daysAgo === 1) return "Yesterday"
-  if (daysAgo < 7) return "Last 7 days"
-  return monthFmt.format(d)
+  if (daysAgo <= 0) return i18next.t("meetingList.today")
+  if (daysAgo === 1) return i18next.t("meetingList.yesterday")
+  if (daysAgo < 7) return i18next.t("meetingList.last7Days")
+  return formatMonth(d)
 }
 
 interface MeetingGroup {
@@ -81,7 +80,7 @@ function groupMeetings(ms: readonly Meeting[], by: MeetingGroupBy, canonical: (n
       const p = projectOf(m.tags)
       key = p ? `p:${projectKey(p)}` : "none"
       project = p ? canonical(p) : undefined
-      label = project ?? "No project"
+      label = project ?? i18next.t("meetingList.noProject")
     } else {
       label = dateGroup(m.started_at, today)
       key = `d:${label}`
@@ -97,6 +96,7 @@ function groupMeetings(ms: readonly Meeting[], by: MeetingGroupBy, canonical: (n
 }
 
 export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeeting, onImportRecording }: MeetingListProps) {
+  const { t, i18n } = useTranslation()
   const [meetings, setMeetings] = useState<Meeting[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -162,7 +162,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
 
   const tagUniverse = useMemo(() => {
     const tags = new Set<string>()
-    for (const m of meetings ?? []) for (const t of plainTags(m.tags)) tags.add(t)
+    for (const m of meetings ?? []) for (const tg of plainTags(m.tags)) tags.add(tg)
     return [...tags].sort()
   }, [meetings])
 
@@ -176,9 +176,13 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
   }, [base, activeTag, project])
   // A project filter shows one project, so it's always by date.
   const effectiveGroupBy: MeetingGroupBy = project ? "date" : groupBy
+  // Group headers ("Today", month names) are translated inside
+  // groupMeetings, so a language switch must regroup too.
+  const language = i18n.language
   const groups = useMemo(
     () => groupMeetings(visibleMeetings, effectiveGroupBy, canonical),
-    [visibleMeetings, effectiveGroupBy, canonical],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleMeetings, effectiveGroupBy, canonical, language],
   )
 
   const listEmpty = meetings !== null && meetings.length === 0 && !trimmedQuery
@@ -187,9 +191,9 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
     meetings !== null && !listEmpty && filtered && !searching && !searchError && visibleMeetings.length === 0
 
   const error = searchError
-    ? `Search failed: ${searchError}. Try again, or restart CatchM if it keeps failing.`
+    ? t("meetingList.searchFailed", { error: searchError })
     : listError
-      ? `Couldn’t load meetings: ${listError}. Try again, or restart CatchM if it keeps failing.`
+      ? t("meetingList.loadFailed", { error: listError })
       : null
   const retry = () => {
     if (searchError) {
@@ -206,7 +210,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
   }
 
   const onRenamed = (to: string, count: number) => {
-    setNotice(`Renamed to “${to}”. ${pluralize(count, "meeting")} updated.`)
+    setNotice(t("meetingList.renamed", { name: to, count }))
     refresh()
     if (project) navigate({ name: "meetings", project: to }, { replace: true })
   }
@@ -215,7 +219,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
     <div className="mx-auto max-w-3xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-balance">
-          <ListVideo aria-hidden="true" className="size-6" /> Meetings
+          <ListVideo aria-hidden="true" className="size-6" /> {t("meetingList.title")}
         </h1>
       </div>
 
@@ -231,15 +235,15 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
           {...noAutofill}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search meetings…"
+          placeholder={t("meetingList.searchPlaceholder")}
           className="pl-9"
-          aria-label="Search meetings"
+          aria-label={t("meetingList.searchAria")}
         />
       </div>
 
       {projectFilter && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Project</span>
+          <span className="text-xs font-medium text-muted-foreground">{t("meetingList.projectLabel")}</span>
           <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary pr-0.5 pl-2.5 text-[0.8rem] font-medium text-primary-foreground">
             <Folder aria-hidden="true" className="size-3.5 shrink-0" />
             <ProjectDot name={projectFilter} className="ring-1 ring-primary-foreground/60" />
@@ -247,21 +251,21 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
             <button
               type="button"
               onClick={() => navigate(MEETINGS)}
-              aria-label={`Clear project filter “${projectFilter}”`}
-              title="Show all meetings"
+              aria-label={t("meetingList.clearFilterAria", { project: projectFilter })}
+              title={t("meetingList.showAll")}
               className="grid size-5 cursor-pointer place-items-center rounded-full hover:bg-primary-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <X aria-hidden="true" className="size-3" />
             </button>
           </span>
           <Button size="sm" variant="ghost" onClick={() => setRenaming(projectFilter)}>
-            <Pencil aria-hidden="true" /> Rename project
+            <Pencil aria-hidden="true" /> {t("meetingList.renameProject")}
           </Button>
         </div>
       )}
 
       {tagUniverse.length > 0 && (
-        <div role="group" aria-label="Filter by tag" className="mb-4 flex flex-wrap items-center gap-2">
+        <div role="group" aria-label={t("meetingList.filterByTag")} className="mb-4 flex flex-wrap items-center gap-2">
           {tagUniverse.map((tag) => (
             <FilterChip
               key={tag}
@@ -277,15 +281,15 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
       {!project && meetings !== null && meetings.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <span id={groupLabelId} className="text-xs font-medium text-muted-foreground">
-            Group by
+            {t("meetingList.groupByLabel")}
           </span>
           <SegmentedControl
             labelledBy={groupLabelId}
             value={groupBy}
             onChange={setGroupBy}
             options={[
-              { value: "date", label: "Date" },
-              { value: "project", label: "Project" },
+              { value: "date", label: t("meetingList.groupByDate") },
+              { value: "project", label: t("meetingList.groupByProject") },
             ]}
           />
         </div>
@@ -301,7 +305,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
         </StatusMessage>
         {error && (
           <Button size="sm" variant="outline" onClick={retry}>
-            Try again
+            {t("common.tryAgain")}
           </Button>
         )}
       </div>
@@ -310,7 +314,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
         listError ? null : (
           <div className="grid gap-3" aria-busy="true">
             <p className="sr-only" role="status">
-              Loading meetings…
+              {t("meetingList.loading")}
             </p>
             {[0, 1, 2].map((i) => (
               <Card key={i}>
@@ -330,38 +334,36 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
       ) : listEmpty ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
           <img src={logo} alt="" width={64} height={64} className="mx-auto mb-4 size-16 rounded-xl" />
-          <p className="text-lg font-medium">No meetings yet.</p>
-          <p className="mt-1 text-sm text-pretty text-muted-foreground">
-            Start a meeting to capture the conversation, decisions, and follow-ups in one place.
-          </p>
+          <p className="text-lg font-medium">{t("meetingList.emptyTitle")}</p>
+          <p className="mt-1 text-sm text-pretty text-muted-foreground">{t("meetingList.emptyBody")}</p>
           {onStartMeeting && (
             <Button className="mt-6" onClick={onStartMeeting}>
-              <Mic /> Start meeting
+              <Mic /> {t("sidebar.startMeeting")}
             </Button>
           )}
           {onImportRecording && (
             <div className="mt-3">
               <Button variant="link" className="text-muted-foreground" onClick={onImportRecording}>
-                Import a recording you already have
+                {t("meetingList.importRecording")}
               </Button>
             </div>
           )}
         </div>
       ) : searching ? (
         <p role="status" className="py-8 text-center text-sm text-muted-foreground">
-          Searching…
+          {t("meetingList.searching")}
         </p>
       ) : noMatches ? (
         <div className="grid justify-items-center gap-3 py-8 text-center">
           <p role="status" className="text-sm text-muted-foreground">
             {trimmedQuery
-              ? "No meetings match your search."
+              ? t("meetingList.noMatchesSearch")
               : activeTag
-                ? "No meetings have this tag."
-                : "No meetings in this project."}
+                ? t("meetingList.noMatchesTag")
+                : t("meetingList.noMatchesProject")}
           </p>
           <Button size="sm" variant="outline" onClick={clearFilters}>
-            Clear filters
+            {t("meetingList.clearFilters")}
           </Button>
         </div>
       ) : (
@@ -378,7 +380,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
                     <button
                       type="button"
                       onClick={() => onOpenProject(g.project ?? "")}
-                      title={`Show only “${g.project}”`}
+                      title={t("meetingList.showOnly", { name: g.project })}
                       className="min-w-0 cursor-pointer truncate rounded-sm underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       {g.project}
@@ -390,7 +392,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
                 <span className="shrink-0 font-normal">
                   <span className="sr-only">, </span>
                   <span aria-hidden="true">· </span>
-                  {pluralize(g.meetings.length, "meeting")}
+                  {t("common.meetingCount", { count: g.meetings.length })}
                 </span>
               </h2>
               <ul className="grid gap-3">
@@ -420,6 +422,7 @@ export function MeetingList({ project, onOpenProject, onOpenMeeting, onStartMeet
  * a way into each one, and rename.
  */
 export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) => void }) {
+  const { t } = useTranslation()
   const projects = useProjects()
   const [renaming, setRenaming] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -427,11 +430,9 @@ export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) =
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="mb-2 flex items-center gap-2 text-2xl font-semibold text-balance">
-        <FolderOpen aria-hidden="true" className="size-6" /> Projects
+        <FolderOpen aria-hidden="true" className="size-6" /> {t("meetingList.projectsTitle")}
       </h1>
-      <p className="mb-6 text-sm text-pretty text-muted-foreground">
-        A project groups meetings that belong together. Choose a project to see its meetings.
-      </p>
+      <p className="mb-6 text-sm text-pretty text-muted-foreground">{t("meetingList.projectsIntro")}</p>
 
       <StatusMessage tone="success" className="mb-4">
         {notice}
@@ -440,7 +441,7 @@ export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) =
       {projects === null ? (
         <div className="grid gap-3" aria-busy="true">
           <p className="sr-only" role="status">
-            Loading projects…
+            {t("meetingList.loadingProjects")}
           </p>
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-16 w-full rounded-xl" />
@@ -448,11 +449,8 @@ export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) =
         </div>
       ) : projects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-16 text-center">
-          <p className="text-lg font-medium">No projects yet.</p>
-          <p className="mt-1 text-sm text-pretty text-muted-foreground">
-            To add one, open a meeting and choose a project next to its title. You can also pick a project when you start
-            or import a meeting.
-          </p>
+          <p className="text-lg font-medium">{t("meetingList.noProjectsTitle")}</p>
+          <p className="mt-1 text-sm text-pretty text-muted-foreground">{t("meetingList.noProjectsBody")}</p>
         </div>
       ) : (
         <ul className="grid gap-3">
@@ -472,7 +470,7 @@ export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) =
                       </button>
                     </CardTitle>
                     <CardDescription>
-                      {pluralize(p.meetings, "meeting")} · last one on {formatDay(p.last_meeting_at)}
+                      {t("meetingList.projectMeta", { count: p.meetings, date: formatDay(p.last_meeting_at) })}
                     </CardDescription>
                   </div>
                   {/* Above the stretched title link, so it stays its own target. */}
@@ -481,9 +479,9 @@ export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) =
                     size="sm"
                     className="relative z-10"
                     onClick={() => setRenaming(p.name)}
-                    aria-label={`Rename “${p.name}”`}
+                    aria-label={t("meetingList.renameAria", { name: p.name })}
                   >
-                    <Pencil aria-hidden="true" /> Rename
+                    <Pencil aria-hidden="true" /> {t("meetingList.rename")}
                   </Button>
                 </CardHeader>
               </Card>
@@ -498,7 +496,7 @@ export function AllProjects({ onOpenProject }: { onOpenProject: (name: string) =
         onOpenChange={(open) => {
           if (!open) setRenaming(null)
         }}
-        onRenamed={(to, count) => setNotice(`Renamed to “${to}”. ${pluralize(count, "meeting")} updated.`)}
+        onRenamed={(to, count) => setNotice(t("meetingList.renamed", { name: to, count }))}
       />
     </div>
   )
@@ -519,6 +517,7 @@ function MeetingRow({
   onOpen: (m: Meeting) => void
   canonical: (name: string) => string
 }) {
+  const { t } = useTranslation()
   const preview = previewLine(m)
   const project = projectOf(m.tags)
   return (
@@ -540,29 +539,29 @@ function MeetingRow({
             {!m.ended_at && (
               <Badge className="gap-1.5">
                 <span aria-hidden="true" className="size-1.5 motion-safe:animate-pulse rounded-full bg-current" />
-                Live
+                {t("meetingList.live")}
               </Badge>
             )}
           </div>
           <CardDescription>
-            {m.ended_at ? formatDateRange(m.started_at, m.ended_at) : `Started ${formatDateTime(m.started_at)}`}
+            {m.ended_at ? formatDateRange(m.started_at, m.ended_at) : t("meetingList.startedAt", { date: formatDateTime(m.started_at) })}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1.5">
           {preview && <p className="truncate text-sm text-muted-foreground">{preview}</p>}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground">
             {m.ended_at && !m.refined ? (
-              <span>No summary yet</span>
+              <span>{t("meetingList.noSummary")}</span>
             ) : (
               <>
-                <span>{pluralize(m.decisions?.length ?? 0, "decision")}</span>
-                <span>{pluralize(m.action_items?.length ?? 0, "action item")}</span>
+                <span>{t("meetingList.decisionCount", { count: m.decisions?.length ?? 0 })}</span>
+                <span>{t("meetingList.actionItemCount", { count: m.action_items?.length ?? 0 })}</span>
               </>
             )}
             {project && <ProjectBadge name={canonical(project)} />}
-            {plainTags(m.tags).map((t) => (
-              <Badge key={t} variant="secondary">
-                {t}
+            {plainTags(m.tags).map((tg) => (
+              <Badge key={tg} variant="secondary">
+                {tg}
               </Badge>
             ))}
           </div>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { Check, ShieldAlert, TriangleAlert } from "lucide-react"
+import i18next from "i18next"
+import { Trans, useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -43,63 +45,93 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 interface ProviderOption {
   value: SummaryProvider
-  label: string
-  description: string
+  labelKey: (typeof PROVIDER_LABEL_KEYS)[SummaryProvider]
+  descriptionKey: (typeof PROVIDER_DESC_KEYS)[SummaryProvider]
 }
+
+const PROVIDER_LABEL_KEYS = {
+  ollama: "settings.summaries.providerOllama",
+  "catchm-cloud": "settings.summaries.providerCloud",
+  openai: "settings.summaries.providerCloudflare",
+} as const
+const PROVIDER_DESC_KEYS = {
+  ollama: "settings.summaries.providerOllamaDesc",
+  "catchm-cloud": "settings.summaries.providerCloudDesc",
+  openai: "settings.summaries.providerCloudflareDesc",
+} as const
 
 const PROVIDERS: ProviderOption[] = [
   {
     value: "ollama",
-    label: "On this computer (Ollama)",
-    description: "Free and private: nothing leaves this computer.",
+    labelKey: "settings.summaries.providerOllama",
+    descriptionKey: "settings.summaries.providerOllamaDesc",
   },
   {
     value: "catchm-cloud",
-    label: "CatchM Cloud (free)",
-    description: "Uses a free shared pool on CatchM’s servers (Cloudflare Workers AI, or a zero-retention partner model when it’s busy).",
+    labelKey: "settings.summaries.providerCloud",
+    descriptionKey: "settings.summaries.providerCloudDesc",
   },
   {
     value: "openai",
-    label: "Your Cloudflare account",
-    description: "Workers AI on your own free Cloudflare account. Only the transcript is sent, and it stays under your account.",
+    labelKey: "settings.summaries.providerCloudflare",
+    descriptionKey: "settings.summaries.providerCloudflareDesc",
   },
 ]
 
 interface ModelPreset {
   model: string
   /** Shown when this computer's memory is unknown. */
-  label: string
-  /** Shown when it's known: "Recommended for this computer" then marks
-   *  the best fit instead of a fixed "Recommended". */
-  plainLabel: string
-  /** Rough memory (RAM) the model needs, in GB. */
+  labelKey: (typeof PRESET_LABEL_KEYS)[keyof typeof PRESET_LABEL_KEYS]
+  plainLabelKey: (typeof PRESET_LABEL_KEYS)[keyof typeof PRESET_LABEL_KEYS]
   ramGb: number
-  needs: string
+  needsKey: (typeof PRESET_NEEDS_KEYS)[keyof typeof PRESET_NEEDS_KEYS]
 }
+
+const PRESET_LABEL_KEYS = {
+  light: "settings.summaries.presetLight",
+  lightPlain: "settings.summaries.presetLightPlain",
+  recommended: "settings.summaries.presetRecommended",
+  standard: "settings.summaries.presetStandard",
+  alsoRecommended: "settings.summaries.presetAlsoRecommended",
+  standardAlt: "settings.summaries.presetStandardAlt",
+  best: "settings.summaries.presetBest",
+  bestPlain: "settings.summaries.presetBestPlain",
+} as const
+const PRESET_NEEDS_KEYS = {
+  needs8: "settings.summaries.presetNeeds8",
+  needs16: "settings.summaries.presetNeeds16",
+  needs32: "settings.summaries.presetNeeds32",
+} as const
 
 const MODEL_PRESETS: ModelPreset[] = [
   {
     model: "qwen3.5:4b",
-    label: "Light",
-    plainLabel: "Light",
+    labelKey: "settings.summaries.presetLight",
+    plainLabelKey: "settings.summaries.presetLightPlain",
     ramGb: 8,
-    needs: "About 8 GB of memory (RAM). OK for short meetings.",
+    needsKey: "settings.summaries.presetNeeds8",
   },
   {
     model: "qwen3.5:9b",
-    label: "Recommended",
-    plainLabel: "Standard",
+    labelKey: "settings.summaries.presetRecommended",
+    plainLabelKey: "settings.summaries.presetStandard",
     ramGb: 16,
-    needs: "About 16 GB of memory (RAM).",
+    needsKey: "settings.summaries.presetNeeds16",
   },
   {
     model: "gemma4:12b",
-    label: "Also recommended",
-    plainLabel: "Standard (alternative)",
+    labelKey: "settings.summaries.presetAlsoRecommended",
+    plainLabelKey: "settings.summaries.presetStandardAlt",
     ramGb: 16,
-    needs: "About 16 GB of memory (RAM).",
+    needsKey: "settings.summaries.presetNeeds16",
   },
-  { model: "qwen3.5:27b", label: "Best", plainLabel: "Best", ramGb: 32, needs: "32 GB of memory (RAM) or more." },
+  {
+    model: "qwen3.5:27b",
+    labelKey: "settings.summaries.presetBest",
+    plainLabelKey: "settings.summaries.presetBestPlain",
+    ramGb: 32,
+    needsKey: "settings.summaries.presetNeeds32",
+  },
 ]
 
 /** A "16 GB" computer reports a little less (about 15.6 GiB, often less
@@ -117,10 +149,10 @@ const gbToGib = (gb: number) => (gb * 1e9) / 2 ** 30
 function setupProgressText(status: SummaryStatus | null): string | null {
   const ollama = status?.ollama
   if (!status || status.provider !== "ollama" || !ollama) return null
-  if (status.ready) return "Summaries are ready."
-  if (!ollama.reachable) return "Ollama isn’t running yet."
-  if (!ollama.installed) return "Ollama found. Next, download the summary model."
-  return status.reason ?? "Summaries aren’t ready yet."
+  if (status.ready) return i18next.t("settings.summaries.setupReady")
+  if (!ollama.reachable) return i18next.t("settings.summaries.setupOllamaNotRunning")
+  if (!ollama.installed) return i18next.t("settings.summaries.setupOllamaFound")
+  return status.reason ?? i18next.t("settings.summaries.setupNotReady")
 }
 
 /** The biggest preset that fits this computer's memory (the first of a
@@ -165,10 +197,6 @@ function cloudflareBaseUrl(accountId: string): string {
   return `${CLOUDFLARE_ACCOUNTS_PREFIX}${accountId}${CLOUDFLARE_BASE_SUFFIX}`
 }
 
-/** The privacy statement shown before anything is sent to CatchM Cloud. */
-const CLOUD_PRIVACY =
-  "Your transcript is sent unencrypted to CatchM Cloud, which uses Cloudflare Workers AI (or a zero-retention partner model when Cloudflare is busy) to write the summary. It isn’t stored."
-
 const OPENAI_KEY_ERROR_ID = "summary-openai-key-error"
 
 /**
@@ -189,6 +217,7 @@ export function CloudConsentDialog({
   onAccepted: (config: AppConfig) => void
   select?: boolean
 }) {
+  const { t } = useTranslation()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -206,7 +235,7 @@ export function CloudConsentDialog({
       setError(null)
     } catch (err) {
       setPending(false)
-      setError(`Couldn’t save your choice: ${errorMessage(err)}. Try again.`)
+      setError(t("settings.summaries.consentSaveError", { error: errorMessage(err) }))
     }
   }
 
@@ -218,18 +247,15 @@ export function CloudConsentDialog({
         if (!next) setError(null)
         onOpenChange(next)
       }}
-      title="Send transcripts to CatchM Cloud?"
+      title={t("settings.summaries.consentTitle")}
       description={
         <>
-          <span className="block font-medium text-foreground">{CLOUD_PRIVACY}</span>
-          <span className="mt-2 block">
-            This happens each time you create a summary with CatchM Cloud. Your recordings and your synced meetings
-            stay encrypted. If you’d rather keep everything on this computer, choose “On this computer” instead.
-          </span>
+          <span className="block font-medium text-foreground">{t("settings.summaries.cloudPrivacy")}</span>
+          <span className="mt-2 block">{t("settings.summaries.consentBody")}</span>
         </>
       }
-      confirmLabel={pending ? "Saving…" : "I agree, use CatchM Cloud"}
-      cancelLabel="Don’t send"
+      confirmLabel={pending ? t("settings.pieces.saving") : t("settings.summaries.consentAccept")}
+      cancelLabel={t("settings.summaries.consentCancel")}
       pending={pending}
       error={error}
       onConfirm={() => void accept()}
@@ -248,10 +274,11 @@ const idlePullState: PullState = { running: false, percent: null, statusText: nu
 
 /** Green "Ready" / red "Not ready" / pulsing "Checking…" badge. */
 function ReadyBadge({ ready, children }: { ready: boolean | null; children?: ReactNode }) {
+  const { t } = useTranslation()
   if (ready === null) {
     return (
       <Badge variant="outline" className="motion-safe:animate-pulse">
-        Checking…
+        {t("settings.system.checking")}
       </Badge>
     )
   }
@@ -260,12 +287,13 @@ function ReadyBadge({ ready, children }: { ready: boolean | null; children?: Rea
       variant={ready ? "secondary" : "destructive"}
       className={ready ? "border-transparent bg-primary/15 text-primary" : undefined}
     >
-      {children ?? (ready ? "Ready" : "Not ready")}
+      {children ?? (ready ? t("getStarted.ready") : t("settings.summaries.notReady"))}
     </Badge>
   )
 }
 
 export function SettingsSummaries() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -377,7 +405,7 @@ export function SettingsSummaries() {
   const commitCustomModel = () => {
     const v = customModel.trim()
     if (!v) {
-      setCustomModelError("Enter a model name from ollama.com, like qwen3.5:9b.")
+      setCustomModelError(t("settings.summaries.customModelRequired"))
       return
     }
     setCustomModelError(null)
@@ -388,7 +416,7 @@ export function SettingsSummaries() {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
-    setPull({ running: true, percent: null, statusText: "Starting…", error: null })
+    setPull({ running: true, percent: null, statusText: t("settings.translation.pullingStarting"), error: null })
     let failed = false
     try {
       await pullTranslateModel(
@@ -407,18 +435,22 @@ export function SettingsSummaries() {
             return {
               running: true,
               percent,
-              statusText: match ? `Downloading… ${percent}%` : percent !== null ? "Finishing…" : "Preparing…",
+              statusText: match
+                ? t("settings.translation.pullingPercent", { percent: percent ?? 0 })
+                : percent !== null
+                  ? t("settings.translation.pullingFinishing")
+                  : t("settings.translation.pullingPreparing"),
               error: null,
             }
           })
         },
         controller.signal,
       )
-      if (!failed) setPull((prev) => ({ ...prev, running: false, statusText: "Done." }))
+      if (!failed) setPull((prev) => ({ ...prev, running: false, statusText: t("settings.translation.pullingDone") }))
       refreshStatus()
     } catch (err) {
       if (controller.signal.aborted) {
-        setPull({ running: false, percent: null, statusText: "Download cancelled.", error: null })
+        setPull({ running: false, percent: null, statusText: t("updateBanner.downloadCancelled"), error: null })
       } else {
         setPull((prev) => ({ ...prev, running: false, error: errorMessage(err) }))
       }
@@ -432,7 +464,7 @@ export function SettingsSummaries() {
   const commitCloudflareAccount = () => {
     const id = cloudflareAccount.trim()
     if (!id) {
-      setCloudflareError("Enter your Cloudflare Account ID.")
+      setCloudflareError(t("settings.summaries.cloudflareAccountRequired"))
       return
     }
     setCloudflareError(null)
@@ -474,7 +506,7 @@ export function SettingsSummaries() {
     if (keySaving) return
     const key = keyInput.trim()
     if (!key) {
-      setKeyError("Enter an API key first.")
+      setKeyError(t("settings.transcription.enterKey"))
       keyInputRef.current?.focus()
       return
     }
@@ -486,7 +518,7 @@ export function SettingsSummaries() {
       closeKeyEditor()
       refreshStatus()
     } else {
-      setKeyError("Couldn’t save the key. Try again, or restart CatchM if it keeps failing.")
+      setKeyError(t("settings.transcription.keySaveError"))
       keyInputRef.current?.focus()
     }
   }
@@ -498,13 +530,13 @@ export function SettingsSummaries() {
 
   if (loadError) {
     return (
-      <SettingsSection title="Summaries" description="Who writes the summary, decisions and action items.">
+      <SettingsSection title={t("settings.nav.summaries")} description={t("settings.summaries.desc")}>
         <div className="grid justify-items-start gap-3">
           <StatusMessage tone="error">
-            Couldn’t load summary settings: {loadError}. Try again, or restart CatchM if it keeps failing.
+            {t("settings.summaries.loadError", { error: loadError })}
           </StatusMessage>
           <Button size="sm" variant="outline" onClick={retryLoad}>
-            Try again
+            {t("common.tryAgain")}
           </Button>
         </div>
       </SettingsSection>
@@ -514,7 +546,7 @@ export function SettingsSummaries() {
   if (!config) {
     return (
       <div aria-busy="true" className="grid gap-4">
-        <span className="sr-only">Loading summary settings…</span>
+        <span className="sr-only">{t("settings.summaries.loading")}</span>
         <Skeleton className="h-7 w-40" />
         <Skeleton className="h-20 w-full rounded-xl" />
         <Skeleton className="h-20 w-full rounded-xl" />
@@ -531,20 +563,20 @@ export function SettingsSummaries() {
 
   const readiness = (
     <SettingRow
-      label="Status"
+      label={t("settings.summaries.statusLabel")}
       id="summary-status"
       description={
         current
           ? current.ready
-            ? "Ready. Open a meeting and choose “Create summary & action items”."
-            : (current.reason ?? "Not ready yet.")
-          : "Checking…"
+            ? t("settings.summaries.statusReady", { create: t("meetingDetail.createSummary") })
+            : (current.reason ?? t("settings.summaries.notReadyYet"))
+          : t("settings.system.checking")
       }
       control={
         <div className="grid justify-items-end gap-2">
           <ReadyBadge ready={ready} />
           <Button size="sm" variant="outline" onClick={refreshStatus} disabled={checking}>
-            {checking ? "Checking…" : "Check again"}
+            {checking ? t("settings.system.checking") : t("settings.translation.checkAgain")}
           </Button>
         </div>
       }
@@ -573,8 +605,8 @@ export function SettingsSummaries() {
       : null
 
   const computerParts = [
-    totalRamGb != null && `${Math.round(totalRamGb)} GB memory`,
-    freeDiskGb != null && `${formatGb(freeDiskGb)} free disk space`,
+    totalRamGb != null && t("settings.summaries.computerRam", { gb: Math.round(totalRamGb) }),
+    freeDiskGb != null && t("settings.summaries.computerDisk", { size: formatGb(freeDiskGb) }),
   ].filter(Boolean)
 
   const translationModels = translate ? installedModels([translate.live_model, translate.batch_model]) : []
@@ -585,37 +617,39 @@ export function SettingsSummaries() {
 
   const ollamaDetails = (
     <SettingsSection
-      title="On this computer"
-      description="Summaries are written by Ollama, a free app that runs on this computer. Set it up once in three steps. Without a graphics card, a summary can take several minutes."
+      title={t("settings.summaries.ollamaTitle")}
+      description={t("settings.summaries.ollamaDesc")}
     >
       <StatusMessage className="sr-only">{setupAnnouncement}</StatusMessage>
       <ol className="grid">
-        <SetupStep n={1} title="Install Ollama" done={ollamaFound}>
+        <SetupStep n={1} title={t("settings.summaries.step1Title")} done={ollamaFound}>
           {ollamaFound ? (
-            <p className="text-sm text-muted-foreground">Ollama is running.</p>
+            <p className="text-sm text-muted-foreground">{t("settings.summaries.step1Done")}</p>
           ) : (
             <div className="grid gap-1 text-sm text-muted-foreground">
               <p>
-                Ollama is free. <ExternalLink href={OLLAMA_DOWNLOAD}>Download Ollama from ollama.com</ExternalLink> and
-                install it.
+                <Trans
+                  i18nKey="settings.summaries.step1Download"
+                  components={{ ext: <ExternalLink href={OLLAMA_DOWNLOAD}>{null}</ExternalLink> }}
+                />
               </p>
-              {ollamaFound === false && <p>After installing, open Ollama once. CatchM will notice automatically.</p>}
+              {ollamaFound === false && <p>{t("settings.summaries.step1OpenOnce")}</p>}
             </div>
           )}
         </SetupStep>
 
-        <SetupStep n={2} title="Download the summary model" done={modelDownloaded}>
+        <SetupStep n={2} title={t("settings.summaries.step2Title")} done={modelDownloaded}>
           <fieldset aria-describedby="summary-model-help">
-            <legend className="text-sm font-medium">Model</legend>
+            <legend className="text-sm font-medium">{t("settings.summaries.modelLegend")}</legend>
             <p id="summary-model-help" className="mt-0.5 text-sm text-muted-foreground">
-              Bigger models write better summaries but need a faster computer with more memory.
-              {computerParts.length > 0 && ` This computer: ${computerParts.join(", ")}.`}
+              {t("settings.summaries.modelHelp")}
+              {computerParts.length > 0 &&
+                ` ${t("settings.summaries.thisComputer", { parts: computerParts.join(", ") })}`}
             </p>
             {totalRamGb != null && !recommended && (
               <p className="mt-2 flex items-start gap-1.5 text-sm font-medium text-warning">
                 <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                This computer has less memory than these models need, so summaries may be very slow or fail. CatchM
-                Cloud may work better.
+                {t("settings.summaries.lowMemoryWarning")}
               </p>
             )}
             <div className="mt-3 grid gap-2">
@@ -631,24 +665,23 @@ export function SettingsSummaries() {
                     onChange={chooseModel}
                     title={
                       <>
-                        {totalRamGb == null ? p.label : p.plainLabel}{" "}
+                        {t(totalRamGb == null ? p.labelKey : p.plainLabelKey)}{" "}
                         <span translate="no" className="font-normal text-muted-foreground">
                           · {p.model}
                         </span>
                         {recommended === p && (
                           <Badge variant="secondary" className="ml-2 border-transparent bg-primary/15 align-middle text-primary">
-                            Recommended for this computer
+                            {t("settings.summaries.recommendedHere")}
                           </Badge>
                         )}
                       </>
                     }
-                    description={`${gb != null ? `${formatGb(gb)} download. ` : ""}${p.needs}`}
+                    description={`${gb != null ? t("settings.summaries.downloadSize", { size: formatGb(gb) }) : ""}${t(p.needsKey)}`}
                     extra={
                       tooBig ? (
                         <span className="mt-1 flex items-start gap-1.5 font-medium text-warning">
                           <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                          Needs more memory than this computer has ({Math.round(totalRamGb)} GB). It may be very slow
-                          or fail.
+                          {t("settings.summaries.presetTooBig", { gb: Math.round(totalRamGb) })}
                         </span>
                       ) : undefined
                     }
@@ -660,14 +693,14 @@ export function SettingsSummaries() {
                 value={CUSTOM_MODEL}
                 checked={modelChoice === CUSTOM_MODEL}
                 onChange={chooseModel}
-                title="Custom model name"
-                description="Any model from ollama.com."
+                title={t("settings.summaries.customModelTitle")}
+                description={t("settings.summaries.customModelDesc")}
               />
             </div>
             {modelChoice === CUSTOM_MODEL && (
               <div className="mt-3 grid gap-1">
                 <label htmlFor="summary-custom-model" className="text-sm font-medium">
-                  Model name
+                  {t("settings.summaries.modelNameLabel")}
                 </label>
                 <Input
                   id="summary-custom-model"
@@ -694,11 +727,11 @@ export function SettingsSummaries() {
           </fieldset>
 
           <p className="mt-3 text-sm text-muted-foreground">
-            This is a separate model from the one used for translation.
+            {t("settings.summaries.separateFromTranslation")}
             {translationModels.length > 0 && (
               <>
                 {" "}
-                Already downloaded for translation:{" "}
+                {t("settings.summaries.alreadyForTranslation")}{" "}
                 {translationModels.map((name, i) => {
                   const gb = modelDownloadGb(name)
                   return (
@@ -712,19 +745,19 @@ export function SettingsSummaries() {
                 .
               </>
             )}
-            {totalGb != null && ` Translation and summaries together use about ${formatGb(totalGb)}.`}
+            {totalGb != null && ` ${t("settings.summaries.totalDiskUse", { size: formatGb(totalGb) })}`}
           </p>
 
           <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
             <p id="summary-model-download" className="min-w-0 text-sm">
-              <span className="font-medium">Selected: </span>
+              <span className="font-medium">{t("settings.summaries.selectedLabel")} </span>
               <span translate="no" className="break-all">
                 {selectedModel}
               </span>
               {selectedGb != null && <span className="text-muted-foreground">{` · ${formatGb(selectedGb)}`}</span>}
-              {modelDownloaded === true && <span className="text-muted-foreground"> · Downloaded</span>}
+              {modelDownloaded === true && <span className="text-muted-foreground"> · {t("settings.translation.downloaded")}</span>}
               {ollamaFound === false && (
-                <span className="block text-muted-foreground">Finish step 1 first, then download the model.</span>
+                <span className="block text-muted-foreground">{t("settings.summaries.finishStep1First")}</span>
               )}
             </p>
             {ollama && !ollama.installed && (
@@ -736,7 +769,7 @@ export function SettingsSummaries() {
                     onClick={() => abortRef.current?.abort()}
                     aria-describedby="summary-model-download"
                   >
-                    Cancel download
+                    {t("updateBanner.cancelDownload")}
                   </Button>
                 ) : (
                   <Button
@@ -747,11 +780,11 @@ export function SettingsSummaries() {
                       diskShortfall ? "summary-model-download summary-disk-warning" : "summary-model-download"
                     }
                   >
-                    Download model
+                    {t("settings.translation.downloadModel")}
                   </Button>
                 )}
                 {pull.running && pull.percent !== null && (
-                  <Progress value={pull.percent} aria-label="Summary model download progress" />
+                  <Progress value={pull.percent} aria-label={t("settings.summaries.downloadProgressAria")} />
                 )}
               </div>
             )}
@@ -762,26 +795,24 @@ export function SettingsSummaries() {
               className="mt-2 flex items-start gap-1.5 text-sm font-medium text-warning"
             >
               <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              Not enough free disk space: this model needs about {formatGb(diskShortfall.need)} and this computer
-              has {formatGb(diskShortfall.free)} free. Free up some space or choose a smaller model.
+              {t("settings.summaries.diskShortfall", { need: formatGb(diskShortfall.need), free: formatGb(diskShortfall.free) })}
             </p>
           )}
           <div className="mt-1 grid justify-items-end">
             <StatusMessage className="text-xs break-words">{pull.statusText}</StatusMessage>
             <StatusMessage tone="error" className="text-xs break-words">
-              {pull.error &&
-                `${pull.error}. Check that Ollama is running and the model name is correct, then download again.`}
+              {pull.error && t("settings.translation.pullErrorHint", { error: pull.error })}
             </StatusMessage>
           </div>
         </SetupStep>
 
-        <SetupStep n={3} title="Ready" done={allReady}>
+        <SetupStep n={3} title={t("getStarted.ready")} done={allReady}>
           <p className="text-sm text-muted-foreground">
             {allReady
-              ? "All set. Open a meeting and choose “Create summary & action items”."
+              ? t("settings.summaries.step3Done", { create: t("meetingDetail.createSummary") })
               : ollama?.reachable && ollama.installed && current?.reason
                 ? current.reason
-                : "When steps 1 and 2 are done, open a meeting and choose “Create summary & action items”."}
+                : t("settings.summaries.step3Waiting", { create: t("meetingDetail.createSummary") })}
           </p>
         </SetupStep>
       </ol>
@@ -790,35 +821,36 @@ export function SettingsSummaries() {
 
   const cloud = current?.cloud
   const quotaText = (() => {
-    if (!cloud) return "Checking…"
-    if (!cloud.logged_in) return "Log in to see how many free summaries you have left today."
+    if (!cloud) return t("settings.system.checking")
+    if (!cloud.logged_in) return t("settings.summaries.quotaLogin")
     if (cloud.remaining_today == null || cloud.limit == null) {
-      return "Couldn’t check today’s free summaries right now."
+      return t("settings.summaries.quotaCheckError")
     }
-    const resets = cloud.reset_at ? ` Resets ${formatDateTime(cloud.reset_at)}.` : ""
-    return `${cloud.remaining_today} of ${cloud.limit} free summaries left today.${resets}`
+    const resets = cloud.reset_at ? ` ${t("settings.summaries.quotaResets", { date: formatDateTime(cloud.reset_at) })}` : ""
+    return t("settings.summaries.quotaLeft", { remaining: cloud.remaining_today, limit: cloud.limit }) + resets
   })()
 
   const cloudDetails = (
-    <SettingsSection title="CatchM Cloud" description="Free, with a daily limit per account. Needs a CatchM account.">
+    <SettingsSection title={t("settings.summaries.cloudTitle")} description={t("settings.summaries.cloudDesc")}>
       <div
         id="summary-cloud-privacy"
         className="mb-2 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground"
       >
         <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
         <p>
-          <span className="font-medium">{CLOUD_PRIVACY}</span> Your recordings and synced meetings stay encrypted.
+          <span className="font-medium">{t("settings.summaries.cloudPrivacy")}</span>{" "}
+          {t("settings.summaries.staysEncrypted")}
         </p>
       </div>
       <SettingRow
-        label="CatchM account"
+        label={t("settings.summaries.cloudAccountLabel")}
         id="summary-cloud-account"
         description={
           cloud
             ? cloud.logged_in
-              ? "You’re logged in."
-              : "Log in or sign up on the Cloud sync page to use CatchM Cloud."
-            : "Checking…"
+              ? t("settings.summaries.youreLoggedIn")
+              : t("settings.summaries.cloudAccountLogin")
+            : t("settings.system.checking")
         }
         control={
           cloud && !cloud.logged_in ? (
@@ -828,38 +860,37 @@ export function SettingsSummaries() {
               onClick={() => navigate({ name: "settings", section: "cloud" })}
               aria-describedby={descId("summary-cloud-account")}
             >
-              Open Cloud sync
+              {t("settings.summaries.openCloudSync")}
             </Button>
           ) : (
-            <ReadyBadge ready={cloud ? cloud.logged_in : null}>{cloud && "Logged in"}</ReadyBadge>
+            <ReadyBadge ready={cloud ? cloud.logged_in : null}>{cloud && t("settings.cloudSync.loggedIn")}</ReadyBadge>
           )
         }
       />
-      <SettingRow label="Free summaries today" id="summary-cloud-quota" description={quotaText} control={null} />
+      <SettingRow label={t("settings.summaries.quotaLabel")} id="summary-cloud-quota" description={quotaText} control={null} />
     </SettingsSection>
   )
 
   const keySet = config.summary_openai_api_key_set
   const openaiDetails = (
     <SettingsSection
-      title="Your Cloudflare account"
-      description="Workers AI on your own Cloudflare account writes the summary. Only the transcript is sent (never the audio), and it stays under your account."
+      title={t("settings.summaries.providerCloudflare")}
+      description={t("settings.summaries.cloudflareDesc")}
     >
       {baseUrl && !isCloudflareUrl(baseUrl) && (
         <p className="py-3 text-sm text-muted-foreground">
-          This was set to another service (<span translate="no" className="break-all">{baseUrl}</span>). Enter your
-          Cloudflare Account ID to switch to Cloudflare.
+          {t("settings.summaries.wasOtherService")} (<span translate="no" className="break-all">{baseUrl}</span>).{" "}
+          {t("settings.summaries.switchToCloudflare")}
         </p>
       )}
       <SettingRow
-        label="Account ID"
+        label={t("settings.summaries.accountIdLabel")}
         htmlFor="summary-cloudflare-account"
         description={
-          <>
-            From your Cloudflare dashboard. Then{" "}
-            <ExternalLink href={CLOUDFLARE_TOKENS_URL}>create an API token</ExternalLink> with the Workers AI
-            permission and add it below.
-          </>
+          <Trans
+            i18nKey="settings.summaries.accountIdDesc"
+            components={{ ext: <ExternalLink href={CLOUDFLARE_TOKENS_URL}>{null}</ExternalLink> }}
+          />
         }
         control={
           <div className="grid w-72 justify-items-end gap-1">
@@ -889,12 +920,10 @@ export function SettingsSummaries() {
         }
       />
       <SettingRow
-        label="API token"
+        label={t("settings.summaries.apiTokenLabel")}
         htmlFor={keyEditing ? "summary-openai-key" : undefined}
         id="summary-openai-key"
-        description={
-          "The Workers AI API token from the link above. The token stays on this computer."
-        }
+        description={t("settings.summaries.apiTokenDesc")}
         control={
           keyEditing ? (
             <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
@@ -909,7 +938,7 @@ export function SettingsSummaries() {
                 onKeyDown={(e) => {
                   if (e.key === "Escape" && !keySaving) closeKeyEditor()
                 }}
-                placeholder="New API token…"
+                placeholder={t("settings.summaries.newTokenPlaceholder")}
                 readOnly={keySaving}
                 aria-invalid={keyError ? true : undefined}
                 aria-describedby={
@@ -919,10 +948,10 @@ export function SettingsSummaries() {
               />
               <div className="flex gap-2">
                 <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
-                  {keySaving ? "Saving…" : "Save"}
+                  {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
                 </Button>
               </div>
               <StatusMessage id={OPENAI_KEY_ERROR_ID} tone="error">
@@ -934,7 +963,7 @@ export function SettingsSummaries() {
               {keySet && (
                 <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                  Token set
+                  {t("settings.summaries.tokenSet")}
                 </span>
               )}
               <Button
@@ -944,17 +973,18 @@ export function SettingsSummaries() {
                 onClick={startReplaceKey}
                 aria-describedby={descId("summary-openai-key")}
               >
-                {keySet ? "Replace token" : "Add token"}
+                {keySet ? t("settings.summaries.replaceToken") : t("settings.summaries.addToken")}
               </Button>
             </div>
           )
         }
       />
-      <Disclosure label="Model (optional)">
+      <Disclosure label={t("settings.summaries.modelOptional")}>
+
         <SettingRow
-          label="Model"
+          label={t("settings.summaries.modelLegend")}
           htmlFor="summary-openai-model"
-          description={`A Workers AI model. Leave this as ${CLOUDFLARE_MODEL} unless you know a better one.`}
+          description={t("settings.summaries.workersModelDesc", { model: CLOUDFLARE_MODEL })}
           control={
             <Input
               id="summary-openai-model"
@@ -972,7 +1002,7 @@ export function SettingsSummaries() {
         />
       </Disclosure>
       <p className="py-3 text-sm text-muted-foreground">
-        Workers AI includes a free daily allowance; beyond it, your Cloudflare plan’s rates apply.
+        {t("settings.summaries.workersFreeAllowance")}
       </p>
       <div className="flex items-center justify-end">
         <SaveStatus state={openaiSave.save.state} error={openaiSave.save.error} />
@@ -984,13 +1014,13 @@ export function SettingsSummaries() {
   return (
     <div>
       <SettingsSection
-        title="Summaries"
-        description="After a meeting, CatchM can write a summary, the decisions and the action items. Choose where that happens. Changes save right away."
+        title={t("settings.nav.summaries")}
+        description={t("settings.summaries.topDesc")}
       >
         <fieldset className="border-b border-border pb-4" aria-describedby="summary-provider-help">
-          <legend className="text-sm font-medium">Write summaries with</legend>
+          <legend className="text-sm font-medium">{t("settings.summaries.writeSummariesWith")}</legend>
           <p id="summary-provider-help" className="sr-only">
-            Choose one. On this computer is free and private.
+            {t("settings.summaries.providerHelp")}
           </p>
           <div className="mt-2 grid gap-2">
             {PROVIDERS.map((p) => (
@@ -1000,11 +1030,11 @@ export function SettingsSummaries() {
                 value={p.value}
                 checked={shown === p.value}
                 onChange={(v) => chooseProvider(v as SummaryProvider)}
-                title={p.label}
-                description={p.description}
+                title={t(PROVIDER_LABEL_KEYS[p.value])}
+                description={t(PROVIDER_DESC_KEYS[p.value])}
                 extra={
                   p.value === "catchm-cloud" ? (
-                    <span className="mt-1 block font-medium text-foreground">{CLOUD_PRIVACY}</span>
+                    <span className="mt-1 block font-medium text-foreground">{t("settings.summaries.cloudPrivacy")}</span>
                   ) : undefined
                 }
               />
@@ -1013,7 +1043,7 @@ export function SettingsSummaries() {
           <SaveStatus state={providerSave.save.state} error={providerSave.save.error} className="mt-2" />
         </fieldset>
         <StatusMessage tone="error" className="mt-3 break-words">
-          {statusError && `Couldn’t check whether summaries are ready: ${statusError}. Try again with “Check again”.`}
+          {statusError && t("settings.summaries.statusCheckError", { error: statusError, check: t("settings.translation.checkAgain") })}
         </StatusMessage>
         {readiness}
       </SettingsSection>
@@ -1051,6 +1081,7 @@ function SetupStep({
   done: boolean | null
   children: ReactNode
 }) {
+  const { t } = useTranslation()
   return (
     <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 border-b border-border py-4 last:border-b-0">
       <span
@@ -1065,20 +1096,20 @@ function SetupStep({
       <div className="min-w-0">
         <h3 className="mb-1 flex flex-wrap items-center gap-2 text-sm font-medium">
           <span>
-            <span className="sr-only">{`Step ${n}: `}</span>
+            <span className="sr-only">{t("settings.summaries.stepAria", { n })}</span>
             {title}
           </span>
           <span className="sr-only">, </span>
           {done === null ? (
             <Badge variant="outline" className="motion-safe:animate-pulse">
-              Checking…
+              {t("settings.system.checking")}
             </Badge>
           ) : done ? (
             <Badge variant="secondary" className="border-transparent bg-primary/15 text-primary">
-              Done
+              {t("settings.summaries.doneBadge")}
             </Badge>
           ) : (
-            <Badge variant="outline">To do</Badge>
+            <Badge variant="outline">{t("settings.summaries.todoBadge")}</Badge>
           )}
         </h3>
         {children}

@@ -11,6 +11,8 @@ import {
   Speech,
   type LucideIcon,
 } from "lucide-react"
+import type { ParseKeys } from "i18next"
+import { useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { SettingsAppearance } from "@/components/settings/SettingsAppearance"
@@ -28,7 +30,7 @@ import { hasWindowControls } from "@/lib/wailsRuntime"
 interface SectionDef {
   /** URL segment: #/settings/{id}. */
   id: string
-  label: string
+  labelKey: ParseKeys
   icon: LucideIcon
   Page: ComponentType
   desktopOnly?: boolean
@@ -37,22 +39,22 @@ interface SectionDef {
 // Adding a section is one entry here: the Section type, the nav, the
 // route and the page all derive from it. The first shown is the default.
 const ALL_SECTIONS = [
-  { id: "recording", label: "Recording", icon: Mic, Page: SettingsRecording },
-  { id: "transcription", label: "Transcription", icon: Speech, Page: SettingsTranscription },
-  { id: "translation", label: "Translation", icon: Languages, Page: SettingsTranslation },
-  { id: "summaries", label: "Summaries", icon: Sparkles, Page: SettingsSummaries },
-  { id: "cloud", label: "Cloud sync", icon: Cloud, Page: SettingsCloudSync },
-  { id: "appearance", label: "Appearance", icon: Palette, Page: SettingsAppearance },
+  { id: "recording", labelKey: "settings.nav.recording", icon: Mic, Page: SettingsRecording },
+  { id: "transcription", labelKey: "settings.nav.transcription", icon: Speech, Page: SettingsTranscription },
+  { id: "translation", labelKey: "settings.nav.translation", icon: Languages, Page: SettingsTranslation },
+  { id: "summaries", labelKey: "settings.nav.summaries", icon: Sparkles, Page: SettingsSummaries },
+  { id: "cloud", labelKey: "settings.nav.cloudSync", icon: Cloud, Page: SettingsCloudSync },
+  { id: "appearance", labelKey: "settings.nav.appearance", icon: Palette, Page: SettingsAppearance },
   // M22 §5: global shortcuts/launch-at-login/notifications only mean
   // anything inside the real Wails window — hidden entirely in
   // `catchm serve`, same hasWindowControls() convention M21 set for
   // the compact-mode button.
-  { id: "shortcuts", label: "Shortcuts", icon: Keyboard, Page: SettingsShortcuts, desktopOnly: true },
+  { id: "shortcuts", labelKey: "settings.nav.shortcuts", icon: Keyboard, Page: SettingsShortcuts, desktopOnly: true },
   // Launch-at-login/notifications/updates — the desktop-shell toggles
   // that used to make the Shortcuts page taller than the default
   // 1180x760 window. "System": nothing else claims the name, and it
   // covers OS-integration concerns (login item, toasts, updates).
-  { id: "system", label: "System", icon: Monitor, Page: SettingsSystem, desktopOnly: true },
+  { id: "system", labelKey: "settings.nav.system", icon: Monitor, Page: SettingsSystem, desktopOnly: true },
 ] as const satisfies readonly SectionDef[]
 
 export type Section = (typeof ALL_SECTIONS)[number]["id"]
@@ -60,6 +62,7 @@ export type Section = (typeof ALL_SECTIONS)[number]["id"]
 const SECTIONS: readonly SectionDef[] = ALL_SECTIONS.filter((s) => !("desktopOnly" in s) || hasWindowControls())
 
 export function Settings() {
+  const { t } = useTranslation()
   const route = useRoute()
   const requested = route.name === "settings" ? route.section : null
   // An unknown or hidden section (e.g. #/settings/shortcuts in a plain
@@ -76,12 +79,12 @@ export function Settings() {
 
   return (
     <div className="mx-auto flex max-w-4xl gap-8 px-6 py-8">
-      <nav aria-label="Settings sections" className="w-52 shrink-0">
+      <nav aria-label={t("settings.nav.sections")} className="w-52 shrink-0">
         <h1 className="mb-4 flex items-center gap-2 text-2xl font-semibold">
-          <Settings2 aria-hidden="true" className="size-6" /> Settings
+          <Settings2 aria-hidden="true" className="size-6" /> {t("settings.nav.title")}
         </h1>
         <ul className="grid gap-1">
-          {SECTIONS.map(({ id, label, icon: Icon }) => (
+          {SECTIONS.map(({ id, labelKey, icon: Icon }) => (
             <li key={id}>
               <Button
                 variant="ghost"
@@ -93,7 +96,7 @@ export function Settings() {
                 )}
               >
                 <Icon aria-hidden="true" className="size-4 shrink-0" />
-                {label}
+                {t(labelKey)}
               </Button>
             </li>
           ))}

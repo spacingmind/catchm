@@ -744,11 +744,30 @@ func TestUnknownMeetingIs404(t *testing.T) {
 		{"GET", "/api/meetings/nope/transcript"},
 		{"POST", "/api/meetings/nope/notes"},
 		{"POST", "/api/meetings/nope/end"},
+		{"DELETE", "/api/meetings/nope"},
 	} {
 		w := do(t, s, tc.method, tc.target, `{"note":"x"}`)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("%s %s: status = %d, want 404", tc.method, tc.target, w.Code)
 		}
+		var v struct {
+			Code string `json:"code"`
+		}
+		decode(t, w, &v)
+		if v.Code != "meeting_not_found" {
+			t.Fatalf("%s %s: code = %q, want meeting_not_found", tc.method, tc.target, v.Code)
+		}
+	}
+
+	// Plain httpError responses carry no code key.
+	w := do(t, s, "POST", "/api/meetings/nope/notes", "")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("empty note: status = %d, want 400", w.Code)
+	}
+	var v map[string]any
+	decode(t, w, &v)
+	if _, has := v["code"]; has {
+		t.Fatalf("plain httpError response has a code key: %v", v)
 	}
 }
 
@@ -934,6 +953,64 @@ func TestConfigEndpointPutRejectsUnknownEngine(t *testing.T) {
 	w := do(t, s, "PUT", "/api/config", `{"engine":"nonsense"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+// TestConfigEndpointUILanguage covers ui_language end to end: the
+// default ("system"), a valid change, rejection of unknown values, and
+// that unrelated PUTs leave it alone.
+func TestConfigEndpointUILanguage(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+	s.cfg.UILanguage = "system" // test servers start from an empty Config, not defaults
+
+	put := func(body string) *httptest.ResponseRecorder {
+		return do(t, s, "PUT", "/api/config", body)
+	}
+	get := func() string {
+		var v struct {
+			UILanguage string `json:"ui_language"`
+		}
+		decode(t, do(t, s, "GET", "/api/config", ""), &v)
+		return v.UILanguage
+	}
+
+	if w := put(`{"engine":"whisper"}`); w.Code != http.StatusOK {
+		t.Fatalf("seed put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := get(); got != "system" {
+		t.Fatalf("ui_language = %q, want system", got)
+	}
+	if w := put(`{"ui_language":"vi"}`); w.Code != http.StatusOK {
+		t.Fatalf("vi put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := get(); got != "vi" {
+		t.Fatalf("ui_language = %q, want vi", got)
+	}
+	onDisk, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.UILanguage != "vi" {
+		t.Fatalf("ui_language on disk = %q, want vi", onDisk.UILanguage)
+	}
+	if w := put(`{"ui_language":"fr"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("fr put: status = %d, want 400", w.Code)
+	}
+	if got := get(); got != "vi" {
+		t.Fatalf("ui_language = %q after rejected put, want vi", got)
+	}
+	if w := put(`{"engine":"soniox"}`); w.Code != http.StatusOK {
+		t.Fatalf("engine put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := get(); got != "vi" {
+		t.Fatalf("ui_language = %q after engine put, want vi", got)
+	}
+	if w := put(`{"ui_language":"system"}`); w.Code != http.StatusOK {
+		t.Fatalf("system put: status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := get(); got != "system" {
+		t.Fatalf("ui_language = %q, want system", got)
 	}
 }
 

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react"
+import type { TFunction } from "i18next"
+import { useTranslation } from "react-i18next"
 
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
@@ -36,18 +38,20 @@ function writeHidden(mark: HiddenMark) {
 
 type ItemState = "ready" | "not-ready" | "checking" | "unknown"
 
-const STATE_LABEL: Record<ItemState, string> = {
-  ready: "Ready",
-  "not-ready": "Not set up",
-  checking: "Checking…",
-  unknown: "Couldn’t check",
+type Need = "required" | "recommended" | "optional"
+
+function needLabel(t: TFunction, need: Need): string {
+  return t(`getStarted.${need}`)
+}
+
+function stateLabel(t: TFunction, state: ItemState): string {
+  return t(`getStarted.${state}`)
 }
 
 interface SetupItem {
   id: string
   title: string
-  /** "Required" / "Recommended" / "Optional", shown before the description. */
-  need: string
+  need: Need
   description: string
   state: ItemState
   /** Why it isn't ready, in plain words. */
@@ -71,6 +75,7 @@ function itemState(ready: boolean | null, error: string | null): ItemState {
  * focus.
  */
 export function GetStarted({ onHide }: { onHide?: () => void }) {
+  const { t } = useTranslation()
   const stt = useStatusCheck(getSttStatus)
   const summary = useStatusCheck(getSummaryStatus)
   const translate = useStatusCheck(getTranslateStatus)
@@ -93,33 +98,33 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
   const items: SetupItem[] = [
     {
       id: "transcription",
-      title: "Transcription",
-      need: "Required",
-      description: "Turns what people say into text.",
+      title: t("settings.nav.transcription"),
+      need: "required",
+      description: t("getStarted.transcriptionDesc"),
       state: itemState(sttReady, stt.error),
       reason: sttReady === false ? sttEngine?.reason : undefined,
       section: "transcription",
     },
     {
       id: "summaries",
-      title: "Summaries",
-      need: "Recommended",
-      description: "Writes the summary, decisions and action items after a meeting.",
+      title: t("settings.nav.summaries"),
+      need: "recommended",
+      description: t("getStarted.summariesDesc"),
       state: itemState(summaryReady, summary.error),
       reason: summaryReady === false ? summary.data?.reason : undefined,
       section: "summaries",
     },
     {
       id: "translation",
-      title: "Translation",
-      need: "Optional",
-      description: "Only needed if you translate meetings.",
+      title: t("settings.nav.translation"),
+      need: "optional",
+      description: t("getStarted.translationDesc"),
       state: itemState(translateReady, translate.error),
       reason:
         translateReady === false
           ? translate.data?.ollama_reachable
-            ? "The translation model isn’t downloaded yet."
-            : "Needs Ollama, a free app, running on this computer."
+            ? t("getStarted.modelMissing")
+            : t("getStarted.needsOllama")
           : undefined,
       section: "translation",
     },
@@ -129,7 +134,7 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
   const announcement = useAnnounceChange(
     items.some((i) => i.state === "checking")
       ? null
-      : items.map((i) => `${i.title}: ${STATE_LABEL[i.state]}.`).join(" "),
+      : items.map((i) => t("getStarted.srItem", { title: i.title, state: stateLabel(t, i.state) })).join(" "),
   )
 
   const settled = (stt.data || stt.error) && (summary.data || summary.error)
@@ -149,14 +154,13 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="text-lg font-semibold">
-              <h2>Finish setting up CatchM</h2>
+              <h2>{t("getStarted.title")}</h2>
             </CardTitle>
-            <CardDescription className="text-pretty">
-              A few one-time steps, so CatchM can turn your meetings into text and summaries.
-            </CardDescription>
+            <CardDescription className="text-pretty">{t("getStarted.subtitle")}</CardDescription>
             <CardAction>
               <Button size="sm" variant="ghost" onClick={hide}>
-                Hide<span className="sr-only"> setup steps</span>
+                {t("getStarted.hide")}
+                <span className="sr-only">{t("getStarted.hideSr")}</span>
               </Button>
             </CardAction>
           </CardHeader>
@@ -174,6 +178,7 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
 }
 
 function SetupRow({ item }: { item: SetupItem }) {
+  const { t } = useTranslation()
   const { id, title, need, description, state, reason, section } = item
   const descriptionId = `get-started-${id}-desc`
   return (
@@ -181,13 +186,13 @@ function SetupRow({ item }: { item: SetupItem }) {
       <div className="min-w-0 flex-1">
         <h3 className="text-sm font-medium">{title}</h3>
         <p id={descriptionId} className="mt-0.5 text-sm text-muted-foreground">
-          {need}. {description}
+          {needLabel(t, need)}. {description}
           {reason && <span className="mt-0.5 block text-foreground">{reason}</span>}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Badge
-          variant={state === "not-ready" && need === "Required" ? "destructive" : state === "ready" ? "secondary" : "outline"}
+          variant={state === "not-ready" && need === "required" ? "destructive" : state === "ready" ? "secondary" : "outline"}
           className={
             state === "ready"
               ? "border-transparent bg-primary/15 text-primary"
@@ -196,16 +201,17 @@ function SetupRow({ item }: { item: SetupItem }) {
                 : undefined
           }
         >
-          {STATE_LABEL[state]}
+          {stateLabel(t, state)}
         </Badge>
         {(state === "not-ready" || state === "unknown") && (
           <Button
             size="sm"
-            variant={need === "Optional" ? "outline" : "default"}
+            variant={need === "optional" ? "outline" : "default"}
             onClick={() => navigate({ name: "settings", section })}
             aria-describedby={descriptionId}
           >
-            Set up<span className="sr-only"> {title.toLowerCase()}</span>
+            {t("getStarted.setUp")}
+            <span className="sr-only">{t("getStarted.setUpSr", { title: title.toLowerCase() })}</span>
           </Button>
         )}
       </div>
