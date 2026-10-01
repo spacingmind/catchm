@@ -147,7 +147,7 @@ func run() error {
 			Handler: handler,
 		},
 		Bind: []interface{}{
-			&DesktopBridge{hk: hkManager, updates: updates},
+			&DesktopBridge{hk: hkManager, updates: updates, exp: handler},
 		},
 		// M22 §4 WebView hardening. EnableDefaultContextMenu and Debug are
 		// deliberately left unset: verified against frontend.go directly

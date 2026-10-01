@@ -44,6 +44,8 @@ type DesktopBridge struct {
 	hk *hotkeyManager
 	// updates wires M23's auto-update bound methods (update.go).
 	updates *updateManager
+	// exp wires the meeting export bound method (export.go).
+	exp meetingExporter
 }
 
 // SetCompactMode is called by useCompactMode's enter/exit.
