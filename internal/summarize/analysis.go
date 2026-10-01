@@ -312,6 +312,11 @@ func foldRune(r rune) rune {
 
 func foldString(s string) string { return strings.Map(foldRune, s) }
 
+// FoldDiacritics folds Vietnamese and common Latin diacritics onto their
+// ASCII base letters ("họp dự án" → "hop du an"). The table holds
+// lowercase forms only, so lowercase s first.
+func FoldDiacritics(s string) string { return foldString(s) }
+
 // nameKey is the case-, space- and diacritic-insensitive form used to
 // match names, aliases and titles.
 func nameKey(s string) string {

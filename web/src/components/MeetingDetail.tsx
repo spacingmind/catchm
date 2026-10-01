@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import i18next from "i18next"
 import { useTranslation } from "react-i18next"
-import { AudioLines, CheckSquare, Cloud, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
+import { AudioLines, CheckSquare, Cloud, Copy, Download, FileCode, FileText, FileType, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { EvidenceBar, SourceLink } from "@/components/insights/Evidence"
@@ -26,12 +26,21 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAnnounceChange, useStatusCheck } from "@/hooks/useStatusCheck"
 import {
   ApiError,
   deleteMeeting,
+  exportUrl,
+  fetchExportText,
   getConfig,
   getMeeting,
   getMeetingAnalysis,
@@ -40,6 +49,7 @@ import {
   refineMeeting,
   RefineError,
   updateActionItemStatus,
+  type ExportFormat,
   updateConfig,
   updateMeeting,
   type Meeting,
@@ -49,6 +59,8 @@ import {
 } from "@/lib/api"
 import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
+import { copyText } from "@/lib/clipboard"
+import { hasWindowControls, saveExport } from "@/lib/wailsRuntime"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { meetingTab, navigate, useRoute, type MeetingTab } from "@/lib/route"
 
@@ -219,6 +231,17 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const [improveError, setImproveError] = useState<string | null>(null)
   // Why "Improve with Soniox" left the summary as it was (summaries not set up).
   const [improveSkipped, setImproveSkipped] = useState<string | null>(null)
+  // Export menu: busy guard and its inline status (null = none).
+  const [exporting, setExporting] = useState(false)
+  const [exportStatus, setExportStatus] = useState<{ tone: "muted" | "error"; text: string } | null>(null)
+  const exportTimer = useRef<number | null>(null)
+
+  useEffect(
+    () => () => {
+      if (exportTimer.current !== null) window.clearTimeout(exportTimer.current)
+    },
+    [],
+  )
 
   // An ended meeting without a summary leads with "Create summary", so
   // check first whether summaries are set up; if not, the card offers the
@@ -453,6 +476,43 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     }
   }
 
+  const setExportNotice = (tone: "muted" | "error", text: string) => {
+    if (exportTimer.current !== null) window.clearTimeout(exportTimer.current)
+    setExportStatus({ tone, text })
+    if (tone === "muted") {
+      exportTimer.current = window.setTimeout(() => setExportStatus(null), 4000)
+    }
+  }
+
+  const exportLang = () => (i18next.resolvedLanguage === "vi" ? "vi" : "en")
+
+  const copyExport = async (format: "txt" | "md") => {
+    // No await before copyText: it must start inside the click (see clipboard.ts).
+    await copyText(fetchExportText(meetingId, format, exportLang()))
+    setExportNotice("muted", t("meetingDetail.exportCopied"))
+  }
+
+  const downloadExport = async (format: ExportFormat) => {
+    if (hasWindowControls()) {
+      const path = await saveExport(meetingId, format, exportLang())
+      if (path) setExportNotice("muted", t("meetingDetail.exportSaved", { path }))
+      return
+    }
+    const a = document.createElement("a")
+    a.href = exportUrl(meetingId, format, exportLang())
+    a.download = ""
+    a.click()
+  }
+
+  const runExport = (work: () => Promise<void>) => {
+    if (exportTimer.current !== null) window.clearTimeout(exportTimer.current)
+    setExportStatus(null)
+    setExporting(true)
+    work()
+      .catch((err) => setExportNotice("error", t("meetingDetail.exportFailed", { error: errorText(err) })))
+      .finally(() => setExporting(false))
+  }
+
   const openDelete = () => {
     setDeleteError(null)
     setDeleteOpen(true)
@@ -673,11 +733,40 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         </div>
         <div className="flex gap-2">
           {refined && summaryButton}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exporting}>
+                <Download aria-hidden="true" /> {t("meetingDetail.export")}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => runExport(() => copyExport("txt"))}>
+                <Copy aria-hidden="true" /> {t("meetingDetail.exportCopyText")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => runExport(() => copyExport("md"))}>
+                <FileText aria-hidden="true" /> {t("meetingDetail.exportCopyMarkdown")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => runExport(() => downloadExport("txt"))}>
+                <FileText aria-hidden="true" /> {t("meetingDetail.exportTxt")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => runExport(() => downloadExport("md"))}>
+                <FileCode aria-hidden="true" /> {t("meetingDetail.exportMd")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => runExport(() => downloadExport("docx"))}>
+                <FileType aria-hidden="true" /> {t("meetingDetail.exportDocx")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="destructive" onClick={openDelete}>
             <Trash2 aria-hidden="true" /> {t("meetingDetail.delete")}
           </Button>
         </div>
       </div>
+
+      <StatusMessage tone={exportStatus?.tone ?? "muted"} className="mb-4">
+        {exportStatus?.text}
+      </StatusMessage>
 
       {showImprove && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
