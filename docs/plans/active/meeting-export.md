@@ -116,3 +116,38 @@ exported; it's just what exists so far.
 - UI: all five menu actions work in `catchm serve` (browser) and in the
   desktop app, in en and vi.
 - `go test ./...`, vet, gofmt, `bun run build`, `bun run lint` green.
+
+## Progress
+
+Steps 1–4 done on `feat/meeting-export` (stacked on `feat/i18n-en-vi`):
+`internal/export` (5d5e0a3), `GET /api/meetings/{id}/export` (b613cbc),
+`DesktopBridge.SaveExport` (d561139), the Export menu (5c0376d).
+
+## Decisions made during implementation
+
+- `.docx` runs repeat each style's formatting directly: macOS Quick
+  Look, TextEdit and Pages ignore `styles.xml`, so headings would render
+  as body text there. A `word/_rels/document.xml.rels` part is needed
+  for Word to load the styles at all.
+- The ASCII filename fallback folds Vietnamese diacritics
+  (`summarize.FoldDiacritics`): `hop-du-an-q4-…` rather than `h-p-d-n-…`.
+- Participants come from the meeting; the analysis's people only fill in
+  when the meeting has none, and map "Speaker N" to names. An unreadable
+  analysis costs the names, never the export.
+- Copy goes through `lib/clipboard.ts`: the Wails runtime's
+  `ClipboardSetText` on the desktop, and a `ClipboardItem` created inside
+  the click in browsers. WebKit rejects `writeText` after an awaited
+  fetch.
+
+## Validation
+
+- `go test ./...` (incl. `internal/export`, server and desktop export
+  tests), vet, gofmt green; `tsc` 0 errors; lint only the 3
+  pre-existing `components/ui` warnings.
+- HTTP against a seeded Vietnamese meeting: all three formats 200 with
+  the right Content-Type and `filename` + `filename*=UTF-8''`; `pdf` →
+  400. The .docx opens in macOS `textutil` with correct text, and
+  bold/italic/sizes render after the direct-formatting change.
+- Still to do: click through the five menu items in the browser
+  (`catchm serve`) and in the desktop app (macOS + Windows), en and vi;
+  open a .docx in Word or Google Docs once.
