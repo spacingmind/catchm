@@ -118,7 +118,7 @@ tasks:
     cmds:
       # BSD sed: -i needs '' before the script (the Windows task's
       # `sed -i -E` would break on macOS).
-      - sed -i '' -E 's/"productVersion": "[^"]*"/"productVersion": "{{.VERSION}}"/' wails.json
+      - 'sed -i '''' -E ''s/"productVersion": "[^"]*"/"productVersion": "{{.VERSION}}"/'' wails.json'
       - wails build -s -skipbindings -platform darwin/arm64 -ldflags "-X main.version={{.VERSION}} -X main.updateBaseURL={{.UPDATE_BASE_URL}}"
       - codesign --force --deep -s - build/bin/catchm-desktop.app
       # A plain .dmg: the .app plus an /Applications symlink for the
