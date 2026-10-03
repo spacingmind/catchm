@@ -30,14 +30,20 @@ task lint    # go vet + gofmt check
 task run     # the daemon (catchm serve)
 ```
 
-Desktop shell (Windows-specific NSIS/installer work; needs the
-[wails](https://wails.io) CLI and, for the installer, NSIS):
+Desktop shell (needs the [wails](https://wails.io) CLI, pinned to
+go.mod's `wailsapp/wails/v2` version; the Windows installer also needs
+NSIS, the macOS `.dmg` an Apple Silicon Mac):
 
 ```
 task desktop:dev
 task desktop:build
-task desktop:release VERSION=1.2.3 UPDATE_BASE_URL=https://catchm-api.spacingmind.com/update
+task desktop:release VERSION=1.2.3 UPDATE_BASE_URL=https://catchm-api.spacingmind.com/update         # Windows installer
+task desktop:release:darwin VERSION=1.2.3 UPDATE_BASE_URL=https://catchm-api.spacingmind.com/update  # macOS arm64 .dmg
 ```
+
+The macOS build is unsigned (ad-hoc signature only) and has no tray
+icon. A tray library can't coexist with Wails v2 on macOS; see
+`cmd/catchm-desktop/tray_start_darwin.go`.
 
 ## Release runbook
 
@@ -57,13 +63,21 @@ themselves" — one human decision, everything after it validated:
    `origin/develop` HEAD, and pushed alone (never `--tags`).
 3. **`tag-release` then dispatches `release.yml` on the tag.** A tag
    pushed with `GITHUB_TOKEN` can't trigger workflows itself, so the
-   dispatch replaces the push trigger (`dry_run=false`, same result). It builds the
-   NSIS installer (`task desktop:release`), attaches it + its SHA-256
-   checksum to the GitHub release, builds `latest.json`, and uploads
-   everything to the catchm-releases R2 bucket — `latest.json` last,
-   so a half-uploaded release is never advertised. That R2 manifest is
+   dispatch replaces the push trigger (`dry_run=false`, same result).
+   Two jobs build in parallel: `windows` (the NSIS installer, `task
+   desktop:release`) and `macos` (`macos-14`, the arm64 `.dmg`, `task
+   desktop:release:darwin`), each with a SHA-256 checksum. Only when
+   both succeed does `publish` attach all four files to the GitHub
+   release, build `latest.json` listing all four, and upload everything
+   to the catchm-releases R2 bucket. `latest.json` goes last, so a
+   half-uploaded release is never advertised. That R2 manifest is
    what shipped clients actually poll (`catchm-api`'s `/update`
-   route); the GitHub release is the public record.
+   route); the GitHub release is the public record. Each client picks
+   its own platform's assets from the manifest. Windows installs
+   in-app; macOS opens the `.dmg` download in the browser.
+   **The Worker's download route allowlists asset names**: a new asset
+   name must be deployed to catchm-api before the first release that
+   publishes it, or those downloads 404.
 4. **After `release.yml` goes green**, `tag-release` fast-forwards
    `master` to the tag. If `release.yml` fails, `master` stays put —
    the tag/release are still published (fix forward with a new
@@ -73,9 +87,11 @@ themselves" — one human decision, everything after it validated:
 
 - `tag-release` with `dry_run` (default): validation + local tag only.
 - `release.yml` also has a `workflow_dispatch` with its own `dry_run`
-  (default true): builds + checksums the installer and uploads it as a
-  workflow artifact, skipping the GitHub release, manifest, and R2
-  upload.
+  (default true): builds + checksums both platforms and uploads them as
+  workflow artifacts, skipping the GitHub release, manifest, and R2
+  upload. It can run on any branch (`gh workflow run release.yml --ref
+  <branch> -f dry_run=true -f version=x.y.z`), which validates build
+  changes before they merge.
 
 ### What a release must never do
 
