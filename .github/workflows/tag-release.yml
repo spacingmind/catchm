@@ -152,9 +152,13 @@ jobs:
           # event on the tag's commit (the run can take a few seconds
           # to appear, which the loop's "none" case covers).
           sha="$(git rev-parse HEAD)"
+          # --branch: only a run dispatched on the tag counts. A dry-run
+          # release.yml on develop at the same commit would otherwise
+          # match first (v0.4.0 fast-forwarded master off the dry run's
+          # green result while the real release was still building).
           for i in $(seq 1 90); do # up to ~15 min
             status="$(gh run list --workflow release.yml --repo "$GITHUB_REPOSITORY" \
-              --event workflow_dispatch --commit "$sha" --limit 1 \
+              --event workflow_dispatch --commit "$sha" --branch "v$VERSION" --limit 1 \
               --json status,conclusion --jq '.[0] // {} | (.status // "none") + ":" + (.conclusion // "")')"
             case "$status" in
               completed:success) break ;;
