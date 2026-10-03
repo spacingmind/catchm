@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -319,14 +318,14 @@ func stallingServer(t *testing.T, stallOnSum bool) (srv *httptest.Server, starte
 }
 
 func stallingRelease(srv *httptest.Server) *Release {
-	_, _, ok := PlatformAssets(runtime.GOOS)
+	_, _, ok := PlatformAssets(HostGOOS)
 	if !ok {
 		panic("stallingRelease needs assets for this GOOS")
 	}
 	// Build the asset list for the runner's platform: the URLs are
 	// platform-independent (the stalling server stalls on any of
 	// them); only the names must match what DownloadAndVerify picks.
-	installerName, checksumName, _ := PlatformAssets(runtime.GOOS)
+	installerName, checksumName, _ := PlatformAssets(HostGOOS)
 	return &Release{TagName: "v9.9.9", Assets: []Asset{
 		{Name: installerName, BrowserDownloadURL: srv.URL + "/dl/installer.exe"},
 		{Name: checksumName, BrowserDownloadURL: srv.URL + "/dl/installer.exe.sha256"},
