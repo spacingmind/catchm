@@ -17,7 +17,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -126,10 +125,7 @@ func run() error {
 	// DesktopBridge's update methods (update.go) reach the same manager.
 	updates := newUpdateManager()
 
-	go systray.Run(
-		func() { onTrayReady(pollCtx, handler, cfg, hkManager) },
-		stopPoll,
-	)
+	startTray(pollCtx, handler, cfg, hkManager, stopPoll)
 
 	stateTracker := newWindowStateTracker(filepath.Join(home, windowStateFileName))
 	go stateTracker.poll(pollCtx)
@@ -146,6 +142,14 @@ func run() error {
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
+		Menu: appMenu(func() {
+			mu.Lock()
+			reallyQuit = true
+			mu.Unlock()
+			if appCtx := appContext(); appCtx != nil {
+				runtime.Quit(appCtx)
+			}
+		}),
 		Bind: []interface{}{
 			&DesktopBridge{hk: hkManager, updates: updates, exp: handler},
 		},
@@ -186,6 +190,7 @@ func run() error {
 						runtime.EventsEmit(ctx, openMeetingEvent, id)
 					}
 					windowVisible.Store(true)
+					runtime.WindowUnminimise(ctx) // macOS minimises on close
 					runtime.WindowShow(ctx)
 				}
 			},
@@ -248,8 +253,7 @@ func run() error {
 			if quit {
 				return false
 			}
-			windowVisible.Store(false)
-			runtime.WindowHide(ctx)
+			hideOnClose(ctx)
 			return true
 		},
 		// M22 §5: unregister every global hotkey on quit — a stale

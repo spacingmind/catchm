@@ -7,6 +7,22 @@ translates in real time, and turns each meeting into agent-readable
 context (markdown + frontmatter + MCP tools). Single Go binary serving an
 API + web UI on localhost, same shape as smind.
 
+## Install
+
+Download the latest release:
+
+- **Windows 10/11:** `catchm-desktop-amd64-installer.exe`. It updates
+  itself in-app.
+- **macOS (Apple Silicon):** `catchm-desktop-arm64.dmg`. Open it and drag
+  CatchM to Applications. The app isn't signed by Apple yet, so the
+  first launch is blocked once. Right-click CatchM → Open, or on macOS 15+
+  open System Settings → Privacy & Security and choose **Open Anyway**.
+  macOS may ask for microphone access again after each update, because
+  every build carries a new ad-hoc signature. CatchM tells you when an
+  update is out; download it the same way. There's no menu-bar icon on
+  macOS: closing the window minimises it to the Dock, and recording keeps
+  running.
+
 ## Dev
 
 ```sh

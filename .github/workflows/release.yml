@@ -7,16 +7,22 @@ name: release
 # is a separate manual step (the spec's open question about
 # develop-merge tagging stays with the user).
 #
-# workflow_dispatch lets anyone exercise the whole build (installer +
-# checksum) on demand, without cutting a tag or touching anything
-# public. `dry_run` defaults to true; every publish step below (GitHub
-# release, latest.json manifest, R2 upload) carries an explicit `if:`
-# so a dry run can never reach them — only a tag push, or an explicit
-# `dry_run=false` dispatch, does. `version` has no safe "obviously
-# fake" default: NSIS's VIProductVersion (see Taskfile.yml's
-# desktop:release precondition) rejects anything but plain x.y.z, so
-# the default is a real-looking low version rather than e.g.
-# "0.0.0-dry".
+# macOS release (the plan's "CI" section): the build is split into a
+# windows and a macos job (macos-14 = arm64), each uploading its
+# artifacts; a publish job (needs both) does everything public — so if
+# either platform fails to build, NOTHING is published and a release
+# stays all-or-nothing across platforms.
+#
+# workflow_dispatch lets anyone exercise the whole build (installers +
+# checksums + dmg) on demand, without cutting a tag or touching
+# anything public. `dry_run` defaults to true; every publish step
+# (GitHub release, latest.json manifest, R2 upload) carries an
+# explicit `if:` so a dry run can never reach them — only a tag push,
+# or an explicit `dry_run=false` dispatch, does. `version` has no safe
+# "obviously fake" default: NSIS's VIProductVersion (see
+# Taskfile.yml's desktop:release precondition) rejects anything but
+# plain x.y.z, so the default is a real-looking low version rather
+# than e.g. "0.0.0-dry".
 on:
   push:
     tags: ["v*"]
@@ -35,7 +41,7 @@ permissions:
   contents: write # creating the release + uploading its assets
 
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -120,26 +126,105 @@ jobs:
           printf '%s  %s\n' "$h" catchm-desktop-amd64-installer.exe > catchm-desktop-amd64-installer.exe.sha256
           cat catchm-desktop-amd64-installer.exe.sha256
 
-      # Dry runs stop here: the artifact is the whole point of a dry
-      # run (there's nothing else to inspect), so it's only uploaded
-      # off the workflow_dispatch + dry_run path. A tag push's
-      # behaviour is unchanged — it never produces this artifact,
-      # exactly as before workflow_dispatch existed.
-      - name: Upload dry-run artifact
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: catchm-desktop-installer-${{ steps.ver.outputs.version }}
+          name: windows
           path: |
             cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe
             cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe.sha256
           if-no-files-found: error
 
-      # Every step below is a real publish (public GitHub release,
-      # update manifest, or R2 upload) and must never run for a dry
-      # run. Gated on the same condition: a tag push, or an explicit
-      # workflow_dispatch with dry_run=false.
-      #
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+
+      # Same go-version source as the windows job: go.mod is the single
+      # version decider for both platforms.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Derive version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same web build the windows job does (see its comment): the
+      # release task only runs `bun run build` and assumes
+      # node_modules exist on a fresh runner.
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      # Same pinned CLI version as the windows job so generated build
+      # assets match the library the app links against.
+      - name: Install wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+
+      # Homebrew's go-task formula is maintained upstream
+      # (go-task/homebrew-tap) and the runner's brew is
+      # GitHub-hosted — no curl|sh from arbitrary sources.
+      - name: Install task
+        run: brew install go-task
+
+      # Same UPDATE_BASE_URL guard as the windows job: a repo/org
+      # variable, required so a release never silently ships with
+      # updates disabled.
+      - name: Build dmg
+        env:
+          UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL }}
+        run: |
+          task desktop:release:darwin VERSION=${{ steps.ver.outputs.version }} UPDATE_BASE_URL="${UPDATE_BASE_URL}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            cmd/catchm-desktop/build/bin/catchm-desktop-arm64.dmg
+            cmd/catchm-desktop/build/bin/catchm-desktop-arm64.dmg.sha256
+          if-no-files-found: error
+
+  # Every step in this job is a real publish (public GitHub release,
+  # update manifest, or R2 upload) and must never run for a dry run.
+  # Gated on the same condition as before: a tag push, or an explicit
+  # workflow_dispatch with dry_run=false. `needs: [windows, macos]`
+  # makes the release all-or-nothing: if either platform's build
+  # fails, nothing is published.
+  publish:
+    runs-on: ubuntu-latest
+    needs: [windows, macos]
+    steps:
+      - uses: actions/checkout@v6
+
+      # Unpacks each artifact into its own directory: dist/windows,
+      # dist/macos.
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Collect release files
+        run: |
+          set -euo pipefail
+          mkdir -p files
+          cp dist/windows/catchm-desktop-amd64-installer.exe \
+             dist/windows/catchm-desktop-amd64-installer.exe.sha256 \
+             dist/macos/catchm-desktop-arm64.dmg \
+             dist/macos/catchm-desktop-arm64.dmg.sha256 \
+             files/
+          ls -l files
+
       # GITHUB_TOKEN suffices for same-repo release creation — no new
       # secret (verified against the workflow permissions model). Kept
       # as an internal record; harmless on a private repo, and its body
@@ -147,7 +232,6 @@ jobs:
       # so release notes are written in exactly one place.
       - name: Publish GitHub release
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -155,25 +239,30 @@ jobs:
             --title "CatchM ${GITHUB_REF_NAME}" \
             --notes "See release notes below." \
             --generate-notes \
-            cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe \
-            cmd/catchm-desktop/build/bin/catchm-desktop-amd64-installer.exe.sha256
+            files/catchm-desktop-amd64-installer.exe \
+            files/catchm-desktop-amd64-installer.exe.sha256 \
+            files/catchm-desktop-arm64.dmg \
+            files/catchm-desktop-arm64.dmg.sha256
 
       # Build the manifest catchm-api's /update/releases/latest will
       # serve (docs/plans/completed/m24-cloud-update-endpoint.md Part A).
       # Sizes are read straight off the built files rather than trusted
       # from the build step, so a truncated/corrupt asset can't publish
-      # a manifest that lies about its own size.
+      # a manifest that lies about its own size. The two Windows
+      # entries keep their exact shape and order; the two macOS assets
+      # follow.
       - name: Build latest.json manifest
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api "repos/${{ github.repository }}/releases/tags/${GITHUB_REF_NAME}" > /tmp/release-meta.json
 
-          cd cmd/catchm-desktop/build/bin
+          cd files
           installer_size=$(( $(wc -c < catchm-desktop-amd64-installer.exe) ))
           sha_size=$(( $(wc -c < catchm-desktop-amd64-installer.exe.sha256) ))
+          dmg_size=$(( $(wc -c < catchm-desktop-arm64.dmg) ))
+          dmg_sha_size=$(( $(wc -c < catchm-desktop-arm64.dmg.sha256) ))
 
           jq -n \
             --arg tag_name "${GITHUB_REF_NAME}" \
@@ -181,6 +270,8 @@ jobs:
             --argjson meta "$(cat /tmp/release-meta.json)" \
             --argjson installer_size "${installer_size}" \
             --argjson sha_size "${sha_size}" \
+            --argjson dmg_size "${dmg_size}" \
+            --argjson dmg_sha_size "${dmg_sha_size}" \
             '{
               tag_name: $tag_name,
               name: $name,
@@ -188,7 +279,9 @@ jobs:
               published_at: $meta.published_at,
               assets: [
                 {name: "catchm-desktop-amd64-installer.exe", size: $installer_size},
-                {name: "catchm-desktop-amd64-installer.exe.sha256", size: $sha_size}
+                {name: "catchm-desktop-amd64-installer.exe.sha256", size: $sha_size},
+                {name: "catchm-desktop-arm64.dmg", size: $dmg_size},
+                {name: "catchm-desktop-arm64.dmg.sha256", size: $dmg_sha_size}
               ]
             }' > latest.json
           cat latest.json
@@ -203,23 +296,28 @@ jobs:
       # tokens on the S3 API — wrangler's `--remote` goes through the
       # REST API, which 403s for bucket-scoped tokens
       # (cloudflare/workers-sdk#9235). AWS CLI v2 is preinstalled on
-      # windows-latest (actions/runner-images Windows2022-Readme.md).
+      # ubuntu-latest (actions/runner-images Ubuntu2404-Readme.md).
       - name: Upload to catchm-api/releases (R2, S3 API)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)
-        shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          cd cmd/catchm-desktop/build/bin
+          cd files
           endpoint="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
           aws s3 cp catchm-desktop-amd64-installer.exe \
             "s3://catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-amd64-installer.exe" \
             --endpoint-url "$endpoint"
           aws s3 cp catchm-desktop-amd64-installer.exe.sha256 \
             "s3://catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-amd64-installer.exe.sha256" \
+            --endpoint-url "$endpoint"
+          aws s3 cp catchm-desktop-arm64.dmg \
+            "s3://catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-arm64.dmg" \
+            --endpoint-url "$endpoint"
+          aws s3 cp catchm-desktop-arm64.dmg.sha256 \
+            "s3://catchm-releases/${GITHUB_REF_NAME}/catchm-desktop-arm64.dmg.sha256" \
             --endpoint-url "$endpoint"
           aws s3 cp latest.json \
             "s3://catchm-releases/latest.json" \

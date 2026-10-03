@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -43,9 +44,44 @@ func (e *ChecksumMismatchError) Error() string {
 // on a fresh install, not a failure worth surfacing loudly.
 var ErrNoRelease = errors.New("update: no releases published")
 
-// ChecksumFileName is the asset name the release workflow publishes
-// alongside the installer (sha256sum-compatible format).
+// HostGOOS is the OS whose release assets this process uses (and, in
+// the desktop shell, whether it can self-install). A var so tests can
+// pin it; never set it outside tests.
+//
+// a var (not a direct runtime.GOOS read) purely so tests can exercise
+// the Windows asset path on any runner.
+var HostGOOS = runtime.GOOS
+
+// ChecksumFileName is the Windows installer's checksum asset name —
+// kept for callers that need the name without a goos (tests, older
+// call sites). Prefer PlatformAssets.
 const ChecksumFileName = "catchm-desktop-amd64-installer.exe.sha256"
+
+// PlatformAssets returns the asset names the release workflow
+// publishes for an OS: its installer and the sha256sum-format checksum
+// alongside it. ok is false for an OS with no release assets (Linux
+// CI, any future platform before its assets ship).
+func PlatformAssets(goos string) (installer, checksum string, ok bool) {
+	switch goos {
+	case "windows":
+		return "catchm-desktop-amd64-installer.exe", "catchm-desktop-amd64-installer.exe.sha256", true
+	case "darwin":
+		return "catchm-desktop-arm64.dmg", "catchm-desktop-arm64.dmg.sha256", true
+	default:
+		return "", "", false
+	}
+}
+
+// PlatformAsset returns the release's installer asset for an OS (nil
+// when the release doesn't carry one — e.g. a release published before
+// that platform's assets existed).
+func PlatformAsset(rel *Release, goos string) *Asset {
+	name, _, ok := PlatformAssets(goos)
+	if !ok {
+		return nil
+	}
+	return findAsset(rel, name)
+}
 
 // parseChecksumFile extracts the hex digest for name from a
 // sha256sum-format file ("<sha256>  <name>" per line). The double
@@ -108,11 +144,15 @@ func DownloadAndVerify(ctx context.Context, c *ReleaseClient, rel *Release) (out
 		}
 	}()
 
-	asset := findAsset(rel, "catchm-desktop-amd64-installer.exe")
-	if asset == nil {
-		return out, fmt.Errorf("update: release %s has no installer asset", rel.TagName)
+	installerName, checksumName, ok := PlatformAssets(HostGOOS)
+	if !ok {
+		return out, fmt.Errorf("update: no release assets for GOOS %s", HostGOOS)
 	}
-	sumAsset := findAsset(rel, ChecksumFileName)
+	asset := findAsset(rel, installerName)
+	if asset == nil {
+		return out, fmt.Errorf("update: release %s has no %s asset", rel.TagName, installerName)
+	}
+	sumAsset := findAsset(rel, checksumName)
 	if sumAsset == nil {
 		return out, &ChecksumMismatchError{Asset: asset.Name, Missing: true}
 	}

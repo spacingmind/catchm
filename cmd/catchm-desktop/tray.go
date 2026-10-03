@@ -165,7 +165,12 @@ func notifyTrayTransition(hkManager *hotkeyManager, prev, cur trayState) {
 	}
 }
 
+// applyTrayState is a no-op on darwin: there is no tray there (see
+// tray_start_darwin.go) and the menu items below were never created.
 func applyTrayState(s trayState) {
+	if goosDarwin {
+		return
+	}
 	switch s.label {
 	case "recording":
 		systray.SetIcon(trayIconRecording)

@@ -72,6 +72,7 @@ declare global {
           DownloadUpdate?(): Promise<DownloadResult>
           CancelDownload?(): Promise<void>
           ApplyUpdate?(): Promise<void>
+          OpenUpdateDownload?(): Promise<void>
           DeferUpdate?(): void
           SaveExport?(meetingID: string, format: string, lang: string): Promise<string>
         }
@@ -264,6 +265,9 @@ export interface UpdateStatus {
   notesURL?: string
   checkedAt?: string
   error?: string
+  /** True only on Windows (self-install); macOS opens the .dmg in the browser. */
+  selfInstall: boolean
+  downloadURL?: string
 }
 
 /** Matches cmd/catchm-desktop/update.go's DownloadResult. */
@@ -310,6 +314,11 @@ export function cancelDownload(): Promise<void> {
 /** M23: run the verified installer elevated and quit. */
 export function applyUpdate(): Promise<void> {
   return window.go!.main!.DesktopBridge!.ApplyUpdate!()
+}
+
+/** macOS (selfInstall false): open the release .dmg in the browser. */
+export function openUpdateDownload(): Promise<void> {
+  return window.go!.main!.DesktopBridge!.OpenUpdateDownload!()
 }
 
 /** M23: stop prompting for this session. */

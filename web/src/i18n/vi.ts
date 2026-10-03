@@ -383,6 +383,7 @@ export const vi: Messages = {
     cancelDownload: "Hủy tải xuống",
     cancellingShort: "Đang hủy…",
     downloadUpdate: "Tải bản cập nhật",
+    downloadMacNote: "Bản tải về sẽ mở trong trình duyệt. Mở file .dmg rồi kéo CatchM vào Applications.",
     downloadCancelled: "Đã hủy tải xuống.",
     cancelFailed: "Không hủy được tải xuống. Hãy thử lại.",
   },
