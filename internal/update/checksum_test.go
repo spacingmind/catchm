@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,34 +39,42 @@ func serveRelease(t *testing.T, f releaseFixture) *httptest.Server {
 	t.Helper()
 	sum := sha256.Sum256(f.installer)
 	sumLine := hex.EncodeToString(sum[:]) + "  catchm-desktop-amd64-installer.exe\n"
-	var corruptLine string
+	dmgSumLine := hex.EncodeToString(sum[:]) + "  catchm-desktop-arm64.dmg\n"
+	var corruptLine, dmgCorruptLine string
 	if f.corrupt {
 		bad := sha256.Sum256([]byte("different bytes entirely"))
 		corruptLine = hex.EncodeToString(bad[:]) + "  catchm-desktop-amd64-installer.exe\n"
+		dmgCorruptLine = hex.EncodeToString(bad[:]) + "  catchm-desktop-arm64.dmg\n"
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/releases/latest":
 			var assetList []string
 			if !f.dropBin {
-				assetList = append(assetList, fmt.Sprintf(`{"name":"catchm-desktop-amd64-installer.exe","browser_download_url":"http://%s/dl/installer.exe","size":%d}`, r.Host, len(f.installer)))
+				assetList = append(assetList,
+					fmt.Sprintf(`{"name":"catchm-desktop-amd64-installer.exe","browser_download_url":"http://%s/dl/installer.exe","size":%d}`, r.Host, len(f.installer)),
+					fmt.Sprintf(`{"name":"catchm-desktop-arm64.dmg","browser_download_url":"http://%s/dl/installer.exe","size":%d}`, r.Host, len(f.installer)))
 			}
 			if !f.dropSum {
 				line := sumLine
 				if f.corrupt {
 					line = corruptLine
 				}
-				assetList = append(assetList, fmt.Sprintf(`{"name":%q,"browser_download_url":"http://%s/dl/installer.exe.sha256","size":%d}`, ChecksumFileName, r.Host, len(line)))
+				assetList = append(assetList,
+					fmt.Sprintf(`{"name":%q,"browser_download_url":"http://%s/dl/installer.exe.sha256","size":%d}`, ChecksumFileName, r.Host, len(line)),
+					fmt.Sprintf(`{"name":"catchm-desktop-arm64.dmg.sha256","browser_download_url":"http://%s/dl/installer.exe.sha256","size":%d}`, r.Host, len(dmgSumLine)))
 			}
 			fmt.Fprintf(w, `{"tag_name":"v9.9.9","body":"notes","html_url":"http://%s/rel","published_at":"2026-09-20T10:00:00Z","assets":[%s]}`,
 				r.Host, strings.Join(assetList, ","))
 		case "/dl/installer.exe":
 			w.Write(f.installer)
 		case "/dl/installer.exe.sha256":
+			// The same bytes serve either platform's checksum file;
+			// the digest is identical.
 			if f.corrupt {
-				fmt.Fprint(w, corruptLine)
+				fmt.Fprint(w, corruptLine+dmgCorruptLine)
 			} else {
-				fmt.Fprint(w, sumLine)
+				fmt.Fprint(w, sumLine+dmgSumLine)
 			}
 		default:
 			http.NotFound(w, r)
@@ -310,9 +319,17 @@ func stallingServer(t *testing.T, stallOnSum bool) (srv *httptest.Server, starte
 }
 
 func stallingRelease(srv *httptest.Server) *Release {
+	_, _, ok := PlatformAssets(runtime.GOOS)
+	if !ok {
+		panic("stallingRelease needs assets for this GOOS")
+	}
+	// Build the asset list for the runner's platform: the URLs are
+	// platform-independent (the stalling server stalls on any of
+	// them); only the names must match what DownloadAndVerify picks.
+	installerName, checksumName, _ := PlatformAssets(runtime.GOOS)
 	return &Release{TagName: "v9.9.9", Assets: []Asset{
-		{Name: "catchm-desktop-amd64-installer.exe", BrowserDownloadURL: srv.URL + "/dl/installer.exe"},
-		{Name: ChecksumFileName, BrowserDownloadURL: srv.URL + "/dl/installer.exe.sha256"},
+		{Name: installerName, BrowserDownloadURL: srv.URL + "/dl/installer.exe"},
+		{Name: checksumName, BrowserDownloadURL: srv.URL + "/dl/installer.exe.sha256"},
 	}}
 }
 

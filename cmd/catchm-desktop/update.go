@@ -66,6 +66,10 @@ type updateManager struct {
 
 	mu          sync.Mutex
 	lastChecked time.Time
+	// lastStatus is the most recent check's result, so
+	// OpenUpdateDownload can open the platform asset URL without a
+	// re-check.
+	lastStatus UpdateStatus
 	// deferred is set when the user cancels UAC, dismisses the banner,
 	// or a checksum mismatch occurs: update prompting stops for this
 	// session (no retry loop, no nagging). A manual check from Settings
@@ -189,11 +193,12 @@ func (m *updateManager) checkAndEmitWith(ctx context.Context, manual bool, emit 
 // manual check from Settings shouldn't look like a check that ran.
 func (m *updateManager) check(ctx context.Context) UpdateStatus {
 	if m.client == nil {
-		return UpdateStatus{CurrentVersion: version, Error: errUpdatesNotConfigured.Error()}
+		return UpdateStatus{CurrentVersion: version, SelfInstall: update.HostGOOS == "windows", Error: errUpdatesNotConfigured.Error()}
 	}
 	info, err := update.CheckForUpdate(ctx, m.client, version)
 	status := UpdateStatus{
 		CurrentVersion: version,
+		SelfInstall:    update.HostGOOS == "windows",
 		CheckedAt:      time.Now().Format(time.RFC3339),
 	}
 	if err != nil {
@@ -206,9 +211,11 @@ func (m *updateManager) check(ctx context.Context) UpdateStatus {
 		status.Notes = info.Notes
 		status.NotesURL = info.NotesURL
 		status.PublishedAt = info.PublishedAt.Format("2006-01-02")
+		status.DownloadURL = info.DownloadURL
 	}
 	m.mu.Lock()
 	m.lastChecked = time.Now()
+	m.lastStatus = status
 	m.mu.Unlock()
 	return status
 }
@@ -224,6 +231,12 @@ type UpdateStatus struct {
 	PublishedAt     string `json:"publishedAt,omitempty"`
 	CheckedAt       string `json:"checkedAt,omitempty"`
 	Error           string `json:"error,omitempty"`
+	// SelfInstall: this platform downloads and installs in-app
+	// (Windows). Otherwise the UI offers OpenUpdateDownload instead.
+	SelfInstall bool `json:"selfInstall"`
+	// DownloadURL is the platform installer asset's URL when an update
+	// is available (what OpenUpdateDownload opens on macOS).
+	DownloadURL string `json:"downloadURL,omitempty"`
 }
 
 // CheckForUpdate (bound): manual check from Settings — same code path
@@ -258,6 +271,25 @@ type DownloadResult struct {
 	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
+// OpenUpdateDownload (bound): macOS's update flow — the platform
+// can't self-install (see update_other.go), so "Download" opens the
+// last checked release's dmg URL in the browser. Errors when no check
+// has found an update with a download URL yet.
+func (d DesktopBridge) OpenUpdateDownload() error {
+	d.updates.mu.Lock()
+	url := d.updates.lastStatus.DownloadURL
+	d.updates.mu.Unlock()
+	if url == "" {
+		return errors.New("no update download available — check for updates first")
+	}
+	ctx := appContext()
+	if ctx == nil {
+		return errors.New("app not running")
+	}
+	runtime.BrowserOpenURL(ctx, url)
+	return nil
+}
+
 // DownloadUpdate (bound): downloads + SHA-256-verifies the installer
 // for the latest release (re-checks rather than trusting a stale
 // CheckForUpdate result, so the verified bytes always match the
@@ -265,6 +297,9 @@ type DownloadResult struct {
 // installer's digest for the confirm dialog. A checksum mismatch marks
 // updates deferred for the session — never executable, never retried.
 func (d DesktopBridge) DownloadUpdate() (DownloadResult, error) {
+	if update.HostGOOS != "windows" {
+		return DownloadResult{}, errors.New("update: this platform can't self-install — use OpenUpdateDownload")
+	}
 	return d.updates.download(context.Background())
 }
 
@@ -372,6 +407,9 @@ func (d DesktopBridge) CancelDownload() {
 // error: nil is returned and the deferred flag stops further prompting
 // this session.
 func (d DesktopBridge) ApplyUpdate() error {
+	if update.HostGOOS != "windows" {
+		return errors.New("update: this platform can't self-install — use OpenUpdateDownload")
+	}
 	m := d.updates
 	m.mu.Lock()
 	verified := m.verified

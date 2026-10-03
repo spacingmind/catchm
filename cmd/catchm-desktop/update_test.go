@@ -31,7 +31,15 @@ func latestReleaseHandler(t *testing.T) http.Handler {
 			"body":         "Fixes",
 			"html_url":     "https://example.com/notes",
 			"published_at": time.Now().Format(time.RFC3339),
-			"assets":       []any{},
+			// The four assets a real release publishes, as the Worker
+			// serves them (a platform without its installer asset sees
+			// no update).
+			"assets": []any{
+				map[string]any{"name": "catchm-desktop-amd64-installer.exe", "browser_download_url": "https://dl.test/v0.1.2/catchm-desktop-amd64-installer.exe", "size": 1},
+				map[string]any{"name": "catchm-desktop-amd64-installer.exe.sha256", "browser_download_url": "https://dl.test/v0.1.2/catchm-desktop-amd64-installer.exe.sha256", "size": 1},
+				map[string]any{"name": "catchm-desktop-arm64.dmg", "browser_download_url": "https://dl.test/v0.1.2/catchm-desktop-arm64.dmg", "size": 1},
+				map[string]any{"name": "catchm-desktop-arm64.dmg.sha256", "browser_download_url": "https://dl.test/v0.1.2/catchm-desktop-arm64.dmg.sha256", "size": 1},
+			},
 		}); err != nil {
 			t.Errorf("encode release: %v", err)
 		}
@@ -57,6 +65,7 @@ func newTestUpdateManager(t *testing.T, deferred bool) *updateManager {
 }
 
 func TestCheckAndEmitManualEmitsEvenWhenDeferred(t *testing.T) {
+	pinGOOS(t, "windows")
 	m := newTestUpdateManager(t, true /* deferred: user dismissed the banner */)
 
 	var mu sync.Mutex
@@ -83,6 +92,7 @@ func TestCheckAndEmitManualEmitsEvenWhenDeferred(t *testing.T) {
 }
 
 func TestCheckAndEmitBackgroundSuppressedWhenDeferred(t *testing.T) {
+	pinGOOS(t, "windows")
 	m := newTestUpdateManager(t, true)
 
 	var emitted int
@@ -98,6 +108,7 @@ func TestCheckAndEmitBackgroundSuppressedWhenDeferred(t *testing.T) {
 }
 
 func TestCheckAndEmitBackgroundEmitsWhenNotDeferred(t *testing.T) {
+	pinGOOS(t, "windows")
 	m := newTestUpdateManager(t, false)
 
 	var emitted int
@@ -112,6 +123,7 @@ func TestCheckAndEmitBackgroundEmitsWhenNotDeferred(t *testing.T) {
 }
 
 func TestCheckAndEmitNoUpdateNeverEmits(t *testing.T) {
+	pinGOOS(t, "windows")
 	srv := httptest.NewServer(latestReleaseHandler(t))
 	t.Cleanup(srv.Close)
 	m := newUpdateManager()
@@ -193,6 +205,7 @@ func tempFiles(t *testing.T) func() int {
 // partial file is gone, nothing is deferred — and a retry right after
 // downloads and verifies normally.
 func TestCancelDownloadMidDownloadThenRetry(t *testing.T) {
+	pinGOOS(t, "windows")
 	countTemp := tempFiles(t)
 	var stall atomic.Bool
 	stall.Store(true)
@@ -258,6 +271,7 @@ func TestCancelDownloadMidDownloadThenRetry(t *testing.T) {
 // Nothing downloading: CancelDownload returns at once and changes
 // nothing (the button can race a download that just finished).
 func TestCancelDownloadIdleIsNoop(t *testing.T) {
+	pinGOOS(t, "windows")
 	m := newTestUpdateManager(t, false)
 	m.verified = update.VerifiedInstaller{Path: "kept.exe", SHA256: "abc"}
 	bridge := DesktopBridge{updates: m}
@@ -297,6 +311,7 @@ func exists(path string) bool {
 // A new download replaces a previously verified installer that was
 // declined with "Not now": the old file is deleted, not left in temp.
 func TestDownloadRemovesPreviousInstaller(t *testing.T) {
+	pinGOOS(t, "windows")
 	countTemp := tempFiles(t)
 	var stall atomic.Bool
 	srv, _ := installerServer(t, &stall)
@@ -323,6 +338,7 @@ func TestDownloadRemovesPreviousInstaller(t *testing.T) {
 // On startup, leftover installers from earlier runs are swept — even
 // in a build with updates off — keeping the currently verified one.
 func TestStartupRemovesStaleInstallers(t *testing.T) {
+	pinGOOS(t, "windows")
 	countTemp := tempFiles(t)
 	stale1, stale2, keep := staleInstaller(t), staleInstaller(t), staleInstaller(t)
 	m := &updateManager{verified: update.VerifiedInstaller{Path: keep}}
@@ -339,6 +355,7 @@ func TestStartupRemovesStaleInstallers(t *testing.T) {
 // With a download in flight the sweep does nothing: that download's
 // partial file matches the same pattern.
 func TestStaleSweepSkippedWhileDownloading(t *testing.T) {
+	pinGOOS(t, "windows")
 	tempFiles(t)
 	partial := staleInstaller(t)
 	m := &updateManager{dl: &downloadRun{cancel: func() {}, done: make(chan struct{})}}
@@ -346,5 +363,38 @@ func TestStaleSweepSkippedWhileDownloading(t *testing.T) {
 	m.removeStaleInstallers()
 	if !exists(partial) {
 		t.Fatal("sweep deleted an in-flight download's file")
+	}
+}
+
+// pinGOOS makes these Windows-flow tests (Windows-only release fixtures,
+// in-app download) independent of the OS running them.
+func pinGOOS(t *testing.T, goos string) {
+	t.Helper()
+	prev := update.HostGOOS
+	update.HostGOOS = goos
+	t.Cleanup(func() { update.HostGOOS = prev })
+}
+
+// On macOS an update is offered as a browser download: no in-app
+// install, and the status carries the dmg's URL.
+func TestCheckOnDarwinOffersDmgDownload(t *testing.T) {
+	pinGOOS(t, "darwin")
+	m := newTestUpdateManager(t, false)
+	status := m.check(context.Background())
+	if !status.UpdateAvailable || status.SelfInstall {
+		t.Fatalf("status = %+v, want an available update with SelfInstall=false", status)
+	}
+	if status.DownloadURL != "https://dl.test/v0.1.2/catchm-desktop-arm64.dmg" {
+		t.Fatalf("DownloadURL = %q, want the dmg", status.DownloadURL)
+	}
+	if _, err := (DesktopBridge{updates: m}).DownloadUpdate(); err == nil {
+		t.Fatal("DownloadUpdate on darwin: want an error, got nil")
+	}
+}
+
+func TestOpenUpdateDownloadWithoutCheckErrors(t *testing.T) {
+	m := newUpdateManager()
+	if err := (DesktopBridge{updates: m}).OpenUpdateDownload(); err == nil {
+		t.Fatal("OpenUpdateDownload before any check: want an error, got nil")
 	}
 }

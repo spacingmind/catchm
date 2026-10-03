@@ -66,7 +66,16 @@ func newWorkerServer(t *testing.T, f workerFixture) *httptest.Server {
 	return srv
 }
 
+// withGOOS pins HostGOOS for the test and restores it after.
+func withGOOS(t *testing.T, goos string) {
+	t.Helper()
+	old := HostGOOS
+	HostGOOS = goos
+	t.Cleanup(func() { HostGOOS = old })
+}
+
 func TestWorkerEndToEndSuccess(t *testing.T) {
+	withGOOS(t, "windows")
 	installer := []byte("this is definitely an NSIS installer \x00\x01\x02")
 	srv := newWorkerServer(t, workerFixture{installer: installer})
 	c := &ReleaseClient{BaseURL: srv.URL + "/update", Client: srv.Client()}
@@ -115,6 +124,7 @@ func TestWorkerNoReleaseYet(t *testing.T) {
 }
 
 func TestWorkerWrongChecksumLeavesNoTempFile(t *testing.T) {
+	withGOOS(t, "windows")
 	srv := newWorkerServer(t, workerFixture{installer: []byte("pretend installer payload"), corrupt: true})
 	c := &ReleaseClient{BaseURL: srv.URL + "/update", Client: srv.Client()}
 
