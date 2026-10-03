@@ -84,6 +84,24 @@ Reference: `refs/my-translator` ships notarized Apple Silicon + Intel
 - CONTRIBUTING release runbook: the macOS job, and the Worker allowlist
   deploy order.
 
+## Found during implementation: the desktop app never ran on macOS
+
+The first launch of the built `.app` crashed at once (SIGTRAP in
+`energye/systray.nativeLoop`): `go systray.Run(...)` runs AppKit's
+loop off the main thread, and the library also replaces Wails'
+NSApplication delegate (`setDelegate:` in `systray_darwin.m`), so no
+tray library can coexist with Wails v2 on macOS. Decision (user,
+2026-10-03): **no tray on macOS.**
+- `startTray` is build-tagged. On darwin only the state poller runs,
+  and `applyTrayState` is a no-op.
+- The close button minimises to the Dock on darwin. A hidden window
+  can't be brought back: Wails v2 has no Dock-reopen handler. The
+  show paths unminimise first.
+- A custom app menu: CatchM → Hide (`runtime.Hide`, app-level, Cmd+H)
+  and Quit (Cmd+Q sets `reallyQuit`), plus `menu.EditMenu()` for
+  Cmd+C/V in inputs. Wails' `AppMenu()` isn't used because its Quit
+  goes through OnBeforeClose, whose prevent would swallow Cmd+Q.
+
 ## Out of scope
 
 - Developer ID signing + notarization (revisit when there's an Apple
