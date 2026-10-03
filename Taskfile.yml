@@ -95,3 +95,40 @@ tasks:
     cmds:
       - 'sed -i -E ''s/"productVersion": "[^"]*"/"productVersion": "{{.VERSION}}"/'' wails.json'
       - wails build -s -skipbindings -nsis -ldflags "-X main.version={{.VERSION}} -X main.updateBaseURL={{.UPDATE_BASE_URL}}"
+
+  # macOS release build (the plan's "Build" section). Like the Windows
+  # task above: VERSION is stamped into wails.json's productVersion so
+  # the .app bundle and the binary agree, and UPDATE_BASE_URL must be
+  # set so a release never ships with updates silently off. The app is
+  # UNSIGNED (ad-hoc codesign only): macOS Gatekeeper will warn on
+  # first launch (right-click → Open, or System Settings → Privacy &
+  # Security → Open Anyway), and the mic permission is re-asked after
+  # every update because the ad-hoc signature changes — both documented
+  # in README. Signing with a Developer ID + notarization is future
+  # work (see the plan's Out of scope).
+  desktop:release:darwin:
+    desc: Build a versioned macOS arm64 release (task desktop:release:darwin VERSION=1.2.3 UPDATE_BASE_URL=https://catchm-api.spacingmind.com/update)
+    deps: [web:build]
+    dir: cmd/catchm-desktop
+    preconditions:
+      - sh: 'case "{{.VERSION}}" in v[0-9]*.[0-9]*.[0-9]*|[0-9]*.[0-9]*.[0-9]*) exit 0;; *) exit 1;; esac'
+        msg: "VERSION must be x.y.z or vx.y.z (plain numbers only — the .app bundle's version strings reject pre-release suffixes)"
+      - sh: '[ -n "{{.UPDATE_BASE_URL}}" ]'
+        msg: "UPDATE_BASE_URL must be set (the update API root, e.g. https://catchm-api.spacingmind.com/update) — a release build must not ship with updates silently disabled"
+    cmds:
+      # BSD sed: -i needs '' before the script (the Windows task's
+      # `sed -i -E` would break on macOS).
+      - sed -i '' -E 's/"productVersion": "[^"]*"/"productVersion": "{{.VERSION}}"/' wails.json
+      - wails build -s -skipbindings -platform darwin/arm64 -ldflags "-X main.version={{.VERSION}} -X main.updateBaseURL={{.UPDATE_BASE_URL}}"
+      - codesign --force --deep -s - build/bin/catchm-desktop.app
+      # A plain .dmg: the .app plus an /Applications symlink for the
+      # usual drag-to-install window.
+      - rm -rf build/bin/dmg-stage && mkdir -p build/bin/dmg-stage
+      - ln -sfn /Applications build/bin/dmg-stage/Applications
+      # Shown as "CatchM" in Applications; the executable inside keeps
+      # wails' outputfilename, so renaming the bundle is safe.
+      - cp -R build/bin/catchm-desktop.app build/bin/dmg-stage/CatchM.app
+      - hdiutil create -volname CatchM -srcfolder build/bin/dmg-stage -ov -format UDZO build/bin/catchm-desktop-arm64.dmg
+      # From build/bin so the checksum line names the bare file
+      # (sha256sum format, like the Windows .sha256).
+      - cd build/bin && shasum -a 256 catchm-desktop-arm64.dmg > catchm-desktop-arm64.dmg.sha256
