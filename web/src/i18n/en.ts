@@ -398,6 +398,7 @@ export const en = {
     cancelDownload: "Cancel download",
     cancellingShort: "Cancelling…",
     downloadUpdate: "Download update",
+    downloadMacNote: "The download opens in your browser. Open the .dmg and drag CatchM to Applications.",
     downloadCancelled: "Download cancelled.",
     cancelFailed: "Couldn’t cancel the download. Try again.",
   },

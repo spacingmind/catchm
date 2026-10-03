@@ -32,7 +32,7 @@ function openExternal(e: MouseEvent<HTMLAnchorElement>) {
  */
 export function UpdateBanner() {
   const { t } = useTranslation()
-  const { phase, error, notice, status, download, cancel, apply, dismiss } = useUpdateInstall()
+  const { phase, error, notice, status, download, openDownload, cancel, apply, dismiss } = useUpdateInstall()
 
   if (!status) return null
 
@@ -78,7 +78,18 @@ export function UpdateBanner() {
               </a>
             </Button>
           )}
-          {phase === "confirm" ? (
+          {status.selfInstall === false ? (
+            phase === "idle" ? (
+              <>
+                <Button size="sm" variant="ghost" onClick={dismiss}>
+                  {t("app.dismiss")}
+                </Button>
+                <Button size="sm" onClick={() => void openDownload()}>
+                  {t("updateBanner.downloadUpdate")}
+                </Button>
+              </>
+            ) : null
+          ) : phase === "confirm" ? (
             <>
               <Button size="sm" variant="outline" onClick={dismiss}>
                 {t("updateBanner.notNow")}

@@ -145,6 +145,7 @@ export function SettingsSystem() {
       setStatus({
         currentVersion: version ?? "",
         updateAvailable: false,
+        selfInstall: false,
         error: err instanceof Error ? err.message : String(err),
       })
     } finally {
@@ -239,9 +240,13 @@ export function SettingsSystem() {
           }
           control={
             <div className="flex shrink-0 items-center gap-2">
-              {effectiveStatus?.updateAvailable && update.phase === "idle" && (
-                <Button onClick={() => void update.download()}>{t("settings.system.updateNow")}</Button>
-              )}
+              {effectiveStatus?.updateAvailable &&
+                update.phase === "idle" &&
+                (effectiveStatus.selfInstall === false ? (
+                  <Button onClick={() => void update.openDownload()}>{t("updateBanner.downloadUpdate")}</Button>
+                ) : (
+                  <Button onClick={() => void update.download()}>{t("settings.system.updateNow")}</Button>
+                ))}
               {(update.phase === "downloading" || update.phase === "cancelling") && (
                 <Button
                   variant="outline"

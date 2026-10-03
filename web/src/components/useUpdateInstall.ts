@@ -6,6 +6,7 @@ import {
   cancelDownload,
   deferUpdate,
   downloadUpdate,
+  openUpdateDownload,
   windowEventsOn,
   type UpdateStatus,
 } from "@/lib/wailsRuntime"
@@ -117,6 +118,18 @@ async function apply() {
   }
 }
 
+/** macOS (selfInstall false): open the .dmg in the browser — the user
+ *  installs by hand, so the download → confirm → apply flow never runs. */
+async function openDownload() {
+  setState({ error: null, notice: null })
+  try {
+    await openUpdateDownload()
+    setState({ notice: i18next.t("updateBanner.downloadMacNote") })
+  } catch (err) {
+    setState({ error: errorMessage(err) })
+  }
+}
+
 /** Back to idle after a decline/error — the shared status stays. */
 function reset() {
   setState({ phase: "idle", error: null, notice: null })
@@ -154,6 +167,7 @@ export function useUpdateInstall() {
     notice: snap.notice,
     status: snap.status,
     download,
+    openDownload,
     cancel,
     apply,
     reset,
