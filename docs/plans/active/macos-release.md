@@ -126,3 +126,26 @@ tray library can coexist with Wails v2 on macOS. Decision (user,
   opens the `.dmg` URL, and checksum and name selection are covered by
   `internal/update` tests.
 - `go test ./...`, vet, gofmt, web build/lint green.
+
+## Progress
+
+All five steps are implemented on `chore/macos-release-plan`. The
+catchm-api allowlist is merged (catchm-api #6); the Worker deploy
+is pending (wrangler login needs an interactive terminal).
+
+## Validation
+
+- Built on an Apple Silicon Mac: the adhoc signature verifies
+  (`codesign --verify --deep`), and the `.dmg` mounts with
+  `CatchM.app` + an `/Applications` link. The app runs (it crashed at
+  launch before the tray fix).
+- `release.yml` dry run on the branch: `windows` and `macos` (macos-14)
+  green, `publish` skips every publish step. The first try caught a
+  YAML quoting bug in the darwin task, now fixed.
+- `go test ./...`: per-OS asset selection; a Windows-only release
+  isn't an update on darwin; Windows-flow tests pinned via
+  `update.HostGOOS`. tsc/build/lint green.
+- Still to do: by hand on a Mac, close → Dock restore, Cmd+H, Cmd+Q,
+  Cmd+C/V in inputs, the mic prompt + recording; the Gatekeeper first
+  launch from a downloaded `.dmg`; the Worker deploy before the first
+  release with the `.dmg`.
