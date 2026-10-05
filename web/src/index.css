@@ -203,3 +203,64 @@ html.desktop-mica body {
 html.desktop-mica .app-sidebar {
   background: transparent;
 }
+/*
+ * Since WebviewIsTransparent went on for compact see-through mode, the
+ * transparent body/sidebar above would show the DWM backdrop (Mica)
+ * instead of the pre-transparency look on Windows. Re-paint
+ * --background unless compact-transparent is also active (the
+ * unlayered :has([data-compact-root]) rule below then clears it again).
+ * No-op on macOS: the NSWindow is opaque outside compact mode, so the
+ * webview background never shows anyway.
+ */
+html.desktop-mica:not(.compact-transparent) body,
+html.desktop-mica:not(.compact-transparent) .app-sidebar {
+  background: var(--background);
+}
+
+/*
+ * See-through compact overlay (docs/plans/active/compact-transparent.md).
+ * CompactOverlay adds html.compact-transparent while the macOS shim
+ * (transparent_darwin.go) has made the NSWindow non-opaque, so every
+ * surface must let the content behind the window show through — the
+ * transcript then reads like subtitles: white text with a black
+ * outline, readable over light and dark content alike. Muted text
+ * turns a slightly dimmer white; warning and destructive text keep
+ * their hue (only the outline is added). The level meter (bg-muted
+ * track, bg-primary bar) is untouched so the strip stays readable.
+ */
+html.compact-transparent,
+html.compact-transparent body,
+html.compact-transparent #root,
+html.compact-transparent [data-compact-root],
+/* Every wrapper between #root and the overlay (App's compact shell
+   carries bg-background): any one of them would paint the cream back. */
+html.compact-transparent :has([data-compact-root]) {
+  background: transparent;
+}
+html.compact-transparent [data-compact-root] {
+  color: #fff;
+  text-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 0 3px #000;
+}
+/* Secondary text (translations, "Waiting for someone to speak…") stays
+   white, only slightly dimmer, like a second subtitle line. */
+html.compact-transparent [data-compact-root] .text-muted-foreground {
+  color: rgba(255, 255, 255, 0.85);
+}
+html.compact-transparent [data-compact-root] .text-muted-foreground,
+html.compact-transparent [data-compact-root] .text-warning,
+html.compact-transparent [data-compact-root] .text-destructive {
+  text-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 0 3px #000;
+}
+html.compact-transparent [data-compact-root] .border-b {
+  border-bottom-color: rgba(255, 255, 255, 0.3);
+}

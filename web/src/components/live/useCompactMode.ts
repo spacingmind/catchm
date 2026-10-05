@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { resyncWindowBackground } from "@/lib/theme"
 import {
   hasWindowControls,
   notifyCompactMode,
+  setCompactTransparent,
   windowEventsOn,
   windowGetPosition,
   windowGetSize,
@@ -58,6 +60,12 @@ export function useCompactMode() {
     if (!available || !compact) return
     pinnedRef.current = false
     windowSetAlwaysOnTop(false)
+    // Always leave an opaque full window behind compact mode, even if
+    // the overlay's transparent toggle was on (the class cleanup lives
+    // in CompactOverlay; this is the window-side restore).
+    document.documentElement.classList.remove("compact-transparent")
+    setCompactTransparent(false)
+    resyncWindowBackground() // after the class is gone, or theme.ts skips it
     const saved = savedRef.current
     if (saved) {
       windowSetSize(saved.w, saved.h)

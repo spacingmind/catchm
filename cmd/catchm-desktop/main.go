@@ -20,6 +20,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	wailswindows "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -139,6 +140,14 @@ func run() error {
 		// white). Light brand cream; a dark-theme user sees it only until
 		// lib/theme.ts's WindowSetBackgroundColour runs at page load.
 		BackgroundColour: options.NewRGB(0xFB, 0xF7, 0xEA),
+		// Wails v2 only enables the macOS zoom (green) button when Mac
+		// options are set (zoomable is read inside its `Mac != nil`
+		// branch), so an empty struct is what turns it on.
+		// WebviewIsTransparent lets the compact overlay show the content
+		// behind it once setWindowTransparent makes the NSWindow
+		// non-opaque (transparent_darwin.go); while the window is opaque
+		// this changes nothing — the page paints its own background.
+		Mac: &mac.Options{WebviewIsTransparent: true},
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
@@ -206,8 +215,15 @@ func run() error {
 		// logic needed on this side.
 		Windows: &wailswindows.Options{
 			WindowIsTranslucent: true,
-			BackdropType:        wailswindows.Mica,
-			Theme:               wailswindows.SystemDefault,
+			// WebviewIsTransparent lets the compact see-through mode
+			// (transparent_windows.go) composite alpha-0 pixels down to
+			// the DWM backdrop. Normal mode is visually unchanged:
+			// index.css's desktop-mica:not(.compact-transparent) rules
+			// re-paint --background where the transparent webview would
+			// otherwise show Mica.
+			WebviewIsTransparent: true,
+			BackdropType:         wailswindows.Mica,
+			Theme:                wailswindows.SystemDefault,
 			// M22 §4: browser zoom off (Ctrl+±, Ctrl+wheel, pinch) — verified
 			// against frontend.go: IsZoomControlEnabled maps straight to
 			// WebView2's PutIsZoomControlEnabled (its own docs: gates

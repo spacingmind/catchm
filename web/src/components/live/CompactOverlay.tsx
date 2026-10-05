@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import i18next from "i18next"
 import { useTranslation } from "react-i18next"
-import { Radio, X } from "lucide-react"
+import { Captions, Eye, EyeOff, List, Radio, X } from "lucide-react"
 import { cn } from "cn"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -9,7 +9,15 @@ import { Button } from "@/components/ui/button"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
 import { getMeetingLevels, type AudioSource, type EngineLevelsStatus, type Utterance } from "@/lib/api"
 import { sourceShortLabel } from "@/lib/labels"
+import {
+  readCompactLayout,
+  readCompactTransparent,
+  writeCompactLayout,
+  writeCompactTransparent,
+} from "@/lib/recordPrefs"
 import type { TranscriptViewMode } from "@/lib/livePrefs"
+import { compactTransparentSupported, setCompactTransparent } from "@/lib/wailsRuntime"
+import { resyncWindowBackground } from "@/lib/theme"
 
 /** How many of the most recent utterances the compact strip keeps on
  *  screen — a reading aid, not a transcript, so only the tail matters. */
@@ -18,6 +26,18 @@ const VISIBLE_LINES = 4
 /** Level polling here is just for the tiny strip's dot, so a slower
  *  cadence than the full status row's ~5 Hz is enough. */
 const LEVEL_POLL_MS = 1000
+
+/** Subtitle layout: how many of the most recent lines stay on screen —
+ *  bottom-anchored, centred, larger. */
+const SUBTITLE_LINES = 2
+
+/** Subtitle layout's font scale over the compact font size. */
+const SUBTITLE_SCALE = 1.25
+
+/** Subtitle layout: silence fades the lines out after this long, and
+ *  the next utterance brings them back (docs/plans/active/
+ *  compact-transparent.md, "Subtitle mode"). */
+const SUBTITLE_IDLE_MS = 5000
 
 /** Short engine note for the strip; null while streaming (the normal
  *  case needs no words in a 480px window). */
@@ -66,6 +86,54 @@ export function CompactOverlay({
   const { t } = useTranslation()
   const [peak, setPeak] = useState(0)
   const [engine, setEngine] = useState<EngineLevelsStatus | undefined>(undefined)
+  const [transparent, setTransparent] = useState(readCompactTransparent)
+  const [layout, setLayout] = useState(readCompactLayout)
+  const [supported, setSupported] = useState(false)
+  // Subtitle layout: idle is DERIVED (mark + current activity key) rather
+  // than set in the effect, so a new utterance makes it false again
+  // during render; the only setState is the timer's, per lint.
+  const [idleMark, setIdleMark] = useState<{ key: string } | null>(null)
+
+  // The see-through toggle exists only where the platform shim does
+  // (macOS — DesktopBridge.CompactTransparentSupported).
+  useEffect(() => {
+    let cancelled = false
+    void compactTransparentSupported().then((ok) => {
+      if (!cancelled) setSupported(ok)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Apply the transparency pref: NSWindow state plus the
+  // compact-transparent class that strips the overlay's backgrounds.
+  // No cleanup here on purpose: a cleanup would run between toggles and
+  // re-apply the opaque theme colour, racing the shim's clearColor (both
+  // are async) and leaving a non-opaque but solid-cream window.
+  useEffect(() => {
+    if (!supported) return
+    document.documentElement.classList.toggle("compact-transparent", transparent)
+    setCompactTransparent(transparent)
+    if (!transparent) resyncWindowBackground()
+  }, [supported, transparent])
+
+  // Leaving compact mode: drop the class. useCompactMode's exit() makes
+  // the window opaque and re-syncs its colour.
+  useEffect(() => () => document.documentElement.classList.remove("compact-transparent"), [])
+
+  // Subtitle layout fade: reset on every new utterance (the length and
+  // the last seq together, so an in-place update of the tail also
+  // counts), cleared on unmount or the next change.
+  const lastSeq = utterances.length ? utterances[utterances.length - 1].seq : 0
+  const subtitle = layout === "subtitle"
+  const activityKey = `${utterances.length}:${lastSeq}`
+  const idle = idleMark?.key === activityKey
+  useEffect(() => {
+    if (!subtitle) return
+    const id = setTimeout(() => setIdleMark({ key: activityKey }), SUBTITLE_IDLE_MS)
+    return () => clearTimeout(id)
+  }, [subtitle, activityKey])
 
   useEffect(() => {
     let cancelled = false
@@ -86,7 +154,7 @@ export function CompactOverlay({
     }
   }, [meetingId])
 
-  const lines = utterances.slice(-VISIBLE_LINES)
+  const lines = utterances.slice(subtitle ? -SUBTITLE_LINES : -VISIBLE_LINES)
   const { ref: bottomRef } = useStickToBottom(utterances.length)
   const note = engineNote(engine)
   const problem = captureError
@@ -95,11 +163,24 @@ export function CompactOverlay({
       ? t("compactOverlay.notUpdatingWith", { error })
       : null
 
+  // Subtitle layout: lines fade out on silence. Transparency: the strip
+  // and the error line appear on hover or focus within (keyboard users
+  // reach them) — two independent options.
+  const fade = cn(subtitle && "motion-safe:transition-opacity motion-safe:duration-700", subtitle && idle && "opacity-0")
+  const reveal = "opacity-0 motion-safe:transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+
   return (
-    <div className="flex h-svh flex-col bg-background px-3 py-2 text-foreground">
+    <div data-compact-root className="group flex h-svh flex-col bg-background px-3 py-2 text-foreground">
       {/* select-none (M22 §4): status chrome only — the transcript lines
-          below keep the default selectable text. */}
-      <div className="mb-1.5 flex shrink-0 items-center gap-2 border-b border-border pb-1.5 text-xs text-muted-foreground select-none">
+          below keep the default selectable text. Subtitle mode hides the
+          strip and the error line unless hovered/focused (kept in the
+          DOM: the buttons stay focusable and screen-reader reachable). */}
+      <div
+        className={cn(
+          "mb-1.5 flex shrink-0 items-center gap-2 border-b border-border pb-1.5 text-xs text-muted-foreground select-none",
+          transparent && supported && reveal,
+        )}
+      >
         <span className="relative inline-flex shrink-0">
           <Radio aria-hidden="true" className={cn("size-3.5", captureError ? "text-destructive" : "text-primary")} />
           {!captureError && (
@@ -127,17 +208,62 @@ export function CompactOverlay({
         >
           {note?.text}
         </span>
-        <Button size="icon" variant="ghost" className="ml-auto shrink-0" aria-label={t("compactOverlay.exitAria")} title={t("compactOverlay.exitAria")} onClick={onExit}>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="ml-auto shrink-0"
+          aria-pressed={layout === "subtitle"}
+          aria-label={t("compactOverlay.subtitleLayout")}
+          title={layout === "subtitle" ? t("compactOverlay.subtitleOff") : t("compactOverlay.subtitleOn")}
+          onClick={() => {
+            const next = layout === "subtitle" ? "list" : "subtitle"
+            writeCompactLayout(next)
+            setLayout(next)
+          }}
+        >
+          {layout === "subtitle" ? <List className="size-3.5" /> : <Captions className="size-3.5" />}
+        </Button>
+        {supported && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="shrink-0"
+            aria-pressed={transparent}
+            aria-label={t("compactOverlay.transparentOn")}
+            title={transparent ? t("compactOverlay.transparentOff") : t("compactOverlay.transparentOn")}
+            onClick={() => {
+              const next = !transparent
+              writeCompactTransparent(next)
+              setTransparent(next)
+            }}
+          >
+            {transparent ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </Button>
+        )}
+        <Button size="icon" variant="ghost" className="shrink-0" aria-label={t("compactOverlay.exitAria")} title={t("compactOverlay.exitAria")} onClick={onExit}>
           <X className="size-3.5" />
         </Button>
       </div>
 
-      <StatusMessage tone="error" className="mb-1.5 line-clamp-2 shrink-0 break-words text-xs">
+      <StatusMessage
+        tone="error"
+        className={cn(
+          "mb-1.5 line-clamp-2 shrink-0 break-words text-xs",
+          transparent && supported && reveal,
+        )}
+      >
         {problem}
       </StatusMessage>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize }}>
-        <div role="log" aria-label={t("compactOverlay.logAria")} className="grid gap-2">
+      <div
+        className={cn("min-h-0 flex-1 overflow-y-auto", subtitle && "flex flex-col justify-end text-center")}
+        style={{ fontSize: subtitle ? Math.round(fontSize * SUBTITLE_SCALE) : fontSize }}
+      >
+        <div
+          role="log"
+          aria-label={t("compactOverlay.logAria")}
+          className={cn("grid gap-2", fade)}
+        >
           {lines.length === 0 ? (
             <p className="text-muted-foreground">{t("compactOverlay.waiting")}</p>
           ) : (
@@ -146,7 +272,7 @@ export function CompactOverlay({
                 {viewMode === "translation-only" ? (
                   <p className="break-words">{u.translated || u.text}</p>
                 ) : viewMode === "side-by-side" ? (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className={cn("grid gap-2", subtitle ? "grid-cols-1" : "grid-cols-2")}>
                     <p className="min-w-0 break-words">{u.text}</p>
                     {u.translated && (
                       <p className="min-w-0 break-words text-muted-foreground">

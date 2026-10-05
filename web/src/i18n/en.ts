@@ -768,6 +768,11 @@ export const en = {
     exitAria: "Back to full window",
     logAria: "Latest transcript lines",
     waiting: "Waiting for someone to speak…",
+    transparentOn: "Transparent background",
+    transparentOff: "Solid background",
+    subtitleLayout: "Subtitle layout",
+    subtitleOn: "Show as subtitles",
+    subtitleOff: "Show as a list",
   },
   meetingDetail: {
     sonioxPrivacy: "The audio is uploaded to Soniox, processed, and deleted right after.",
