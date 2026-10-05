@@ -20,6 +20,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	wailswindows "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -139,6 +140,10 @@ func run() error {
 		// white). Light brand cream; a dark-theme user sees it only until
 		// lib/theme.ts's WindowSetBackgroundColour runs at page load.
 		BackgroundColour: options.NewRGB(0xFB, 0xF7, 0xEA),
+		// Wails v2 only enables the macOS zoom (green) button when Mac
+		// options are set (zoomable is read inside its `Mac != nil`
+		// branch), so an empty struct is what turns it on.
+		Mac: &mac.Options{},
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
