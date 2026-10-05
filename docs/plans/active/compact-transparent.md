@@ -65,6 +65,21 @@ subtitles over the content.
   same outline. The level meter and icons stay visible.
 - i18n keys under `compactOverlay` (en + vi).
 
+## Subtitle mode (user, 2026-10-05)
+
+The transparent toggle also switches the overlay to a subtitle layout:
+- **Only the latest 1–2 lines**, bottom-anchored and centred, at a larger
+  size (about 1.25× the overlay's font size). The side-by-side view mode
+  renders stacked here, since two columns don't read as subtitles.
+- **Fade on silence:** the lines fade out after about 5 s with no new
+  utterance, and come back on the next one (no transition under
+  prefers-reduced-motion).
+- **The status strip (and the error line) show only on hover**, or while
+  focus is inside the overlay, so keyboard users can still reach the
+  toggle and the exit button.
+- The user chose not to keep an always-visible recording dot or error
+  line. While the strip is hidden, a capture failure shows only on hover.
+
 ## Out of scope
 
 - Windows (and Linux) transparency; click-through; hiding the title bar.
