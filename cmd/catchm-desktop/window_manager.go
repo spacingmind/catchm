@@ -53,6 +53,20 @@ func (DesktopBridge) SetCompactMode(active bool) {
 	compactActive.Store(active)
 }
 
+// SetCompactTransparent toggles the see-through compact overlay
+// (docs/plans/active/compact-transparent.md); a no-op where
+// unsupported (non-macOS), so the frontend can call it unconditionally.
+func (DesktopBridge) SetCompactTransparent(on bool) {
+	if transparentSupported() {
+		setWindowTransparent(on)
+	}
+}
+
+// CompactTransparentSupported gates the compact overlay's toggle button.
+func (DesktopBridge) CompactTransparentSupported() bool {
+	return transparentSupported()
+}
+
 // WindowState is the persisted §2 state: the main window's last known
 // RESTORED (non-maximized) bounds, plus whether it was maximized —
 // tracked separately because WindowGetPosition/GetSize report the

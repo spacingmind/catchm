@@ -143,7 +143,11 @@ func run() error {
 		// Wails v2 only enables the macOS zoom (green) button when Mac
 		// options are set (zoomable is read inside its `Mac != nil`
 		// branch), so an empty struct is what turns it on.
-		Mac: &mac.Options{},
+		// WebviewIsTransparent lets the compact overlay show the content
+		// behind it once setWindowTransparent makes the NSWindow
+		// non-opaque (transparent_darwin.go); while the window is opaque
+		// this changes nothing — the page paints its own background.
+		Mac: &mac.Options{WebviewIsTransparent: true},
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
