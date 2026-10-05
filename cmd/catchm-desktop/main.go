@@ -215,8 +215,15 @@ func run() error {
 		// logic needed on this side.
 		Windows: &wailswindows.Options{
 			WindowIsTranslucent: true,
-			BackdropType:        wailswindows.Mica,
-			Theme:               wailswindows.SystemDefault,
+			// WebviewIsTransparent lets the compact see-through mode
+			// (transparent_windows.go) composite alpha-0 pixels down to
+			// the DWM backdrop. Normal mode is visually unchanged:
+			// index.css's desktop-mica:not(.compact-transparent) rules
+			// re-paint --background where the transparent webview would
+			// otherwise show Mica.
+			WebviewIsTransparent: true,
+			BackdropType:         wailswindows.Mica,
+			Theme:                wailswindows.SystemDefault,
 			// M22 §4: browser zoom off (Ctrl+±, Ctrl+wheel, pinch) — verified
 			// against frontend.go: IsZoomControlEnabled maps straight to
 			// WebView2's PutIsZoomControlEnabled (its own docs: gates

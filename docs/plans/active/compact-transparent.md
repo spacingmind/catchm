@@ -15,10 +15,12 @@ subtitles over the content.
   (subtitle style), readable on light and dark content.
 - Toggle: a button **in the compact overlay**, remembered on this
   device (localStorage, like the theme).
-- **macOS first.** Proven on this Mac (see Findings). On Windows the
-  button is hidden until a see-through approach is verified on a real
-  Windows machine: Mica only tints with the wallpaper, so you can't see
-  windows behind it.
+- **macOS first** (proven on this Mac, see Findings). Windows 11
+  22H2+ is implemented-untested: the user accepted it without a real
+  machine (decision, 2026-10-05) — DWMSBT_NONE over the already
+  NOREDIRECTIONBITMAP window shows the desktop through the transparent
+  webview. Windows < 22621 (and Linux) stay unsupported: the button is
+  hidden (transparentSupported() false).
 
 ## Findings (experiments on Apple Silicon, 2026-10-05)
 

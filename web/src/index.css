@@ -203,6 +203,19 @@ html.desktop-mica body {
 html.desktop-mica .app-sidebar {
   background: transparent;
 }
+/*
+ * Since WebviewIsTransparent went on for compact see-through mode, the
+ * transparent body/sidebar above would show the DWM backdrop (Mica)
+ * instead of the pre-transparency look on Windows. Re-paint
+ * --background unless compact-transparent is also active (the
+ * unlayered :has([data-compact-root]) rule below then clears it again).
+ * No-op on macOS: the NSWindow is opaque outside compact mode, so the
+ * webview background never shows anyway.
+ */
+html.desktop-mica:not(.compact-transparent) body,
+html.desktop-mica:not(.compact-transparent) .app-sidebar {
+  background: var(--background);
+}
 
 /*
  * See-through compact overlay (docs/plans/active/compact-transparent.md).
