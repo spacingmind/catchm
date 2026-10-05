@@ -95,3 +95,17 @@ export function readCompactTransparent(): boolean {
 export function writeCompactTransparent(on: boolean) {
   writeStored(TRANSPARENT_KEY, on ? "true" : "false")
 }
+
+export type CompactLayout = "list" | "subtitle"
+
+const LAYOUT_KEY = "catchm.compact.layout"
+
+/** Compact overlay transcript layout, per device — independent of the
+ *  transparency pref (subtitle layout works on every platform). */
+export function readCompactLayout(): CompactLayout {
+  return readStored(LAYOUT_KEY) === "subtitle" ? "subtitle" : "list"
+}
+
+export function writeCompactLayout(layout: CompactLayout) {
+  writeStored(LAYOUT_KEY, layout)
+}

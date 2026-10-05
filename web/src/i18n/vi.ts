@@ -854,5 +854,8 @@ export const vi: Messages = {
     waiting: "Đang chờ có người nói…",
     transparentOn: "Nền trong suốt",
     transparentOff: "Nền đặc",
+    subtitleLayout: "Kiểu phụ đề",
+    subtitleOn: "Hiện kiểu phụ đề",
+    subtitleOff: "Hiện dạng danh sách",
   },
 }

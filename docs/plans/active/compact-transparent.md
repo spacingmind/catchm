@@ -65,9 +65,13 @@ subtitles over the content.
   same outline. The level meter and icons stay visible.
 - i18n keys under `compactOverlay` (en + vi).
 
-## Subtitle mode (user, 2026-10-05)
+## Subtitle mode (user, 2026-10-05; split into an independent option)
 
-The transparent toggle also switches the overlay to a subtitle layout:
+The subtitle LAYOUT is its own toggle (Captions/List icon in the strip),
+available on every platform (no `supported` gate), stored per device as
+`catchm.compact.layout` ("list" default). The transparency toggle keeps
+only the see-through look plus hiding the status strip and error line
+until hover/focus-within:
 - **Only the latest 1–2 lines**, bottom-anchored and centred, at a larger
   size (about 1.25× the overlay's font size). The side-by-side view mode
   renders stacked here, since two columns don't read as subtitles.
