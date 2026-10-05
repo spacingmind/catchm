@@ -57,6 +57,9 @@ function applyToWailsWindow(pref: ThemePref, resolved: ResolvedTheme): void {
   if (pref === "system") rt.WindowSetSystemDefaultTheme?.()
   else if (pref === "dark") rt.WindowSetDarkTheme?.()
   else rt.WindowSetLightTheme?.()
+  // A see-through compact overlay owns the window colour (clearColor,
+  // transparent_darwin.go); an OS theme change mustn't paint over it.
+  if (document.documentElement.classList.contains("compact-transparent")) return
   // What html.desktop-mica's transparent body actually shows (index.css).
   const hex = THEME_BACKGROUND[resolved]
   rt.WindowSetBackgroundColour?.(
@@ -65,6 +68,14 @@ function applyToWailsWindow(pref: ThemePref, resolved: ResolvedTheme): void {
     parseInt(hex.slice(5, 7), 16),
     255,
   )
+}
+
+/** Re-apply the current theme's window colour — the opaque-window
+ *  counterpart of compact transparency's exit path (the NSWindow is
+ *  opaque again, so the webview background decides what shows). */
+export function resyncWindowBackground(): void {
+  const { pref, resolved } = snapshot()
+  applyToWailsWindow(pref, resolved)
 }
 
 function applyTheme(pref: ThemePref, resolved: ResolvedTheme): void {

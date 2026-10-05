@@ -83,3 +83,15 @@ export const DEFAULT_DEVICE_VALUE = "__default__"
 export function deviceSelectValue(device: string, devices: { ID: string }[]): string {
   return device && devices.some((d) => d.ID === device) ? device : DEFAULT_DEVICE_VALUE
 }
+
+const TRANSPARENT_KEY = "catchm.compact.transparent"
+
+/** See-through compact overlay pref, per device like the theme
+ *  (docs/plans/active/compact-transparent.md). */
+export function readCompactTransparent(): boolean {
+  return readStored(TRANSPARENT_KEY) === "true"
+}
+
+export function writeCompactTransparent(on: boolean) {
+  writeStored(TRANSPARENT_KEY, on ? "true" : "false")
+}

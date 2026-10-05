@@ -58,6 +58,8 @@ declare global {
       main?: {
         DesktopBridge?: {
           SetCompactMode?(active: boolean): void
+          SetCompactTransparent?(on: boolean): void
+          CompactTransparentSupported?(): Promise<boolean>
           GetShortcuts?(): Promise<ShortcutsInfo>
           SetShortcuts?(bindings: Record<string, string>): Promise<ShortcutsInfo>
           GetAutostart?(): Promise<boolean>
@@ -197,6 +199,21 @@ export function windowEventsOn(eventName: string, callback: (...data: unknown[])
  */
 export function notifyCompactMode(active: boolean): void {
   window.go?.main?.DesktopBridge?.SetCompactMode?.(active)
+}
+
+/**
+ * See-through compact overlay (docs/plans/active/compact-transparent.md):
+ * makes the NSWindow non-opaque on macOS. A no-op where unsupported
+ * (Go-side guard) or with no bridge bound, like notifyCompactMode.
+ */
+export function setCompactTransparent(on: boolean): void {
+  window.go?.main?.DesktopBridge?.SetCompactTransparent?.(on)
+}
+
+/** Whether the see-through compact overlay works on this platform;
+ *  false in a plain browser (no bridge) or on non-macOS. */
+export function compactTransparentSupported(): Promise<boolean> {
+  return window.go?.main?.DesktopBridge?.CompactTransparentSupported?.() ?? Promise.resolve(false)
 }
 
 /** M22 §5: current global-shortcut bindings + any registration error

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import i18next from "i18next"
 import { useTranslation } from "react-i18next"
-import { Radio, X } from "lucide-react"
+import { Eye, EyeOff, Radio, X } from "lucide-react"
 import { cn } from "cn"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -9,7 +9,10 @@ import { Button } from "@/components/ui/button"
 import { useStickToBottom } from "@/hooks/useStickToBottom"
 import { getMeetingLevels, type AudioSource, type EngineLevelsStatus, type Utterance } from "@/lib/api"
 import { sourceShortLabel } from "@/lib/labels"
+import { readCompactTransparent, writeCompactTransparent } from "@/lib/recordPrefs"
 import type { TranscriptViewMode } from "@/lib/livePrefs"
+import { compactTransparentSupported, setCompactTransparent } from "@/lib/wailsRuntime"
+import { resyncWindowBackground } from "@/lib/theme"
 
 /** How many of the most recent utterances the compact strip keeps on
  *  screen — a reading aid, not a transcript, so only the tail matters. */
@@ -66,6 +69,36 @@ export function CompactOverlay({
   const { t } = useTranslation()
   const [peak, setPeak] = useState(0)
   const [engine, setEngine] = useState<EngineLevelsStatus | undefined>(undefined)
+  const [transparent, setTransparent] = useState(readCompactTransparent)
+  const [supported, setSupported] = useState(false)
+
+  // The see-through toggle exists only where the platform shim does
+  // (macOS — DesktopBridge.CompactTransparentSupported).
+  useEffect(() => {
+    let cancelled = false
+    void compactTransparentSupported().then((ok) => {
+      if (!cancelled) setSupported(ok)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Apply the transparency pref: NSWindow state plus the
+  // compact-transparent class that strips the overlay's backgrounds.
+  // No cleanup here on purpose: a cleanup would run between toggles and
+  // re-apply the opaque theme colour, racing the shim's clearColor (both
+  // are async) and leaving a non-opaque but solid-cream window.
+  useEffect(() => {
+    if (!supported) return
+    document.documentElement.classList.toggle("compact-transparent", transparent)
+    setCompactTransparent(transparent)
+    if (!transparent) resyncWindowBackground()
+  }, [supported, transparent])
+
+  // Leaving compact mode: drop the class. useCompactMode's exit() makes
+  // the window opaque and re-syncs its colour.
+  useEffect(() => () => document.documentElement.classList.remove("compact-transparent"), [])
 
   useEffect(() => {
     let cancelled = false
@@ -96,7 +129,7 @@ export function CompactOverlay({
       : null
 
   return (
-    <div className="flex h-svh flex-col bg-background px-3 py-2 text-foreground">
+    <div data-compact-root className="flex h-svh flex-col bg-background px-3 py-2 text-foreground">
       {/* select-none (M22 §4): status chrome only — the transcript lines
           below keep the default selectable text. */}
       <div className="mb-1.5 flex shrink-0 items-center gap-2 border-b border-border pb-1.5 text-xs text-muted-foreground select-none">
@@ -127,7 +160,24 @@ export function CompactOverlay({
         >
           {note?.text}
         </span>
-        <Button size="icon" variant="ghost" className="ml-auto shrink-0" aria-label={t("compactOverlay.exitAria")} title={t("compactOverlay.exitAria")} onClick={onExit}>
+        {supported && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="ml-auto shrink-0"
+            aria-pressed={transparent}
+            aria-label={t("compactOverlay.transparentOn")}
+            title={transparent ? t("compactOverlay.transparentOff") : t("compactOverlay.transparentOn")}
+            onClick={() => {
+              const next = !transparent
+              writeCompactTransparent(next)
+              setTransparent(next)
+            }}
+          >
+            {transparent ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </Button>
+        )}
+        <Button size="icon" variant="ghost" className={cn("shrink-0", !supported && "ml-auto")} aria-label={t("compactOverlay.exitAria")} title={t("compactOverlay.exitAria")} onClick={onExit}>
           <X className="size-3.5" />
         </Button>
       </div>

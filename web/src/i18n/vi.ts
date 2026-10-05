@@ -852,5 +852,7 @@ export const vi: Messages = {
     exitAria: "Về cửa sổ đầy đủ",
     logAria: "Các dòng chép lời mới nhất",
     waiting: "Đang chờ có người nói…",
+    transparentOn: "Nền trong suốt",
+    transparentOff: "Nền đặc",
   },
 }
