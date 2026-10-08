@@ -2,9 +2,10 @@ import { Logo } from "@/components/logo";
 import { ButtonLink } from "@/components/ui/button";
 
 const links = [
-  { href: "#how", label: "How it works" },
-  { href: "#features", label: "Features" },
+  { href: "#summary", label: "Summary" },
+  { href: "#mindmap", label: "Mind map" },
   { href: "#privacy", label: "Privacy" },
+  { href: "#live", label: "Live" },
 ];
 
 export function Header() {

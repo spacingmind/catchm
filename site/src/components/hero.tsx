@@ -1,4 +1,5 @@
 import { DownloadButtons } from "@/components/download-buttons";
+import { MindMapMock } from "@/components/mind-map-mock";
 import { Shot } from "@/components/ui/shot";
 import { formatDate, type Release } from "@/lib/release";
 
@@ -31,8 +32,8 @@ export function Hero({ release }: { release: Release }) {
               </span>
             </h1>
             <p className="rise mt-6 max-w-lg text-lg leading-relaxed text-muted" style={delay(140)}>
-              Live transcript and translation, then the decisions and action
-              items, kept as files you own.
+              Every meeting becomes a summary, action items and a mind map,
+              kept as files you own.
             </p>
           </div>
 
@@ -77,20 +78,13 @@ function HeroStage() {
         </div>
       </div>
 
-      <figure className="absolute -bottom-24 left-4 w-[58%] sm:-bottom-14 sm:-left-6 sm:w-[34%]">
+      <figure className="absolute -bottom-24 left-4 w-[78%] sm:-right-4 sm:bottom-[-3.5rem] sm:left-auto sm:w-[44%]">
         <div className="lift overflow-hidden rounded-xl border border-line-strong/70 bg-card">
-          <Shot
-            name="overlay"
-            alt="The compact overlay: a small always-on-top window showing a live transcript with each line translated underneath."
-            width={480}
-            height={260}
-            priority
-            sizes="(min-width: 640px) 392px, 62vw"
-          />
+          <MindMapMock className="block h-auto w-full" />
         </div>
-        <figcaption className="mt-2.5 flex items-center gap-2 text-xs font-medium text-muted">
-          <span className="rec-dot inline-block size-2 rounded-full bg-[#b43c28]" aria-hidden="true" />
-          Compact overlay, live
+        <figcaption className="mt-2.5 flex items-center gap-2 text-xs font-medium text-muted sm:justify-end">
+          <span className="sr-only">Illustration: </span>
+          The same meeting as a mind map
         </figcaption>
       </figure>
     </div>

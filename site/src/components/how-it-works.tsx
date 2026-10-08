@@ -1,20 +1,20 @@
-import { Captions, FolderOpen, Mic } from "lucide-react";
+import { FolderOpen, Mic, Sparkles } from "lucide-react";
 
 const steps = [
   {
     Icon: Mic,
-    title: "Start",
-    body: "Pick your mic (on Windows, your PC's sound too) and a language to translate into.",
+    title: "Hold the meeting",
+    body: "Start CatchM before you join. It listens on your computer, so no bot joins your call.",
   },
   {
-    Icon: Captions,
-    title: "Follow along",
-    body: "Words appear as people speak, with the translation under each line.",
+    Icon: Sparkles,
+    title: "Press one button",
+    body: "When it ends, CatchM writes the summary, decisions and action items, and draws the mind map.",
   },
   {
     Icon: FolderOpen,
-    title: "Keep it",
-    body: "Get a summary, decisions and action items. Everything is saved on your computer.",
+    title: "Keep the files",
+    body: "Everything is saved on your computer as Markdown, ready for you or your agents.",
   },
 ];
 
@@ -24,7 +24,7 @@ export function HowItWorks() {
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
         <p className="eyebrow">How it works</p>
         <h2 id="how-title" className="display mt-3 max-w-xl text-4xl sm:text-5xl">
-          Press start. Talk. Keep what matters.
+          Talk. Press a button. Keep what matters.
         </h2>
         <ol className="mt-14 grid gap-10 md:grid-cols-3 md:gap-8">
           {steps.map(({ Icon, title, body }, i) => (

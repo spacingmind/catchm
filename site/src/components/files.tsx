@@ -2,6 +2,7 @@ import { Clock } from "lucide-react";
 
 const tree = [
   ["meeting.md", "summary + YAML frontmatter"],
+  ["analysis.json", "topics and evidence"],
   ["utterances.jsonl", "the live transcript"],
   ["utterances.v2.jsonl", "the refined transcript"],
   ["audio.wav", "the recording"],
@@ -35,7 +36,7 @@ export function Files() {
           </div>
           <ul className="space-y-1 px-5 py-4 font-mono text-[0.8rem] leading-relaxed">
             {tree.map(([name, note]) => (
-              <li key={name} className="flex flex-wrap gap-x-4">
+              <li key={name} className="flex flex-col sm:flex-row sm:gap-x-4">
                 <span className="min-w-[10.5rem]">{name}</span>
                 <span className="text-deep-muted"># {note}</span>
               </li>

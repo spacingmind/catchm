@@ -36,8 +36,10 @@ export function Privacy() {
           ))}
         </ul>
         <p className="mt-10 max-w-2xl text-sm text-muted">
-          One exception: summaries made with CatchM Cloud send that meeting&rsquo;s
-          transcript unencrypted to be summarised. It isn&rsquo;t stored.
+          Local engines send nothing off your computer; a cloud engine sees the
+          audio or text it works on. That includes summaries made with CatchM
+          Cloud, which send the transcript unencrypted to be summarised. It
+          isn&rsquo;t stored.
         </p>
       </div>
     </section>

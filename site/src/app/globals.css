@@ -29,6 +29,13 @@
   --deep-card: #5a2b1d;
   --deep-line: rgba(251, 247, 234, 0.18);
   --shadow: 108 53 36;
+  /* The app's mind-map branch hues (web/src/components/insights/flow.css). */
+  --branch-1: #b45309;
+  --branch-2: #0f766e;
+  --branch-3: #7c3aed;
+  --branch-4: #be123c;
+  --branch-5: #0369a1;
+  --branch-6: #4d7c0f;
   color-scheme: light;
 }
 
@@ -52,6 +59,12 @@
     --deep-card: #271a15;
     --deep-line: rgba(251, 247, 234, 0.12);
     --shadow: 0 0 0;
+    --branch-1: #fcd34d;
+    --branch-2: #5eead4;
+    --branch-3: #c4b5fd;
+    --branch-4: #fda4af;
+    --branch-5: #7dd3fc;
+    --branch-6: #bef264;
     color-scheme: dark;
   }
 }
@@ -176,14 +189,6 @@
       transform: none;
     }
   }
-  @keyframes pulse-ring {
-    0% {
-      box-shadow: 0 0 0 0 rgb(180 60 40 / 0.45);
-    }
-    100% {
-      box-shadow: 0 0 0 8px rgb(180 60 40 / 0);
-    }
-  }
   .rise {
     animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
     animation-delay: var(--d, 0ms);
@@ -191,8 +196,5 @@
   .caption-in {
     animation: caption 0.6s ease-out both;
     animation-delay: var(--d, 0ms);
-  }
-  .rec-dot {
-    animation: pulse-ring 1.8s ease-out infinite;
   }
 }

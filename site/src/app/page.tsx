@@ -1,12 +1,14 @@
 import { Download } from "@/components/download";
-import { Engines } from "@/components/engines";
-import { Features } from "@/components/features";
+import { Also } from "@/components/also";
 import { Files } from "@/components/files";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { Hero } from "@/components/hero";
 import { HowItWorks } from "@/components/how-it-works";
+import { Live } from "@/components/live";
+import { MindMap } from "@/components/mind-map";
 import { Privacy } from "@/components/privacy";
+import { Summary } from "@/components/summary";
 import { getRelease } from "@/lib/release";
 import { siteConfig } from "@/lib/site";
 
@@ -36,10 +38,12 @@ export default async function Page() {
       <main id="main">
         <Hero release={release} />
         <HowItWorks />
-        <Features />
+        <Summary />
+        <MindMap />
         <Files />
-        <Engines />
         <Privacy />
+        <Also />
+        <Live />
         <Download release={release} />
       </main>
       <Footer />

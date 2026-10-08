@@ -3,7 +3,7 @@ export const siteConfig = {
   url: "https://catchm.spacingmind.com",
   tagline: "Catch the meeting. Keep the mind.",
   description:
-    "Live transcripts and translation for your meetings, then decisions and action items kept as files you own. For Windows and macOS.",
+    "Turn every meeting into a summary, action items and a mind map, kept as files you own. For Windows and macOS.",
   maker: {
     name: "Spacing Mind",
     url: "https://spacingmind.com",

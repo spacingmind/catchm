@@ -22,6 +22,12 @@ page that says what CatchM is and gives them the installer.
 - **Only shipped features.** Every claim is checked against
   `origin/develop` (v0.5.0 contains all of it). Not shipped, so left out
   or marked "coming soon": an MCP server, macOS system audio.
+- **Page order (owner feedback, 2026-10-08):** after the meeting, not
+  during it. Hero → how it works → summary → mind map → plain files →
+  privacy → the rest → live transcript and translation → downloads. The
+  mind map is shown as an SVG drawing of the real `MindMapView` (no
+  screenshot of it exists), and CatchM Cloud's lack of topics (so: no map)
+  is stated on the page.
 - English only; short copy. Brand is chestnut `#6C3524` + cream
   `#FBF7EA`; light first, dark follows the system.
 - **CI:** `.github/workflows/site.yml`, path-filtered to `site/**`.
