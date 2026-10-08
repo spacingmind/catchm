@@ -1,0 +1,90 @@
+name: site
+
+# The public landing page (site/), served at catchm.spacingmind.com by the
+# `catchm-web` Cloudflare Worker.
+#
+# - push to develop: production deploy. develop is the integration branch;
+#   master only fast-forwards to release tags (CONTRIBUTING.md), so
+#   deploying from it would hold copy changes back until the next release.
+# - pull request: upload a preview version at pr-<n>-catchm-web.<sub>.workers.dev
+#   (noindex, see site/worker/index.ts) and comment the URL on the PR.
+# - workflow_dispatch / repository_dispatch: redeploy so the download
+#   section picks up a newly published release (the page reads the update
+#   API at build time).
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [catchm-release]
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  deploy:
+    # Fork PRs get no secrets; the repo is private, so skip them rather than fail.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build
+        run: bun run build
+
+      - name: Cloudflare credentials missing
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        run: echo "::warning::CLOUDFLARE_API_TOKEN is not set; built and typechecked the site but skipped the Cloudflare step."
+
+      # Production: push to develop, or a manual / release-triggered run.
+      - name: Deploy
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
+        run: bunx wrangler deploy
+
+      # Preview: a new Worker version that production traffic never sees.
+      - name: Upload preview
+        id: preview
+        if: github.event_name == 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
+        run: |
+          set -o pipefail
+          bunx wrangler versions upload \
+            --preview-alias "pr-${{ github.event.number }}" \
+            --message "PR #${{ github.event.number }} @ ${GITHUB_SHA::7}" \
+            | tee upload.log
+          url=$(grep -oE "https://pr-${{ github.event.number }}-[a-z0-9.-]+\.workers\.dev" upload.log | head -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL
+        if: github.event_name == 'pull_request' && steps.preview.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.number }} --edit-last --create-if-none --body \
+            "🔍 Site preview: ${{ steps.preview.outputs.url }} (commit ${{ github.event.pull_request.head.sha }})"
