@@ -85,12 +85,12 @@ export function Download({ release }: { release: Release }) {
             >
               <header className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <span className="grid size-11 place-items-center rounded-xl bg-tan/70">
+                  <span className="grid size-11 place-items-center rounded-xl bg-chip text-chip-fg">
                     <c.Icon className="size-5" />
                   </span>
                   <div>
                     <h3 className="text-xl font-semibold tracking-tight">{c.name}</h3>
-                    <p className="text-sm text-muted">{c.detail}</p>
+                    <p className="text-sm text-subtle">{c.detail}</p>
                   </div>
                 </div>
                 {os === c.id && (
@@ -103,10 +103,10 @@ export function Download({ release }: { release: Release }) {
               <ButtonLink href={c.file.url} download className="mt-7 w-full">
                 <DownloadIcon aria-hidden="true" className="size-4" />
                 {c.cta}
-                <span className="font-normal opacity-75">· {formatSize(c.file.size)}</span>
+                <span className="font-normal">· {formatSize(c.file.size)}</span>
               </ButtonLink>
 
-              <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted">
+              <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-subtle">
                 <ShieldCheck aria-hidden="true" className="size-4" />
                 <a
                   href={c.file.sha256Url}

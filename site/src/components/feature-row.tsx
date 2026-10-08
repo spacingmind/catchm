@@ -53,10 +53,10 @@ export function Row({
         )}
         <p className="mt-4 max-w-md text-lg text-muted">{body}</p>
         {extra}
-        {note && <p className="mt-4 max-w-md text-sm text-muted">{note}</p>}
+        {note && <p className="mt-4 max-w-md text-sm text-subtle">{note}</p>}
       </div>
       <div className={cn(wide ? "lg:col-span-8" : "lg:col-span-7", flip && "lg:order-1")}>
-        <div className="rounded-[2rem] bg-[color-mix(in_oklab,var(--tan)_55%,var(--bg))] p-5 sm:p-8">
+        <div className="rounded-[2rem] bg-panel p-5 sm:p-8">
           {visual}
         </div>
       </div>
