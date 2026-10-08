@@ -1,0 +1,198 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/fraunces/opsz.css";
+
+/*
+ * CatchM brand (docs/brand.md): chestnut #6C3524 + cream #FBF7EA, plus
+ * warm tints of the pair. Dark theme follows the system and reuses the
+ * app's own dark tokens (web/src/index.css), so the page and the product
+ * feel like one thing. Contrast, computed against each theme's --bg:
+ *   light  ink #6C3524 9.0:1 · muted #6A4C3A 7.4:1 · line #E4D5C0 decorative
+ *   dark   ink #FBF7EA 16.8:1 · muted #C2A895 8.0:1
+ */
+:root {
+  --bg: #fbf7ea;
+  --bg-alt: #f4ecd8;
+  --card: #fffdf6;
+  --ink: #6c3524;
+  --muted: #6a4c3a;
+  --line: #e4d5c0;
+  --line-strong: #c9ae9b;
+  --tan: #d9c4b4;
+  --primary: #6c3524;
+  --primary-fg: #fbf7ea;
+  --primary-hover: #5a2b1d;
+  --ring: #8b5a45;
+  --deep: #6c3524;
+  --deep-fg: #fbf7ea;
+  --deep-muted: #e7d3c4;
+  --deep-card: #5a2b1d;
+  --deep-line: rgba(251, 247, 234, 0.18);
+  --shadow: 108 53 36;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1411;
+    --bg-alt: #241812;
+    --card: #271a15;
+    --ink: #fbf7ea;
+    --muted: #c2a895;
+    --line: #3d2c23;
+    --line-strong: #56402f;
+    --tan: #3b2a22;
+    --primary: #fbf7ea;
+    --primary-fg: #6c3524;
+    --primary-hover: #efe6cf;
+    --ring: #d2ae95;
+    --deep: #150d0a;
+    --deep-fg: #fbf7ea;
+    --deep-muted: #c2a895;
+    --deep-card: #271a15;
+    --deep-line: rgba(251, 247, 234, 0.12);
+    --shadow: 0 0 0;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-display: "Fraunces Variable", ui-serif, Georgia, "Times New Roman",
+    serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    monospace;
+  --color-bg: var(--bg);
+  --color-bg-alt: var(--bg-alt);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-tan: var(--tan);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-hover: var(--primary-hover);
+  --color-ring: var(--ring);
+  --color-deep: var(--deep);
+  --color-deep-fg: var(--deep-fg);
+  --color-deep-muted: var(--deep-muted);
+  --color-deep-card: var(--deep-card);
+  --color-deep-line: var(--deep-line);
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+    border-radius: 0.375rem;
+  }
+  ::selection {
+    background: var(--tan);
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    font-weight: 560;
+    letter-spacing: -0.02em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+  .eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  /* Warm, low shadows: chestnut-tinted in light, none in dark. */
+  .lift {
+    box-shadow:
+      0 1px 0 rgb(var(--shadow) / 0.06),
+      0 24px 48px -24px rgb(var(--shadow) / 0.38);
+  }
+  .lift-sm {
+    box-shadow:
+      0 1px 0 rgb(var(--shadow) / 0.06),
+      0 12px 24px -14px rgb(var(--shadow) / 0.3);
+  }
+  /* The compact overlay's subtitle style: white fill, black outline. */
+  .subtitle {
+    color: #fff;
+    font-weight: 650;
+    -webkit-text-stroke: 0.2em #000;
+    paint-order: stroke fill;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    letter-spacing: 0.005em;
+  }
+}
+
+/* Entrance + live motion; skipped entirely for reduced-motion users, and
+   the content is visible without any of it (no JS gate). */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes caption {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 rgb(180 60 40 / 0.45);
+    }
+    100% {
+      box-shadow: 0 0 0 8px rgb(180 60 40 / 0);
+    }
+  }
+  .rise {
+    animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: var(--d, 0ms);
+  }
+  .caption-in {
+    animation: caption 0.6s ease-out both;
+    animation-delay: var(--d, 0ms);
+  }
+  .rec-dot {
+    animation: pulse-ring 1.8s ease-out infinite;
+  }
+}
