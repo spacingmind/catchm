@@ -31,7 +31,7 @@ export function HowItWorks() {
             <li key={title} className="relative">
               <span
                 aria-hidden="true"
-                className="display block text-7xl leading-none text-line-strong/70 select-none"
+                className="display block text-7xl leading-none text-numeral select-none"
               >
                 {i + 1}
               </span>

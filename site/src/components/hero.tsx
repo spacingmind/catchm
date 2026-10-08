@@ -14,7 +14,7 @@ export function Hero({ release }: { release: Release }) {
         className="pointer-events-none absolute -top-48 -right-48 -z-10 size-[52rem] rounded-full opacity-70 blur-3xl"
         style={{
           background:
-            "radial-gradient(closest-side, color-mix(in oklab, var(--tan) 80%, transparent), transparent)",
+            "radial-gradient(closest-side, var(--glow), transparent)",
         }}
       />
       <div className="mx-auto max-w-6xl px-5 pt-14 pb-28 sm:px-8 sm:pt-20 sm:pb-32">
@@ -27,7 +27,7 @@ export function Hero({ release }: { release: Release }) {
             >
               Catch the meeting.
               <br />
-              <span className="text-[color-mix(in_oklab,var(--ink)_72%,var(--bg))]">
+              <span className="text-h1-soft">
                 Keep the mind.
               </span>
             </h1>
@@ -39,7 +39,7 @@ export function Hero({ release }: { release: Release }) {
 
           <div className="rise lg:pb-2" style={delay(220)}>
             <DownloadButtons release={release} />
-            <p className="mt-4 text-sm text-muted">
+            <p className="mt-4 text-sm text-subtle">
               v{release.version} · {formatDate(release.publishedAt)}
               <br />
               Windows 10/11 · macOS on Apple Silicon
@@ -82,7 +82,7 @@ function HeroStage() {
         <div className="lift overflow-hidden rounded-xl border border-line-strong/70 bg-card">
           <MindMapMock className="block h-auto w-full" />
         </div>
-        <figcaption className="mt-2.5 flex items-center gap-2 text-xs font-medium text-muted sm:justify-end">
+        <figcaption className="mt-2.5 flex items-center gap-2 text-xs font-medium text-subtle sm:justify-end">
           <span className="sr-only">Illustration: </span>
           The same meeting as a mind map
         </figcaption>

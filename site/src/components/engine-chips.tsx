@@ -11,7 +11,7 @@ const where: Record<Where, { label: string; Icon: LucideIcon }> = {
 export function WhereBadge({ where: w }: { where: Where }) {
   const { label, Icon } = where[w];
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-tan/70 px-2 py-0.5 text-xs font-medium whitespace-nowrap">
+    <span className="inline-flex items-center gap-1 rounded-full bg-chip text-chip-fg px-2 py-0.5 text-xs font-medium whitespace-nowrap">
       <Icon aria-hidden="true" className="size-3" />
       {label}
     </span>

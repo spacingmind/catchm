@@ -16,6 +16,7 @@
   --card: #fffdf6;
   --ink: #6c3524;
   --muted: #6a4c3a;
+  --subtle: #6a4c3a;
   --line: #e4d5c0;
   --line-strong: #c9ae9b;
   --tan: #d9c4b4;
@@ -29,6 +30,15 @@
   --deep-card: #5a2b1d;
   --deep-line: rgba(251, 247, 234, 0.18);
   --shadow: 108 53 36;
+  --accent: #6c3524;
+  --eyebrow: #6a4c3a;
+  --h1-soft: color-mix(in oklab, var(--ink) 72%, var(--bg));
+  --chip: color-mix(in srgb, var(--tan) 70%, transparent);
+  --chip-fg: #6c3524;
+  --panel: color-mix(in oklab, var(--tan) 55%, var(--bg));
+  --glow: color-mix(in oklab, var(--tan) 80%, transparent);
+  --numeral: color-mix(in srgb, var(--line-strong) 70%, transparent);
+  --shot-filter: none;
   /* The app's mind-map branch hues (web/src/components/insights/flow.css). */
   --branch-1: #b45309;
   --branch-2: #0f766e;
@@ -39,32 +49,57 @@
   color-scheme: light;
 }
 
+/*
+ * Dark theme: a neutral warm charcoal, not the app's brown-black, with
+ * clearly stepped surfaces (page < band < card < panel). Chestnut is the
+ * accent, lightened to read on dark and used sparingly: buttons, eyebrows,
+ * the second headline line, icon chips, the download/files bands.
+ * Contrast (WCAG), computed with scripts/contrast.mjs:
+ *   ink #f4eedf     16.0 page · 15.0 band · 13.5 card · 12.5 panel
+ *   muted #d3cabb  11.4 page · 10.7 band ·  9.6 card ·  8.9 panel   (body)
+ *   subtle #aba295   7.4 page ·  6.9 band ·  6.2 card ·  5.7 panel   (small print)
+ *   accent #d9906a   7.2 page ·  6.7 band ·  6.1 card ·  5.6 panel
+ *   cream on primary #a64f37 5.2 · primary vs page 3.4 (button edge)
+ *   cream on deep #43221a 13.2 · deep-muted #e4d3c6 on deep 9.7
+ */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1e1411;
-    --bg-alt: #241812;
-    --card: #271a15;
-    --ink: #fbf7ea;
-    --muted: #c2a895;
-    --line: #3d2c23;
-    --line-strong: #56402f;
-    --tan: #3b2a22;
-    --primary: #fbf7ea;
-    --primary-fg: #6c3524;
-    --primary-hover: #efe6cf;
-    --ring: #d2ae95;
-    --deep: #150d0a;
+    --bg: #141312;
+    --bg-alt: #1c1a18;
+    --card: #262321;
+    --panel: #2c2926;
+    --ink: #f4eedf;
+    --muted: #d3cabb;
+    --subtle: #aba295;
+    --line: #4b4540;
+    --line-strong: #6e665e;
+    --tan: #3a3633;
+    --primary: #a64f37;
+    --primary-fg: #fbf7ea;
+    --primary-hover: #b95e44;
+    --ring: #e3a582;
+    --accent: #d9906a;
+    --eyebrow: #d9906a;
+    --h1-soft: #d9906a;
+    --chip: rgba(217, 144, 106, 0.16);
+    --chip-fg: #e3a582;
+    --numeral: rgba(217, 144, 106, 0.4);
+    --glow: rgba(217, 144, 106, 0.1);
+    --deep: #43221a;
     --deep-fg: #fbf7ea;
-    --deep-muted: #c2a895;
-    --deep-card: #271a15;
-    --deep-line: rgba(251, 247, 234, 0.12);
+    --deep-muted: #e4d3c6;
+    --deep-card: #2e150e;
+    --deep-line: rgba(251, 247, 234, 0.16);
     --shadow: 0 0 0;
-    --branch-1: #fcd34d;
-    --branch-2: #5eead4;
-    --branch-3: #c4b5fd;
-    --branch-4: #fda4af;
-    --branch-5: #7dd3fc;
-    --branch-6: #bef264;
+    /* Mind-map branches: muted, warm-leaning hues around the chestnut. */
+    --branch-1: #d9906a;
+    --branch-2: #a3b899;
+    --branch-3: #94aec6;
+    --branch-4: #c49bb0;
+    --branch-5: #d6b673;
+    --branch-6: #b9ab9b;
+    /* The app screenshots are cream: dim them so they don't glare. */
+    --shot-filter: brightness(0.86) saturate(1.06);
     color-scheme: dark;
   }
 }
@@ -81,6 +116,13 @@
   --color-card: var(--card);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-chip: var(--chip);
+  --color-chip-fg: var(--chip-fg);
+  --color-panel: var(--panel);
+  --color-h1-soft: var(--h1-soft);
+  --color-numeral: var(--numeral);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-tan: var(--tan);
@@ -127,6 +169,10 @@
     max-width: 100%;
     height: auto;
   }
+  /* Product screenshots only (the logo isn't inside a <picture>). */
+  picture img {
+    filter: var(--shot-filter);
+  }
 }
 
 @layer components {
@@ -142,7 +188,7 @@
     font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--eyebrow);
   }
   /* Warm, low shadows: chestnut-tinted in light, none in dark. */
   .lift {

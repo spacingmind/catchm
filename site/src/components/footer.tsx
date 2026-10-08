@@ -15,7 +15,7 @@ export function Footer() {
           </div>
           <p className="display mt-3 text-lg text-muted">{siteConfig.tagline}</p>
         </div>
-        <div className="space-y-3 text-sm text-muted md:text-right">
+        <div className="space-y-3 text-sm text-subtle md:text-right">
           <p>
             Made by{" "}
             <a href={siteConfig.maker.url} className={`font-medium text-ink ${link}`}>
