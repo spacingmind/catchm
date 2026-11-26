@@ -65,3 +65,24 @@ jobs:
       # on runners without the claude CLI).
       - name: Test
         run: go test -race ./...
+
+  # M25: the Core Audio tap shim (cgo + Objective-C) only compiles on
+  # macOS, so the Linux job never sees it. Real capture stays a manual
+  # check (CATCHM_TAP_TEST=1); this proves the darwin build, vet, and the
+  # hermetic capture tests. web/dist isn't needed: only internal/capture
+  # is tested here, and vet doesn't run the embed.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test capture
+        run: go test ./internal/capture/...

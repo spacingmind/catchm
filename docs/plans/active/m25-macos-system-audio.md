@@ -1,6 +1,6 @@
 # Plan: M25 — macOS system audio via Core Audio process taps
 
-- Status: planned
+- Status: implemented; manual checks pending (see Validation)
 - Created: 2026-09-27
 - Repo: `catchm`, Go + a small Objective-C shim in `internal/capture`,
   plus the `Info.plist` usage string for the desktop shell. No `web/`
@@ -149,3 +149,55 @@ void catchm_tap_stop(catchm_tap *t);                       // idempotent full te
 Real-device checks (criteria 2–6) need a Mac on 14.2+. They can't be
 done from the Linux/WSL dev box. Record the machine, macOS version,
 and results here when done.
+
+### Results (2026-11-27, Mac mini M-series, macOS 27.2.1, Terminal-granted)
+
+Real-device tests: `CATCHM_TAP_TEST=1 go test -race -v ./internal/capture/`.
+
+- **1 ✓** `/api/audio/sources` → `system.supported: true`. (<14.2 path is
+  `@available`-guarded; not run, no old Mac.)
+- **2 ✓ (audio)** `say` captured through the tap and through a real
+  `catchm serve` meeting (`source: "system"`): `audio.wav` is 16 kHz
+  mono s16, and its 20 ms energy envelope correlates **0.983** (tap
+  test) / **0.999** (meeting) with `say -o` of the same text at 1.00×
+  speed (0.67–0.73 at ±5 %), so content and rate are right. Live
+  transcript not checked: no Whisper on this machine; everything after
+  the Mixer is the mic path.
+- **3** not exercised: CatchM plays no audio today. The tap excludes our
+  process object when one exists.
+- **4 ✓ (simulated)** One output device here, so the test forces the
+  listener's rebuild mid-stream: 8–19 ms, largest chunk gap 40 ms.
+  Real headphone swap still manual.
+- **5 ✓** No tap or "CatchM System Audio" device visible after Close
+  (`catchm_tap_leftovers`; the device leaves the HAL list within
+  100 ms). Close: 3–6 ms.
+- **6** manual (needs a denial in System Settings).
+- **7 ✓** Ring overruns + Go-side drops both feed `DroppedChunks`; 0 in
+  all runs while the reader keeps up.
+- **8/9** `system.go` → `system_malgo.go` is a move (build tag, darwin
+  case removed); CI gains a `macos-latest` vet + capture-test job.
+
+Findings that changed the design:
+
+- **Silence delivers nothing, not zeros.** With nothing playing the
+  IOProc doesn't run at all (0 samples in 2 s); the first buffer arrives
+  0.7–1.2 s after playback starts. The Mixer zero-pads, so recording is
+  unaffected, but NoSignal ("only zeros or nothing for 10 s since
+  start") can't tell a missing grant from a quiet start — the hint says
+  "if something is playing, allow CatchM…", and latches off for good
+  once any audio arrives.
+- **The permission prompt blocks teardown.** While the first-use prompt
+  is open, `AudioDeviceDestroyIOProcID` waits on coreaudiod until the
+  user answers (minutes). `SystemSource.Close` waits at most 2 s, then
+  finishes the Core Audio teardown in the background, so ending a
+  meeting never hangs.
+- **No sub-device in the aggregate.** The tap alone clocks it; adding
+  the default output would also pull in that device's mic streams
+  (AirPods/USB headsets) and could flip Bluetooth into its call profile.
+  The default-output listener stays (rebuild is cheap) together with a
+  tap-format listener.
+
+Still to check by hand in the desktop app: the prompt names CatchM
+(`NSAudioCaptureUsageDescription`), denial → hint (6), a real output
+device swap (4), and a live transcript with Whisper/Soniox.
+

@@ -23,6 +23,16 @@ Download the latest release:
   macOS: closing the window minimises it to the Dock, and recording keeps
   running.
 
+  **Computer audio on macOS** (the other people in Zoom/Meet) needs
+  macOS 14.2 or later. The first meeting that records it asks for
+  "System Audio Recording" permission; allow it, or turn CatchM on later
+  in System Settings → Privacy & Security → Screen & System Audio
+  Recording. Without it the meeting keeps running (and still records
+  your microphone if the source is "both"), and the live view says no
+  computer audio is arriving.
+  Running `catchm serve` from a terminal instead of the app? macOS
+  attributes the permission to the terminal app (Terminal, iTerm…).
+
 ## Dev
 
 ```sh
