@@ -137,12 +137,9 @@ jobs:
 
   macos:
     # macos-14 was retired ("configuration 'macos-14-arm64-us-xl' is not
-    # supported"). The deployment target pins the binary's minimum macOS
-    # to Info.plist's LSMinimumSystemVersion, so a newer runner SDK can't
-    # silently raise it.
+    # supported"). Wails links with a macOS 11.0 minimum on its own, so
+    # the newer runner SDK doesn't raise the app's minimum macOS.
     runs-on: macos-15
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
       - uses: actions/checkout@v6
 

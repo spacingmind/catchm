@@ -128,7 +128,15 @@ tasks:
       # Shown as "CatchM" in Applications; the executable inside keeps
       # wails' outputfilename, so renaming the bundle is safe.
       - cp -R build/bin/catchm-desktop.app build/bin/dmg-stage/CatchM.app
-      - hdiutil create -volname CatchM -srcfolder build/bin/dmg-stage -ov -format UDZO build/bin/catchm-desktop-arm64.dmg
+      # GitHub's macOS runners intermittently fail this with "create
+      # failed - Resource busy" (a scanner holding the staged files), so
+      # retry a few times before giving up.
+      - |
+        for i in 1 2 3 4 5; do
+          hdiutil create -volname CatchM -srcfolder build/bin/dmg-stage -ov -format UDZO build/bin/catchm-desktop-arm64.dmg && exit 0
+          echo "hdiutil create failed (attempt $i), retrying"; sleep $((i * 3))
+        done
+        exit 1
       # From build/bin so the checksum line names the bare file
       # (sha256sum format, like the Windows .sha256).
       - cd build/bin && shasum -a 256 catchm-desktop-arm64.dmg > catchm-desktop-arm64.dmg.sha256
