@@ -147,7 +147,8 @@ func run() error {
 		// behind it once setWindowTransparent makes the NSWindow
 		// non-opaque (transparent_darwin.go); while the window is opaque
 		// this changes nothing — the page paints its own background.
-		Mac: &mac.Options{WebviewIsTransparent: true},
+		Mac:               &mac.Options{WebviewIsTransparent: true},
+		HideWindowOnClose: hideWindowOnClose,
 		AssetServer: &assetserver.Options{
 			Handler: handler,
 		},
@@ -198,9 +199,7 @@ func run() error {
 					if id := parseMeetingURI(meetingArgFromArgs(data.Args)); id != "" {
 						runtime.EventsEmit(ctx, openMeetingEvent, id)
 					}
-					windowVisible.Store(true)
-					runtime.WindowUnminimise(ctx) // macOS minimises on close
-					runtime.WindowShow(ctx)
+					showMainWindow(ctx)
 				}
 			},
 		},
@@ -269,8 +268,7 @@ func run() error {
 			if quit {
 				return false
 			}
-			hideOnClose(ctx)
-			return true
+			return onCloseRequest(ctx)
 		},
 		// M22 §5: unregister every global hotkey on quit — a stale
 		// RegisterHotKey would otherwise keep intercepting its combo

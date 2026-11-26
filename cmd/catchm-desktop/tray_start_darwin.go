@@ -30,13 +30,42 @@ func startTray(ctx context.Context, handler http.Handler, cfg *config.Config, hk
 	_ = onExit
 }
 
-// hideOnClose minimises to the Dock instead of hiding: a hidden window
-// is only recoverable through a tray icon (Windows) or a Dock-reopen
-// handler Wails v2 doesn't expose, but a minimised window comes back
-// with one Dock click, and recording keeps running meanwhile.
-func hideOnClose(ctx context.Context) {
+// hideWindowOnClose is passed to Wails' HideWindowOnClose. On macOS
+// it makes the red close button run [NSApp hide:] inside Wails'
+// WindowDelegate (v2.16.0 WindowDelegate.m windowShouldClose) without
+// ever reaching OnBeforeClose; a Dock click unhides the app, and
+// recording keeps running meanwhile.
+const hideWindowOnClose = true
+
+// onCloseRequest runs from OnBeforeClose. With the close button
+// handled natively (hideWindowOnClose), everything that still arrives
+// here is a real quit: Cmd+Q, Dock → Quit, logout/shutdown — all of
+// them go through applicationShouldTerminate → "Q" → OnBeforeClose.
+// Preventing it (as the old minimise-on-close did) made the app
+// unquittable from the Dock and blocked logout.
+func onCloseRequest(context.Context) (prevent bool) { return false }
+
+// showMainWindow brings CatchM back whether the close button hid the
+// whole app (NSApp hide — WindowShow alone doesn't unhide it) or the
+// window was minimised.
+func showMainWindow(ctx context.Context) {
+	windowVisible.Store(true)
+	runtime.Show(ctx)
+	runtime.WindowUnminimise(ctx)
+	runtime.WindowShow(ctx)
+}
+
+// toggleMainWindow is the show/hide hotkey. windowVisible can't be
+// trusted here: the close button hides the app natively, so ask
+// AppKit instead. Hiding is app-level, like Cmd+H, so the Dock icon
+// brings it back (WindowHide would strand the window).
+func toggleMainWindow(ctx context.Context) {
+	if appHiddenOrMinimised() {
+		showMainWindow(ctx)
+		return
+	}
 	windowVisible.Store(false)
-	runtime.WindowMinimise(ctx)
+	runtime.Hide(ctx)
 }
 
 // appMenu is the macOS application menu. Wails' default AppMenu()

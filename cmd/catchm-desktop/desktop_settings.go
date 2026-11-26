@@ -188,16 +188,7 @@ func (m *hotkeyManager) trigger(action hotkeys.Action) {
 	}
 	switch action {
 	case hotkeys.ActionShowHide:
-		if windowVisible.Load() {
-			runtime.WindowHide(ctx)
-			windowVisible.Store(false)
-		} else {
-			// macOS minimises on close (hideOnClose); Show alone wouldn't
-			// bring a minimised window back. A no-op otherwise.
-			runtime.WindowUnminimise(ctx)
-			runtime.WindowShow(ctx)
-			windowVisible.Store(true)
-		}
+		toggleMainWindow(ctx)
 	case hotkeys.ActionStartStopMeeting:
 		onTrayStartStopClick(m.handler, m.cfg)
 	case hotkeys.ActionToggleCompact:
