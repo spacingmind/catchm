@@ -123,6 +123,10 @@ export type CaptureErrorKind =
 export interface StartMeetingResponse extends Meeting {
   capture_error?: string
   capture_error_kind?: CaptureErrorKind
+  /** Source "both" whose microphone couldn't open (e.g. a Mac mini with
+   *  no mic): recording continues on computer audio only. Absent
+   *  otherwise; never set together with capture_error. */
+  mic_error?: string
 }
 
 /** Body for PATCH /api/meetings/{id} — at least one field required. */

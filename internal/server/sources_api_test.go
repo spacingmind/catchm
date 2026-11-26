@@ -455,3 +455,52 @@ func TestSwitchFailureKeepsOldInput422(t *testing.T) {
 		t.Fatalf("live source closed %d times before meeting end", n)
 	}
 }
+
+// "both" on a machine without a microphone (a Mac mini): computer audio
+// still records, and the response says why the mic is missing instead
+// of failing the whole meeting.
+func TestStartBothWithoutMicRecordsSystemOnly(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.newEngine = func(string, *config.Config) (stt.StreamEngine, error) { return &fakeEngine{}, nil }
+	s.newSource = func(string) (capture.Source, error) { return nil, capture.ErrNoMicrophone }
+	s.systemSupported = func() (bool, string) { return true, "" }
+	s.newSystemSource = func() (capture.Source, error) { return newFakeInputStream(), nil }
+
+	res := do(t, s, http.MethodPost, "/api/meetings", `{"title":"No mic","engine":"whisper","source":"both"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("start: %d %s", res.Code, res.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["capture_error"]; ok {
+		t.Fatalf("capture_error set though computer audio started: %v", body)
+	}
+	if msg, _ := body["mic_error"].(string); !strings.Contains(msg, "no microphone") {
+		t.Fatalf("mic_error = %q, want the no-microphone cause", msg)
+	}
+	id, _ := body["id"].(string)
+	lv := do(t, s, http.MethodGet, "/api/meetings/"+id+"/levels", "")
+	if lv.Code != http.StatusOK {
+		t.Fatalf("levels: %d (no live pipeline?)", lv.Code)
+	}
+	var levels map[string]any
+	_ = json.Unmarshal(lv.Body.Bytes(), &levels)
+	if _, ok := levels["system"]; !ok {
+		t.Fatalf("system input not live: %v", levels)
+	}
+	if _, ok := levels["mic"]; ok {
+		t.Fatalf("mic input present though it never opened: %v", levels)
+	}
+	_ = do(t, s, http.MethodPost, "/api/meetings/"+id+"/end", "")
+
+	// Neither input opens: the old behaviour, the mic error is the
+	// capture_error.
+	s.newSystemSource = func() (capture.Source, error) { return nil, errors.New("tap failed") }
+	res = do(t, s, http.MethodPost, "/api/meetings", `{"title":"Nothing","engine":"whisper","source":"both"}`)
+	_ = json.Unmarshal(res.Body.Bytes(), &body)
+	if msg, _ := body["capture_error"].(string); !strings.Contains(msg, "microphone") {
+		t.Fatalf("capture_error = %q, want the mic error when nothing opens", msg)
+	}
+}

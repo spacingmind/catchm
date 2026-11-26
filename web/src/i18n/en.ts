@@ -742,6 +742,7 @@ export const en = {
     noteError: "Couldn’t add the note: {{error}}",
     endError: "Couldn’t end the meeting: {{error}}",
     notRecordingLabel: "Not recording:",
+    micFallbackWarning: "Recording computer audio only. {{error}}",
     transcriptView: "Transcript view",
     viewStacked: "Original + translation",
     viewSideBySide: "Side by side",

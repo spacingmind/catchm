@@ -826,6 +826,7 @@ export const vi: Messages = {
     noteError: "Không thêm được ghi chú: {{error}}",
     endError: "Không kết thúc được cuộc họp: {{error}}",
     notRecordingLabel: "Không ghi âm:",
+    micFallbackWarning: "Chỉ đang ghi âm thanh máy tính. {{error}}",
     transcriptView: "Kiểu hiển thị bản chép lời",
     viewStacked: "Bản gốc + bản dịch",
     viewSideBySide: "Song song",

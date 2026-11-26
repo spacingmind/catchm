@@ -137,6 +137,9 @@ interface LiveMeetingProps {
   /** Where the capture_error banner's "Open settings" goes (App picks
    *  it from the error kind). */
   captureErrorSettings?: SettingsSection
+  /** mic_error from the start response: "both" is recording computer
+   *  audio only because the microphone couldn't open. */
+  micError?: string | null
   /** Opens settings at a section so the user can fix the cause (e.g. a
    *  missing API key); used by the capture_error banner and the live
    *  engine error. */
@@ -152,6 +155,7 @@ export function LiveMeeting({
   onEnded,
   captureError,
   captureErrorSettings,
+  micError,
   onOpenSettings,
   onCompactChange,
 }: LiveMeetingProps) {
@@ -363,6 +367,10 @@ export function LiveMeeting({
           )}
         </div>
       )}
+
+      <StatusMessage tone="warning" className="mb-4 break-words">
+        {micError && !captureError ? t("liveMeeting.micFallbackWarning", { error: micError }) : null}
+      </StatusMessage>
 
       <StatusRow
         meetingId={meeting.id}

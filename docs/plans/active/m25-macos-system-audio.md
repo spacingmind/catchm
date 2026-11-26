@@ -197,6 +197,12 @@ Findings that changed the design:
   The default-output listener stays (rebuild is cheap) together with a
   tap-format listener.
 
+- **"Both" on a Mac with no microphone** (Mac mini) failed the whole
+  meeting with miniaudio's "Invalid argument". Now: `ErrNoMicrophone`
+  ("no microphone found on this computer") and "both" falls back to
+  computer audio alone; the start response carries `mic_error` and the
+  live view shows a warning instead of "Not recording".
+
 Still to check by hand in the desktop app: the prompt names CatchM
 (`NSAudioCaptureUsageDescription`), denial → hint (6), a real output
 device swap (4), and a live transcript with Whisper/Soniox.
