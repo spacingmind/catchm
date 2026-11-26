@@ -710,6 +710,8 @@ export const en = {
     engineError: "Transcription error",
     engineNotWorking: "Transcription not working",
     noSignal: "No signal",
+    systemAudioPermissionHint:
+      "No computer audio yet. If something is playing, allow CatchM in System Settings → Privacy & Security → Screen & System Audio Recording.",
     whisperDownFallback: "The Whisper server isn’t responding.",
     errorStopped: "Transcription stopped working: {{error}} {{hint}}",
     whisperNotWorking: "Transcription isn’t working: {{reason}} Fix it in Settings → Transcription.",
@@ -740,6 +742,7 @@ export const en = {
     noteError: "Couldn’t add the note: {{error}}",
     endError: "Couldn’t end the meeting: {{error}}",
     notRecordingLabel: "Not recording:",
+    micFallbackWarning: "Recording computer audio only. {{error}}",
     transcriptView: "Transcript view",
     viewStacked: "Original + translation",
     viewSideBySide: "Side by side",

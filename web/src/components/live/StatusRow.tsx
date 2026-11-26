@@ -430,6 +430,10 @@ export function StatusRow({
         {source !== "mic" && <LevelMeter label={sourceShortLabel("system")} levels={levels?.system} noSignal={sysNoSignal} />}
       </div>
 
+      <StatusMessage tone="muted" className="text-xs">
+        {source !== "mic" && levels?.system?.no_signal ? t("statusRow.systemAudioPermissionHint") : null}
+      </StatusMessage>
+
       <StatusMessage tone="warning" className="flex items-center gap-1.5 text-xs font-medium">
         {dropsWarning && (
           <>

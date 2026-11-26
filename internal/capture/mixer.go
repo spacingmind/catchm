@@ -72,6 +72,7 @@ type InputStats struct {
 	Peak           float64
 	DroppedChunks  uint64 // chunks the source itself dropped (its outbound channel was full)
 	DroppedSamples uint64 // samples trimmed from the jitter buffer bound
+	NoSignal       bool   // source has delivered only digital zeros for NoSignalAfter (SignalReporter)
 }
 
 // DropCounter is implemented by sources that count the chunks they
@@ -409,6 +410,9 @@ func (m *Mixer) Stats() (mic, system InputStats, droppedTicks uint64) {
 		pair.in.mu.Unlock()
 		if dc, ok := src.(DropCounter); ok {
 			pair.dst.DroppedChunks = dc.DroppedChunks()
+		}
+		if sr, ok := src.(SignalReporter); ok {
+			pair.dst.NoSignal = sr.NoSignal()
 		}
 	}
 	return mic, system, m.droppedTicks.Load()

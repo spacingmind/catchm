@@ -794,6 +794,8 @@ export const vi: Messages = {
     engineError: "Lỗi chép lời",
     engineNotWorking: "Chép lời không hoạt động",
     noSignal: "Không có tín hiệu",
+    systemAudioPermissionHint:
+      "Chưa nhận được âm thanh máy tính. Nếu đang có âm thanh phát, hãy cho phép CatchM trong System Settings → Privacy & Security → Screen & System Audio Recording.",
     whisperDownFallback: "Máy chủ Whisper không phản hồi.",
     errorStopped: "Chép lời ngừng hoạt động: {{error}} {{hint}}",
     whisperNotWorking: "Chép lời không hoạt động: {{reason}} Hãy sửa trong Cài đặt → Chép lời.",
@@ -824,6 +826,7 @@ export const vi: Messages = {
     noteError: "Không thêm được ghi chú: {{error}}",
     endError: "Không kết thúc được cuộc họp: {{error}}",
     notRecordingLabel: "Không ghi âm:",
+    micFallbackWarning: "Chỉ đang ghi âm thanh máy tính. {{error}}",
     transcriptView: "Kiểu hiển thị bản chép lời",
     viewStacked: "Bản gốc + bản dịch",
     viewSideBySide: "Song song",

@@ -31,11 +31,15 @@ type Server struct {
 	cfg     *config.Config
 	mux     *http.ServeMux
 
-	newEngine      func(name string, cfg *config.Config) (stt.StreamEngine, error)
-	newSource      func(device string) (capture.Source, error)
-	newBatchEngine func(cfg *config.Config, engine string) (stt.BatchEngine, error)
-	newTranslator  func(cfg *config.Config, model string) (translate.Translator, error)
-	newSummarizer  func(cfg *config.Config, cloud summarize.CloudAuth) (summarize.Summarizer, error)
+	newEngine func(name string, cfg *config.Config) (stt.StreamEngine, error)
+	newSource func(device string) (capture.Source, error)
+	// System-audio seams, so "both"/"system" paths are testable without
+	// a real loopback/tap.
+	systemSupported func() (bool, string)
+	newSystemSource func() (capture.Source, error)
+	newBatchEngine  func(cfg *config.Config, engine string) (stt.BatchEngine, error)
+	newTranslator   func(cfg *config.Config, model string) (translate.Translator, error)
+	newSummarizer   func(cfg *config.Config, cloud summarize.CloudAuth) (summarize.Summarizer, error)
 	// startSonioxCleanup runs once at construction when a Soniox key
 	// is set; a test seam so no network is touched in tests.
 	startSonioxCleanup func()
@@ -58,11 +62,19 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		cfg = &config.Config{}
 	}
 	s := &Server{
-		surface:        surface,
-		cfg:            cfg,
-		mux:            http.NewServeMux(),
-		newEngine:      newEngine,
-		newSource:      func(device string) (capture.Source, error) { return capture.NewMicSource(device) },
+		surface:         surface,
+		cfg:             cfg,
+		mux:             http.NewServeMux(),
+		newEngine:       newEngine,
+		newSource:       func(device string) (capture.Source, error) { return capture.NewMicSource(device) },
+		systemSupported: capture.SystemAudioSupported,
+		newSystemSource: func() (capture.Source, error) {
+			src, err := capture.NewSystemSource()
+			if err != nil {
+				return nil, err // never a typed-nil Source
+			}
+			return src, nil
+		},
 		newBatchEngine: newBatchEngine,
 		startSonioxCleanup: func() {
 			if cfg.Soniox.APIKey == "" {
@@ -200,7 +212,7 @@ func (s *Server) handleAudioSources(w http.ResponseWriter, _ *http.Request) {
 		// gets a working answer.
 		mics = nil
 	}
-	supported, reason := capture.SystemAudioSupported()
+	supported, reason := s.systemSupported()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"mic_devices": mics,
 		"system":      map[string]any{"supported": supported, "reason": reason},
@@ -295,10 +307,16 @@ func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if mixer.HasInput(false) {
-		body["system"] = map[string]any{
+		sysBody := map[string]any{
 			"rms": sys.RMS, "peak": sys.Peak,
 			"dropped_chunks": sys.DroppedChunks, "dropped_samples": sys.DroppedSamples,
 		}
+		// M25: only sent when true (macOS, nothing but zeros since the
+		// tap started — usually a denied System Audio Recording grant).
+		if sys.NoSignal {
+			sysBody["no_signal"] = true
+		}
+		body["system"] = sysBody
 	}
 	if state, errMsg, ok := p.EngineState(); ok {
 		engineBody := map[string]any{"state": string(state)}
@@ -363,12 +381,12 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var captureErr string
+	var captureErr, micErr string
 	var captureKind CaptureErrorKind
 	if req.Engine != "" {
 		// Best-effort: a meeting always gets created even if live capture
 		// can't start (e.g. no audio backend, or the engine can't connect).
-		captureErr, captureKind = s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
+		captureErr, captureKind, micErr = s.startPipeline(m.ID, req.Device, req.Engine, stt.Options{
 			Lang:        req.Lang,
 			TranslateTo: req.TranslateTo,
 			LanguageB:   req.TranslateTo,
@@ -389,6 +407,10 @@ func (s *Server) handleStartMeeting(w http.ResponseWriter, r *http.Request) {
 	if captureErr != "" {
 		body["capture_error"] = captureErr
 		body["capture_error_kind"] = captureKind
+	}
+	// "both" without a working mic: recording computer audio only.
+	if micErr != "" {
+		body["mic_error"] = micErr
 	}
 	writeJSON(w, http.StatusOK, body)
 }
@@ -456,35 +478,46 @@ const (
 // a human-readable capture error plus its kind on failure — the meeting
 // still exists (existing behavior), but the failure is no longer
 // silent.
-func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string, kind CaptureErrorKind) {
+//
+// micErr is set (and captureErr empty) when "both" couldn't open the
+// microphone but computer audio started: the meeting records computer
+// audio only rather than nothing (a Mac mini has no built-in mic).
+func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string, kind CaptureErrorKind, micErr string) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
 		if errors.Is(err, errSonioxNoKey) {
-			return "Soniox API key is not set — add it in Settings → Transcription.", CaptureErrMissingAPIKey
+			return "Soniox API key is not set — add it in Settings → Transcription.", CaptureErrMissingAPIKey, ""
 		}
-		return err.Error(), CaptureErrEngine
+		return err.Error(), CaptureErrEngine, ""
 	}
 
 	var micSrc, sysSrc capture.Source
 	if mode == SourceMic || mode == SourceBoth {
 		micSrc, err = s.newSource(device)
 		if err != nil {
-			return "Couldn't open microphone: " + err.Error(), CaptureErrDeviceUnavailable
+			micErr = "Couldn't open microphone: " + err.Error()
+			if ok, _ := s.systemSupported(); mode == SourceMic || !ok {
+				return micErr, CaptureErrDeviceUnavailable, ""
+			}
+			micSrc = nil // "both": carry on with computer audio alone
 		}
 	}
 	if mode == SourceSystem || mode == SourceBoth {
-		if ok, reason := capture.SystemAudioSupported(); !ok {
+		if ok, reason := s.systemSupported(); !ok {
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
-			return reason, CaptureErrUnsupported
+			return reason, CaptureErrUnsupported, ""
 		}
-		sysSrc, err = capture.NewSystemSource()
+		sysSrc, err = s.newSystemSource()
 		if err != nil {
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
-			return err.Error(), CaptureErrDeviceUnavailable
+			if micErr != "" { // neither input opened: report the mic, as before
+				return micErr, CaptureErrDeviceUnavailable, ""
+			}
+			return err.Error(), CaptureErrDeviceUnavailable, ""
 		}
 	}
 
@@ -496,7 +529,7 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, 
 		if sysSrc != nil {
 			_ = sysSrc.Close()
 		}
-		return err.Error(), CaptureErrInternal
+		return err.Error(), CaptureErrInternal, ""
 	}
 
 	var translator translate.Translator
@@ -517,12 +550,12 @@ func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, 
 		if sysSrc != nil {
 			_ = sysSrc.Close()
 		}
-		return err.Error(), CaptureErrEngine
+		return err.Error(), CaptureErrEngine, ""
 	}
 	s.mu.Lock()
 	s.pipelines[id] = p
 	s.mu.Unlock()
-	return "", ""
+	return "", "", micErr
 }
 
 // switchAudioSource swaps a live pipeline's inputs through the mixer:
@@ -545,13 +578,13 @@ func (s *Server) switchAudioSource(p *pipeline.Pipeline, mode SourceMode, device
 		}
 	}
 	if mode == SourceSystem || mode == SourceBoth {
-		if ok, reason := capture.SystemAudioSupported(); !ok {
+		if ok, reason := s.systemSupported(); !ok {
 			if micSrc != nil {
 				_ = micSrc.Close()
 			}
 			return reason, CaptureErrUnsupported
 		}
-		sysSrc, err = capture.NewSystemSource()
+		sysSrc, err = s.newSystemSource()
 		if err != nil {
 			if micSrc != nil {
 				_ = micSrc.Close()

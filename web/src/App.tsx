@@ -86,6 +86,8 @@ function App() {
   // "Open settings" routes by kind, not by matching the message text.
   const [captureError, setCaptureError] = useState<string | null>(null)
   const [captureErrorKind, setCaptureErrorKind] = useState<CaptureErrorKind | null>(null)
+  // mic_error: "both" fell back to computer audio only (no mic).
+  const [micError, setMicError] = useState<string | null>(null)
   // M21 §4: LiveMeeting owns the compact-overlay hook (it needs the
   // transcript state that lives there), but the sidebar/shell has to
   // disappear too — a 480x260 window has no room for both. LiveMeeting
@@ -228,6 +230,7 @@ function App() {
   const handleStarted = (meeting: StartMeetingResponse) => {
     setCaptureError(meeting.capture_error ?? null)
     setCaptureErrorKind(meeting.capture_error_kind ?? null)
+    setMicError(meeting.mic_error ?? null)
     openMeeting(meeting)
   }
 
@@ -384,12 +387,14 @@ function App() {
             meeting={current}
             captureError={captureError}
             captureErrorSettings={captureError ? captureErrorSection(captureErrorKind ?? "engine") : undefined}
+            micError={micError}
             onOpenSettings={openSettings}
             onCompactChange={setLiveCompact}
             onEnded={(m) => {
               setLive(null)
               setCaptureError(null)
               setCaptureErrorKind(null)
+              setMicError(null)
               setSelected(m)
               // Replace: Back shouldn't return to a live view that's over.
               navigate({ name: "meeting", id: m.id, tab: "overview" }, { replace: true })

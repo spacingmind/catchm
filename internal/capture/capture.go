@@ -5,6 +5,7 @@ package capture
 
 import (
 	"encoding/hex"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -59,6 +60,11 @@ type MicSource struct {
 	dropped   *atomic.Uint64
 }
 
+// ErrNoMicrophone: the default device was requested but the machine
+// has no capture device at all (e.g. a Mac mini with nothing plugged
+// in). miniaudio only says "Invalid argument" there.
+var ErrNoMicrophone = errors.New("no microphone found on this computer")
+
 // NewMicSource opens deviceID (its hex Device.ID, or "" for the system
 // default) and starts capturing.
 func NewMicSource(deviceID string) (*MicSource, error) {
@@ -97,6 +103,11 @@ func NewMicSource(deviceID string) (*MicSource, error) {
 
 	dev, err := malgo.InitDevice(mctx.Context, cfg, callbacks)
 	if err != nil {
+		if deviceID == "" {
+			if infos, derr := mctx.Devices(malgo.Capture); derr == nil && len(infos) == 0 {
+				err = ErrNoMicrophone
+			}
+		}
 		mctx.Free()
 		return nil, err
 	}

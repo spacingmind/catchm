@@ -25,6 +25,8 @@
         <string>{{.Info.Copyright}}</string>
         <key>NSMicrophoneUsageDescription</key>
         <string>CatchM listens to your microphone to transcribe and translate your meetings.</string>
+        <key>NSAudioCaptureUsageDescription</key>
+        <string>CatchM records the audio your Mac plays (Zoom, Meet, videos) to transcribe and translate the other people in your meetings.</string>
         {{if .Info.FileAssociations}}
         <key>CFBundleDocumentTypes</key>
         <array>
