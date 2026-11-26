@@ -295,10 +295,16 @@ func (s *Server) handleMeetingLevels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if mixer.HasInput(false) {
-		body["system"] = map[string]any{
+		sysBody := map[string]any{
 			"rms": sys.RMS, "peak": sys.Peak,
 			"dropped_chunks": sys.DroppedChunks, "dropped_samples": sys.DroppedSamples,
 		}
+		// M25: only sent when true (macOS, nothing but zeros since the
+		// tap started — usually a denied System Audio Recording grant).
+		if sys.NoSignal {
+			sysBody["no_signal"] = true
+		}
+		body["system"] = sysBody
 	}
 	if state, errMsg, ok := p.EngineState(); ok {
 		engineBody := map[string]any{"state": string(state)}

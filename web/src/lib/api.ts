@@ -445,6 +445,11 @@ export interface InputLevels {
   peak: number
   dropped_chunks: number
   dropped_samples: number
+  /** M25 (macOS system audio): true once the tap has delivered nothing
+   *  but silence for 10 s since it started — usually a missing "System
+   *  Audio Recording" permission, or simply nothing playing yet.
+   *  Latches false for good once real audio arrives. Absent otherwise. */
+  no_signal?: boolean
 }
 
 /** M21 §2: an engine's connection state, present only when the running

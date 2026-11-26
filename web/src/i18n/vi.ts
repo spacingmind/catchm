@@ -794,6 +794,8 @@ export const vi: Messages = {
     engineError: "Lỗi chép lời",
     engineNotWorking: "Chép lời không hoạt động",
     noSignal: "Không có tín hiệu",
+    systemAudioPermissionHint:
+      "Chưa nhận được âm thanh máy tính. Nếu đang có âm thanh phát, hãy cho phép CatchM trong System Settings → Privacy & Security → Screen & System Audio Recording.",
     whisperDownFallback: "Máy chủ Whisper không phản hồi.",
     errorStopped: "Chép lời ngừng hoạt động: {{error}} {{hint}}",
     whisperNotWorking: "Chép lời không hoạt động: {{reason}} Hãy sửa trong Cài đặt → Chép lời.",
