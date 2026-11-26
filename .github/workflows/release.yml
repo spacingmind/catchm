@@ -8,7 +8,7 @@ name: release
 # develop-merge tagging stays with the user).
 #
 # macOS release (the plan's "CI" section): the build is split into a
-# windows and a macos job (macos-14 = arm64), each uploading its
+# windows and a macos job (macos-15 = arm64), each uploading its
 # artifacts; a publish job (needs both) does everything public — so if
 # either platform fails to build, NOTHING is published and a release
 # stays all-or-nothing across platforms.
@@ -136,7 +136,10 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-14
+    # macos-14 was retired ("configuration 'macos-14-arm64-us-xl' is not
+    # supported"). Wails links with a macOS 11.0 minimum on its own, so
+    # the newer runner SDK doesn't raise the app's minimum macOS.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
 

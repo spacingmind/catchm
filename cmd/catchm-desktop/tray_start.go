@@ -26,11 +26,33 @@ func startTray(ctx context.Context, handler http.Handler, cfg *config.Config, hk
 	)
 }
 
-// hideOnClose hides the window: with the tray icon still present it
-// stays reachable from there, and recording keeps running.
-func hideOnClose(ctx context.Context) {
+// hideWindowOnClose: see tray_start_darwin.go. Off darwin the close
+// button goes through OnBeforeClose, which onCloseRequest handles.
+const hideWindowOnClose = false
+
+// onCloseRequest runs from OnBeforeClose for the close button: hide
+// the window instead (the tray icon keeps it reachable, recording
+// keeps running). The tray's Quit sets reallyQuit first, so it never
+// gets here.
+func onCloseRequest(ctx context.Context) (prevent bool) {
 	windowVisible.Store(false)
 	runtime.WindowHide(ctx)
+	return true
+}
+
+func showMainWindow(ctx context.Context) {
+	windowVisible.Store(true)
+	runtime.WindowUnminimise(ctx)
+	runtime.WindowShow(ctx)
+}
+
+func toggleMainWindow(ctx context.Context) {
+	if windowVisible.Load() {
+		windowVisible.Store(false)
+		runtime.WindowHide(ctx)
+		return
+	}
+	showMainWindow(ctx)
 }
 
 // appMenu is nil off darwin: Wails' own default menu already covers

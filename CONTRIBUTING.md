@@ -65,7 +65,7 @@ themselves" — one human decision, everything after it validated:
    pushed with `GITHUB_TOKEN` can't trigger workflows itself, so the
    dispatch replaces the push trigger (`dry_run=false`, same result).
    Two jobs build in parallel: `windows` (the NSIS installer, `task
-   desktop:release`) and `macos` (`macos-14`, the arm64 `.dmg`, `task
+   desktop:release`) and `macos` (`macos-15`, the arm64 `.dmg`, `task
    desktop:release:darwin`), each with a SHA-256 checksum. Only when
    both succeed does `publish` attach all four files to the GitHub
    release, build `latest.json` listing all four, and upload everything
