@@ -20,8 +20,8 @@ Download the latest release:
   macOS may ask for microphone access again after each update, because
   every build carries a new ad-hoc signature. CatchM tells you when an
   update is out; download it the same way. There's no menu-bar icon on
-  macOS: closing the window minimises it to the Dock, and recording keeps
-  running.
+  macOS: closing the window hides CatchM (click its Dock icon to bring it
+  back) and recording keeps running; quit with Cmd+Q or Dock → Quit.
 
 ## Dev
 
