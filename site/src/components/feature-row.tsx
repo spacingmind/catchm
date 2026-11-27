@@ -17,6 +17,24 @@ export function Pill({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** A feature's stage: "beta" works but is still being tuned; "soon"
+ *  isn't available yet. */
+export type Stage = "beta" | "soon";
+
+export function StatusTag({ stage, className }: { stage: Stage; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tracking-normal normal-case whitespace-nowrap",
+        stage === "beta" ? "bg-chip text-chip-fg" : "bg-card text-muted ring-1 ring-line",
+        className,
+      )}
+    >
+      {stage === "beta" ? "Beta" : "Coming soon"}
+    </span>
+  );
+}
+
 /** Text on one side, a visual on a warm panel on the other. */
 export function Row({
   title,
@@ -28,9 +46,11 @@ export function Row({
   id,
   wide,
   eyebrow,
+  stage,
 }: {
   id?: string;
   eyebrow?: string;
+  stage?: Stage;
   title: string;
   body: string;
   note?: string;
@@ -43,7 +63,12 @@ export function Row({
   return (
     <article className="grid items-center gap-10 lg:grid-cols-12 lg:gap-16">
       <div className={cn(wide ? "lg:col-span-4" : "lg:col-span-5", flip && "lg:order-2")}>
-        {eyebrow && <p className="eyebrow mb-3">{eyebrow}</p>}
+        {(eyebrow || stage) && (
+          <p className="mb-3 flex flex-wrap items-center gap-2.5">
+            {eyebrow && <span className="eyebrow">{eyebrow}</span>}
+            {stage && <StatusTag stage={stage} />}
+          </p>
+        )}
         {id ? (
           <h2 id={id} className="display text-4xl leading-[1.08] sm:text-5xl">
             {title}
@@ -65,10 +90,13 @@ export function Row({
 }
 
 /** Section heading block shared by the feature sections. */
-export function SectionHead({ id, eyebrow, title }: { id: string; eyebrow: string; title: string }) {
+export function SectionHead({ id, eyebrow, title, stage }: { id: string; eyebrow: string; title: string; stage?: Stage }) {
   return (
     <>
-      <p className="eyebrow">{eyebrow}</p>
+      <p className="flex flex-wrap items-center gap-2.5">
+        <span className="eyebrow">{eyebrow}</span>
+        {stage && <StatusTag stage={stage} />}
+      </p>
       <h2 id={id} className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
         {title}
       </h2>

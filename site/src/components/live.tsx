@@ -73,7 +73,11 @@ export function Live() {
           <EngineList
             title="Speech to text"
             items={[
-              ["Soniox", "cloud", "Labels who's speaking and translates as it goes. Bring your own key."],
+              ["Soniox", "cloud", "Labels who's speaking and translates as it goes."],
+              ["Deepgram", "cloud", "Fast, labels who's speaking."],
+              ["ElevenLabs", "cloud", "Accurate, labels who's speaking."],
+              ["Speechmatics", "cloud", "Labels who's speaking, 55+ languages."],
+              ["Gladia", "cloud", "100+ languages, follows people switching language."],
               ["Whisper", "local", "Runs through the whisper.cpp server."],
             ]}
           />
@@ -81,6 +85,8 @@ export function Live() {
             title="Translation"
             items={[
               ["Soniox", "cloud", "Built in, live, one-way or two-way."],
+              ["Google Translate", "cloud", "500,000 characters a month free on your Google Cloud key."],
+              ["Your AI provider", "cloud", "Any OpenAI-compatible model, with your own API key."],
               ["Ollama", "local", "A local translation model."],
             ]}
           />

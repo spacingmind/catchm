@@ -5,7 +5,7 @@ import { Shot } from "@/components/ui/shot";
 export function Summary() {
   return (
     <section id="summary" aria-labelledby="summary-title" className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-28">
-      <SectionHead id="summary-title" eyebrow="Summary" title="What was decided, and who does what" />
+      <SectionHead id="summary-title" eyebrow="Summary" title="What was decided, and who does what" stage="beta" />
 
       <div className="mt-16 space-y-20 sm:space-y-28">
         <Row
@@ -16,14 +16,14 @@ export function Summary() {
               <EngineList
                 title="Who writes it"
                 items={[
-                  ["Ollama", "local", "The default."],
-                  ["Your own AI service", "either", "Your Cloudflare account, or any OpenAI-compatible service."],
-                  ["CatchM Cloud", "cloud", "Hosted for you. No mind map yet."],
+                  ["Your AI provider", "cloud", "OpenAI, Gemini, Anthropic, Groq, OpenRouter and more, with your own API key."],
+                  ["CatchM Cloud", "cloud", "Free to start, hosted for you. Needs a CatchM account."],
+                  ["Ollama", "local", "Runs on your computer. Free and private."],
                 ]}
               />
             </div>
           }
-          note="You create it when a meeting ends."
+          note="You create it when a meeting ends. Summaries are in beta: check what matters against the transcript."
           visual={
             <Frame>
               <Shot

@@ -1,4 +1,5 @@
 import { DownloadButtons } from "@/components/download-buttons";
+import { StatusTag } from "@/components/feature-row";
 import { MindMapMock } from "@/components/mind-map-mock";
 import { Shot } from "@/components/ui/shot";
 import { formatDate, type Release } from "@/lib/release";
@@ -32,8 +33,9 @@ export function Hero({ release }: { release: Release }) {
               </span>
             </h1>
             <p className="rise mt-6 max-w-lg text-lg leading-relaxed text-muted" style={delay(140)}>
-              Every meeting becomes a summary, action items and a mind map,
-              kept as files you own.
+              Every meeting becomes a live transcript, a summary and action
+              items, kept as files you own. Bring your own API key, or run it
+              all on your computer.
             </p>
           </div>
 
@@ -85,6 +87,7 @@ function HeroStage() {
         <figcaption className="mt-2.5 flex items-center gap-2 text-xs font-medium text-subtle sm:justify-end">
           <span className="sr-only">Illustration: </span>
           The same meeting as a mind map
+          <StatusTag stage="soon" />
         </figcaption>
       </figure>
     </div>

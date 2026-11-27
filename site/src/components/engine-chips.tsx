@@ -3,8 +3,8 @@ import { Cloud, House, SlidersHorizontal, type LucideIcon } from "lucide-react";
 export type Where = "local" | "cloud" | "either";
 
 const where: Record<Where, { label: string; Icon: LucideIcon }> = {
-  local: { label: "On your computer", Icon: House },
-  cloud: { label: "Cloud", Icon: Cloud },
+  local: { label: "Self-host", Icon: House },
+  cloud: { label: "Cloud (BYOK)", Icon: Cloud },
   either: { label: "Your choice", Icon: SlidersHorizontal },
 };
 
