@@ -44,7 +44,58 @@ var (
 	// ErrBlobTooLarge is a 413: the blob exceeds the server's
 	// per-blob size cap (MAX_BLOB_BYTES).
 	ErrBlobTooLarge = errors.New("cloudsync: blob too large")
+
+	// ErrInvalidCode is a 403 {error:"invalid_code"} from /totp/enable or
+	// /totp/disable: the authenticator code was wrong (a 403, not a 401,
+	// so it isn't mistaken for an expired session).
+	ErrInvalidCode = errors.New("cloudsync: invalid code")
+
+	// The 409s below each also match ErrConflict.
+
+	// ErrTOTPAlreadyEnabled: /totp/setup or /totp/enable while two-factor
+	// is already on.
+	ErrTOTPAlreadyEnabled = errors.New("cloudsync: two-factor already enabled")
+	// ErrTOTPNotEnabled: /totp/disable while two-factor is off.
+	ErrTOTPNotEnabled = errors.New("cloudsync: two-factor not enabled")
+	// ErrTOTPNotSetUp: /totp/enable without a /totp/setup first.
+	ErrTOTPNotSetUp = errors.New("cloudsync: two-factor not set up")
+	// ErrAlreadyVerified: /verify/resend for an email that is already
+	// verified.
+	ErrAlreadyVerified = errors.New("cloudsync: email already verified")
+
+	// ErrEmailUnavailable is a 503 {error:"email_unavailable"}: the
+	// server couldn't send the email a step needs (verification code).
+	ErrEmailUnavailable = errors.New("cloudsync: email unavailable")
 )
+
+// conflictCodes maps a 409 body's error code to its sentinel.
+var conflictCodes = map[string]error{
+	"totp_already_enabled": ErrTOTPAlreadyEnabled,
+	"totp_not_enabled":     ErrTOTPNotEnabled,
+	"totp_not_set_up":      ErrTOTPNotSetUp,
+	"already_verified":     ErrAlreadyVerified,
+}
+
+// ThrottledError is a 429 {error:"resend_throttled", retry_after}: a new
+// email code was asked for too soon. It also matches ErrRateLimited.
+type ThrottledError struct {
+	RetryAfter int // seconds
+}
+
+func (e *ThrottledError) Error() string {
+	return fmt.Sprintf("cloudsync: resend throttled, retry after %ds", e.RetryAfter)
+}
+
+func (e *ThrottledError) Unwrap() error { return ErrRateLimited }
+
+// errorCode is the {"error": ...} of a JSON error body, or "".
+func errorCode(raw []byte) string {
+	var body struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &body)
+	return body.Error
+}
 
 // ChallengeError: the credentials were right, but the server wants one
 // more proof before it issues a session — "email_code" (the account's
@@ -186,23 +237,29 @@ type LoginRequest struct {
 	TOTPCode  string `json:"totp_code,omitempty"`
 }
 
-// LoginWith authenticates and returns a fresh session token plus the
-// stored wrapped master key and its params. A *ChallengeError means the
-// password was right but a code is needed.
-func (c *Client) LoginWith(req LoginRequest) (sessionToken string, wrappedMasterKey, keyWrapParams string, err error) {
-	var out struct {
-		SessionToken     string `json:"session_token"`
-		WrappedMasterKey string `json:"wrapped_master_key"`
-		KeyWrapParams    string `json:"key_wrap_params"`
-	}
-	if err := c.doJSON(http.MethodPost, "/login", "", req, &out); err != nil {
-		return "", "", "", err
-	}
-	return out.SessionToken, out.WrappedMasterKey, out.KeyWrapParams, nil
+// LoginResult is a successful POST /login. SessionID is the public id
+// of the new session (GET /sessions); older servers don't send it.
+type LoginResult struct {
+	SessionToken     string `json:"session_token"`
+	SessionID        string `json:"session_id"`
+	WrappedMasterKey string `json:"wrapped_master_key"`
+	KeyWrapParams    string `json:"key_wrap_params"`
 }
 
-// ResendCode asks for a new email code (the credentials must be right;
-// the server throttles to one per minute).
+// LoginWith authenticates and returns a fresh session plus the stored
+// wrapped master key and its params. A *ChallengeError means the
+// password was right but a code is needed.
+func (c *Client) LoginWith(req LoginRequest) (LoginResult, error) {
+	var out LoginResult
+	if err := c.doJSON(http.MethodPost, "/login", "", req, &out); err != nil {
+		return LoginResult{}, err
+	}
+	return out, nil
+}
+
+// ResendCode asks for a new email code (the credentials must be right).
+// The server allows one a minute: sooner is a *ThrottledError with the
+// wait; an already-verified email is ErrAlreadyVerified.
 func (c *Client) ResendCode(email, authHash string) error {
 	body := struct {
 		Email    string `json:"email"`
@@ -245,23 +302,109 @@ func (c *Client) RecoveryParams(email string) (salt, kdfParams string, err error
 	return out.RecoverySalt, out.RecoveryKDFParams, nil
 }
 
+// RecoverRequest is the POST /recover body. EmailCode answers an
+// email_code ChallengeError (an unverified account); there is no TOTP
+// step, since the recovery code is itself the second secret. Servers
+// from before auth hardening ignore the device fields and the code.
+type RecoverRequest struct {
+	Email            string `json:"email"`
+	RecoveryAuthHash string `json:"recovery_auth_hash"`
+	Device
+	EmailCode string `json:"email_code,omitempty"`
+}
+
+// RecoverResult is a successful POST /recover.
+type RecoverResult struct {
+	SessionToken      string `json:"session_token"`
+	SessionID         string `json:"session_id"`
+	RecoveryBlob      string `json:"recovery_blob"`
+	RecoveryKDFParams string `json:"recovery_kdf_params"`
+	// TwoFactorDisabled: the account had 2FA on, and recovering turned
+	// it off (the Worker emails the owner why).
+	TwoFactorDisabled bool `json:"two_factor_disabled"`
+}
+
 // Recover authenticates with the client-derived recovery_auth_hash
-// and returns a fresh session token plus the stored recovery blob and
-// its kdf params, which the caller unwraps locally.
-func (c *Client) Recover(email, recoveryAuthHash string) (sessionToken, recoveryBlob, recoveryKDFParams string, err error) {
+// and returns a fresh session plus the stored recovery blob and its
+// kdf params, which the caller unwraps locally. A *ChallengeError means
+// the code was right but the email needs verifying first.
+func (c *Client) Recover(req RecoverRequest) (RecoverResult, error) {
+	var out RecoverResult
+	if err := c.doJSON(http.MethodPost, "/recover", "", req, &out); err != nil {
+		return RecoverResult{}, err
+	}
+	return out, nil
+}
+
+// Session is one entry of GET /sessions. Times are Unix milliseconds;
+// Current marks the session the request was made with.
+type Session struct {
+	ID         string `json:"id"`
+	DeviceName string `json:"device_name"`
+	CreatedAt  int64  `json:"created_at"`
+	LastSeenAt int64  `json:"last_seen_at"`
+	Current    bool   `json:"current"`
+}
+
+// ListSessions lists the account's signed-in sessions.
+func (c *Client) ListSessions(sessionToken string) ([]Session, error) {
 	var out struct {
-		SessionToken      string `json:"session_token"`
-		RecoveryBlob      string `json:"recovery_blob"`
-		RecoveryKDFParams string `json:"recovery_kdf_params"`
+		Sessions []Session `json:"sessions"`
 	}
-	body := struct {
-		Email            string `json:"email"`
-		RecoveryAuthHash string `json:"recovery_auth_hash"`
-	}{email, recoveryAuthHash}
-	if err := c.doJSON(http.MethodPost, "/recover", "", body, &out); err != nil {
-		return "", "", "", err
+	if err := c.doJSON(http.MethodGet, "/sessions", sessionToken, nil, &out); err != nil {
+		return nil, err
 	}
-	return out.SessionToken, out.RecoveryBlob, out.RecoveryKDFParams, nil
+	if out.Sessions == nil {
+		out.Sessions = []Session{}
+	}
+	return out.Sessions, nil
+}
+
+// RevokeSession signs one session out. ErrNotFound when it isn't one of
+// the account's sessions (or is already gone). Revoking the calling
+// session signs this device out.
+func (c *Client) RevokeSession(sessionToken, id string) error {
+	return c.doJSON(http.MethodDelete, "/sessions/"+url.PathEscape(id), sessionToken, nil, nil)
+}
+
+// RevokeOtherSessions signs out every session but the calling one and
+// returns how many it ended.
+func (c *Client) RevokeOtherSessions(sessionToken string) (int, error) {
+	var out struct {
+		Revoked int `json:"revoked"`
+	}
+	if err := c.doJSON(http.MethodPost, "/sessions/revoke-others", sessionToken, nil, &out); err != nil {
+		return 0, err
+	}
+	return out.Revoked, nil
+}
+
+// TOTPSetup is a fresh, not-yet-enabled authenticator secret.
+type TOTPSetup struct {
+	Secret     string `json:"secret"`      // base32
+	OTPAuthURI string `json:"otpauth_uri"` // otpauth://totp/CatchM%3A<email>?…
+}
+
+// TOTPSetup starts two-factor setup (replacing any unconfirmed secret).
+// ErrTOTPAlreadyEnabled when it's already on.
+func (c *Client) TOTPSetup(sessionToken string) (TOTPSetup, error) {
+	var out TOTPSetup
+	if err := c.doJSON(http.MethodPost, "/totp/setup", sessionToken, struct{}{}, &out); err != nil {
+		return TOTPSetup{}, err
+	}
+	return out, nil
+}
+
+// TOTPEnable turns two-factor on with a code from the authenticator.
+// ErrInvalidCode for a wrong code; ErrTOTPNotSetUp / ErrTOTPAlreadyEnabled.
+func (c *Client) TOTPEnable(sessionToken, code string) error {
+	return c.doJSON(http.MethodPost, "/totp/enable", sessionToken, map[string]string{"code": code}, nil)
+}
+
+// TOTPDisable turns two-factor off; it needs a current code.
+// ErrInvalidCode for a wrong code; ErrTOTPNotEnabled when it's off.
+func (c *Client) TOTPDisable(sessionToken, code string) error {
+	return c.doJSON(http.MethodPost, "/totp/disable", sessionToken, map[string]string{"code": code}, nil)
 }
 
 // ResetPassword overwrites the account's password-path fields and
@@ -453,12 +596,18 @@ func (c *Client) doRaw(method, path, sessionToken string, body any) ([]byte, err
 			return nil, ch
 		}
 		if resp.StatusCode == http.StatusForbidden {
+			if errorCode(raw) == "invalid_code" {
+				return nil, ErrInvalidCode
+			}
 			return nil, statusError(resp.StatusCode, raw)
 		}
 		return nil, fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))
 	case http.StatusConflict:
+		if specific, ok := conflictCodes[errorCode(raw)]; ok {
+			return nil, fmt.Errorf("%w: %w", ErrConflict, specific)
+		}
 		return nil, fmt.Errorf("%w: %s", ErrConflict, strings.TrimSpace(string(raw)))
 	default:
 		return nil, mapStatusError(resp, raw)
@@ -469,16 +618,29 @@ func statusError(status int, body []byte) error {
 	return fmt.Errorf("cloudsync: unexpected status %d: %s", status, strings.TrimSpace(string(body)))
 }
 
-// mapStatusError maps the abuse-hardening statuses (429/507) to their
-// sentinels, appending Retry-After seconds to 429s when present.
+// mapStatusError maps the abuse-hardening statuses (429/507/413) and a
+// 503 email_unavailable to their sentinels: a resend_throttled 429 is a
+// *ThrottledError, other 429s get the Retry-After seconds appended.
 // Everything else falls through to statusError.
 func mapStatusError(resp *http.Response, body []byte) error {
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests:
+		var throttled struct {
+			Error      string `json:"error"`
+			RetryAfter int    `json:"retry_after"`
+		}
+		if json.Unmarshal(body, &throttled) == nil && throttled.Error == "resend_throttled" {
+			return &ThrottledError{RetryAfter: max(throttled.RetryAfter, 1)}
+		}
 		if after := strings.TrimSpace(resp.Header.Get("Retry-After")); after != "" {
 			return fmt.Errorf("%w: retry after %ss", ErrRateLimited, after)
 		}
 		return fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body)))
+	case http.StatusServiceUnavailable:
+		if errorCode(body) == "email_unavailable" {
+			return ErrEmailUnavailable
+		}
+		return statusError(resp.StatusCode, body)
 	case http.StatusInsufficientStorage:
 		return fmt.Errorf("%w: %s", ErrQuotaExceeded, strings.TrimSpace(string(body)))
 	case http.StatusRequestEntityTooLarge:

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react"
 import { useTranslation } from "react-i18next"
+import { TriangleAlert } from "lucide-react"
 
 import { RecoveryCodeDialog } from "@/components/RecoveryCodeDialog"
 import { StatusMessage } from "@/components/StatusMessage"
+import { CloudCodeStep } from "@/components/settings/CloudCodeStep"
+import { CloudSecurity } from "@/components/settings/CloudSecurity"
 import { descId, SettingRow, SettingsSection } from "@/components/settings/pieces"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,12 +13,15 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { notifyCloudSyncConflict } from "@/lib/wailsRuntime"
 import {
   ApiError,
+  cloudChallengeOf,
   cloudLogin,
   cloudLogout,
   cloudRecover,
+  cloudResendCode,
   cloudSignup,
   cloudStatus,
   cloudSync,
+  type CloudChallenge,
   type CloudStatus,
   type SyncResult,
 } from "@/lib/api"
@@ -84,6 +90,16 @@ export function SettingsCloudSync() {
   // dialog (or the component unmounts). Never localStorage, never
   // refetchable — the server returns it exactly once.
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null)
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
+
+  // The server wants a code before it signs in: one emailed to the
+  // account (after signup, or an unverified account) or one from an
+  // authenticator app. The login retries with the password still in the
+  // form state (never stored anywhere else); recover with its fields.
+  const [codeStep, setCodeStep] = useState<{ challenge: CloudChallenge; flow: "login" | "recover" } | null>(null)
+  const [codeError, setCodeError] = useState<string | null>(null)
+  // Signup's password is in known breaches: how many (warn, never block).
+  const [breachCount, setBreachCount] = useState<number | null>(null)
 
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
@@ -118,6 +134,34 @@ export function SettingsCloudSync() {
     setMode(next)
     setAuthError(null)
     setFieldErrors({})
+    setBreachCount(null)
+  }
+
+  /** Words for a challenge's reason: a wrong or expired code. */
+  const codeReasonMessage = (challenge: CloudChallenge, reason: string): string | null => {
+    if (reason === "invalid_code")
+      return challenge === "totp" ? t("settings.cloudSync.totpInvalid") : t("settings.cloudSync.codeInvalid")
+    if (reason === "code_expired" || reason === "expired") return t("settings.cloudSync.codeExpired")
+    return null
+  }
+
+  /** Opens (or stays on) the code step a failed request asked for;
+   *  false when the error wasn't a challenge. */
+  const openChallenge = (err: unknown, flow: "login" | "recover") => {
+    const ch = cloudChallengeOf(err)
+    if (!ch) return false
+    setAuthError(null)
+    setCodeStep((prev) =>
+      prev && prev.challenge === ch.challenge && prev.flow === flow ? prev : { challenge: ch.challenge, flow },
+    )
+    setCodeError(codeReasonMessage(ch.challenge, ch.reason))
+    return true
+  }
+
+  /** Done with the code step (signed in, or backed out). */
+  const closeCodeStep = () => {
+    setCodeStep(null)
+    setCodeError(null)
   }
 
   const validateAuthFields = () => {
@@ -149,17 +193,30 @@ export function SettingsCloudSync() {
     return { message: errorMessage(err) }
   }
 
-  const handleAuth = async (e: FormEvent<HTMLFormElement>) => {
+  const handleAuth = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    void submitAuth()
+  }
+
+  const submitAuth = async (acceptBreached = false) => {
     if (authBusy !== null) return
     if (!validateAuthFields()) return
     const kind = mode === "signup" ? "signup" : "login"
     setAuthBusy(kind)
     setAuthError(null)
+    setBreachCount(null)
     try {
       if (kind === "signup") {
-        const res = await cloudSignup(email, password)
+        const res = await cloudSignup(email, password, { acceptBreached })
         setRecoveryCode(res.recovery_code)
+        setMode("login")
+        if (res.verification_required) {
+          // No session yet: after the recovery-code dialog, the emailed
+          // code logs in. Keep the password in state for that login.
+          setCodeStep({ challenge: "email_code", flow: "login" })
+          setCodeError(null)
+          return
+        }
       } else {
         await cloudLogin(email, password)
       }
@@ -167,9 +224,81 @@ export function SettingsCloudSync() {
       setMode("login")
       refresh()
     } catch (err) {
+      if (kind === "login" && openChallenge(err, "login")) return
+      if (kind === "signup" && err instanceof ApiError && err.code === "password_breached") {
+        setBreachCount(typeof err.body?.count === "number" ? err.body.count : 1)
+        return
+      }
       setAuthError(describeAuthError(err, kind))
     } finally {
       setAuthBusy(null)
+    }
+  }
+
+  const chooseAnotherPassword = () => {
+    setBreachCount(null)
+    setPassword("")
+    passwordRef.current?.focus()
+  }
+
+  /** The code step's submit: retry the login or recover with the code. */
+  const submitCode = async (code: string) => {
+    if (!codeStep || authBusy !== null) return
+    const flow = codeStep.flow
+    setAuthBusy(flow)
+    setCodeError(null)
+    try {
+      if (flow === "login") {
+        await cloudLogin(
+          email,
+          password,
+          codeStep.challenge === "totp" ? { totpCode: code } : { emailCode: code },
+        )
+        setPassword("")
+      } else {
+        const res = await cloudRecover(email, recoveryCodeInput, newPassword, code)
+        setRecoveryNotice(res.two_factor_disabled ? t("settings.cloudSync.twoFactorOffByRecovery") : null)
+        setRecoveryCode(res.recovery_code)
+        setRecoveryCodeInput("")
+        setNewPassword("")
+      }
+      closeCodeStep()
+      setMode("login")
+      refresh()
+    } catch (err) {
+      if (openChallenge(err, flow)) return
+      // Anything else (wrong password after all, rate limit…): back to
+      // the form with the message, typed values kept.
+      closeCodeStep()
+      setAuthError(describeAuthError(err, flow))
+    } finally {
+      setAuthBusy(null)
+    }
+  }
+
+  /** "Send a new code". Login asks for one directly; recover has no
+   *  password to prove, so it retries without a code, which sends a new
+   *  one once the last has expired. */
+  const resendCode = async () => {
+    if (codeStep?.flow === "recover") {
+      try {
+        await cloudRecover(email, recoveryCodeInput, newPassword)
+      } catch (err) {
+        if (cloudChallengeOf(err)) return
+        throw err
+      }
+      return
+    }
+    try {
+      await cloudResendCode(email, password)
+    } catch (err) {
+      // Verified meanwhile (another device): the login just works now.
+      if (err instanceof ApiError && err.code === "already_verified") {
+        setCodeStep(null)
+        await submitAuth()
+        return
+      }
+      throw err
     }
   }
 
@@ -189,12 +318,14 @@ export function SettingsCloudSync() {
     setAuthError(null)
     try {
       const res = await cloudRecover(email, recoveryCodeInput, newPassword)
+      setRecoveryNotice(res.two_factor_disabled ? t("settings.cloudSync.twoFactorOffByRecovery") : null)
       setRecoveryCode(res.recovery_code)
       setRecoveryCodeInput("")
       setNewPassword("")
       setMode("login")
       refresh()
     } catch (err) {
+      if (openChallenge(err, "recover")) return
       // Wrong code: inline error, typed values stay put.
       setAuthError(describeAuthError(err, "recover"))
     } finally {
@@ -290,8 +421,25 @@ export function SettingsCloudSync() {
       >
         {loadErrorBlock}
 
-        {!loggedIn && mode !== "forgot" && (
-          <form noValidate onSubmit={(e) => void handleAuth(e)} className="grid gap-3">
+        {!loggedIn && codeStep && (
+          <CloudCodeStep
+            key={`${codeStep.flow}-${codeStep.challenge}`}
+            challenge={codeStep.challenge}
+            email={email}
+            busy={authBusy !== null}
+            error={codeError}
+            onSubmit={(code) => void submitCode(code)}
+            onResend={codeStep.challenge === "email_code" ? resendCode : undefined}
+            resentMessage={
+              codeStep.flow === "recover" ? t("settings.cloudSync.codeResentRecover", { email }) : undefined
+            }
+            onBack={closeCodeStep}
+            active={recoveryCode === null}
+          />
+        )}
+
+        {!loggedIn && !codeStep && mode !== "forgot" && (
+          <form noValidate onSubmit={handleAuth} className="grid gap-3">
             <SettingRow
               label={t("settings.cloudSync.emailLabel")}
               htmlFor="cloud-email"
@@ -327,7 +475,10 @@ export function SettingsCloudSync() {
                     name={mode === "signup" ? "new-password" : "password"}
                     autoComplete={mode === "signup" ? "new-password" : "current-password"}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      setBreachCount(null)
+                    }}
                     aria-invalid={fieldErrors.password || authError?.field === "password" ? true : undefined}
                     aria-describedby={
                       [mode === "signup" && descId("cloud-password"), describedBy("password", "cloud-password-error")]
@@ -342,6 +493,28 @@ export function SettingsCloudSync() {
                 </div>
               }
             />
+            {mode === "signup" && breachCount !== null && (
+              <div className="grid gap-2 rounded-lg border border-border p-3">
+                <p role="alert" className="flex items-start gap-1.5 text-sm font-medium text-warning">
+                  <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                  {t("settings.cloudSync.breachedWarning", { count: breachCount })}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={chooseAnotherPassword}>
+                    {t("settings.cloudSync.breachedChooseAnother")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={authBusy !== null}
+                    onClick={() => void submitAuth(true)}
+                  >
+                    {t("settings.cloudSync.breachedUseAnyway")}
+                  </Button>
+                </div>
+              </div>
+            )}
             {mode === "login" ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={authBusy !== null} aria-busy={authBusy === "login" || undefined}>
@@ -380,7 +553,7 @@ export function SettingsCloudSync() {
           </form>
         )}
 
-        {!loggedIn && mode === "forgot" && (
+        {!loggedIn && !codeStep && mode === "forgot" && (
           <form noValidate onSubmit={(e) => void handleRecover(e)} className="grid gap-3">
             <p className="text-sm text-muted-foreground">
               {t("settings.cloudSync.recoverIntro")}
@@ -545,7 +718,27 @@ export function SettingsCloudSync() {
         )}
       </SettingsSection>
 
-      <RecoveryCodeDialog code={recoveryCode} onAcked={() => setRecoveryCode(null)} />
+      {loggedIn && (
+        <CloudSecurity
+          totpEnabled={status.totp_enabled === true}
+          onStatusChange={refresh}
+          onSessionEnded={(message) => {
+            setSyncResult(null)
+            setSyncError(null)
+            setAuthError(message ? { message } : null)
+            refresh()
+          }}
+        />
+      )}
+
+      <RecoveryCodeDialog
+        code={recoveryCode}
+        notice={recoveryNotice}
+        onAcked={() => {
+          setRecoveryCode(null)
+          setRecoveryNotice(null)
+        }}
+      />
     </div>
   )
 }

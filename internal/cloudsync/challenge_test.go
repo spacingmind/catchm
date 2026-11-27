@@ -29,7 +29,7 @@ func TestLoginChallenges(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = io.WriteString(w, `{"challenge":"totp"}`)
 		default:
-			_, _ = io.WriteString(w, `{"session_token":"tok","wrapped_master_key":"wmk","key_wrap_params":"{}"}`)
+			_, _ = io.WriteString(w, `{"session_token":"tok","session_id":"sid","wrapped_master_key":"wmk","key_wrap_params":"{}"}`)
 		}
 	}))
 	defer srv.Close()
@@ -41,22 +41,22 @@ func TestLoginChallenges(t *testing.T) {
 		t.Fatalf("signup 202: tok %q err %v body %v", tok, err, last)
 	}
 
-	_, _, _, err = c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev})
+	_, err = c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev})
 	var ch *ChallengeError
 	if !errors.As(err, &ch) || ch.Challenge != "email_code" || ch.Reason != "" {
 		t.Fatalf("first login = %v", err)
 	}
-	_, _, _, err = c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev, EmailCode: "000000"})
+	_, err = c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev, EmailCode: "000000"})
 	if !errors.As(err, &ch) || ch.Reason != "invalid_code" {
 		t.Fatalf("wrong code = %v", err)
 	}
-	_, _, _, err = c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev, EmailCode: "123456"})
+	_, err = c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev, EmailCode: "123456"})
 	if !errors.As(err, &ch) || ch.Challenge != "totp" {
 		t.Fatalf("totp challenge = %v", err)
 	}
-	tok, wmk, _, err := c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev, EmailCode: "123456", TOTPCode: "654321"})
-	if err != nil || tok != "tok" || wmk != "wmk" {
-		t.Fatalf("final login: %q %q %v", tok, wmk, err)
+	res, err := c.LoginWith(LoginRequest{Email: "a@b.c", AuthHash: "h", Device: dev, EmailCode: "123456", TOTPCode: "654321"})
+	if err != nil || res.SessionToken != "tok" || res.SessionID != "sid" || res.WrappedMasterKey != "wmk" {
+		t.Fatalf("final login: %+v %v", res, err)
 	}
 	if err := c.ResendCode("a@b.c", "h"); err != nil {
 		t.Fatalf("resend: %v", err)

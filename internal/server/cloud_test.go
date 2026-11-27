@@ -248,6 +248,49 @@ type cloudFakeWorker struct {
 	resetCalls int
 	blobs      map[string][]byte // "<email>/<id>" -> content
 	blobVers   map[string]int    // "<email>/<id>" -> version
+
+	// Auth hardening (cloud_security_test.go). hardenedSignup: /signup
+	// answers 202 and leaves the email unverified. unverified: login and
+	// recover need email_code "123456". totp: login needs totp_code
+	// "654321" (also the code /totp/enable and /disable accept).
+	hardenedSignup bool
+	unverified     map[string]bool
+	totp           map[string]bool
+	totpPending    map[string]bool
+	lastRecover    map[string]any
+	resendStatus   int // /verify/resend answers this (0: 202)
+}
+
+// fakeSessionID is the public id the fake gives a session token.
+func fakeSessionID(token string) string { return "sid-" + token }
+
+// fakeAuthGate is the hardened Worker's email-code / TOTP gate; it
+// reports whether it answered.
+func (f *cloudFakeWorker) fakeAuthGate(w http.ResponseWriter, email, emailCode, totpCode string, checkTOTP bool) bool {
+	if f.unverified[email] {
+		switch emailCode {
+		case "":
+			writeCloudJSON(w, http.StatusForbidden, map[string]string{"error": "verification_required", "challenge": "email_code"})
+			return true
+		case "123456":
+			delete(f.unverified, email)
+		default:
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code", "challenge": "email_code"})
+			return true
+		}
+	}
+	if checkTOTP && f.totp[email] {
+		switch totpCode {
+		case "":
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "totp_required", "challenge": "totp"})
+			return true
+		case "654321":
+		default:
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code", "challenge": "totp"})
+			return true
+		}
+	}
+	return false
 }
 
 func (f *cloudFakeWorker) handler() http.Handler {
@@ -260,6 +303,11 @@ func (f *cloudFakeWorker) handler() http.Handler {
 			return
 		}
 		f.users[req.Email] = req
+		if f.hardenedSignup {
+			f.unverified[req.Email] = true
+			writeCloudJSON(w, http.StatusAccepted, map[string]any{"verification_required": true})
+			return
+		}
 		token := "tok-" + req.Email
 		f.sessions[token] = req.Email
 		writeCloudJSON(w, http.StatusOK, map[string]any{"session_token": token, "expires_at": int64(1 << 40)})
@@ -277,8 +325,10 @@ func (f *cloudFakeWorker) handler() http.Handler {
 	})
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Email    string `json:"email"`
-			AuthHash string `json:"auth_hash"`
+			Email     string `json:"email"`
+			AuthHash  string `json:"auth_hash"`
+			EmailCode string `json:"email_code"`
+			TOTPCode  string `json:"totp_code"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
 		stored, ok := f.users[req.Email]
@@ -286,10 +336,13 @@ func (f *cloudFakeWorker) handler() http.Handler {
 			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 			return
 		}
+		if f.fakeAuthGate(w, req.Email, req.EmailCode, req.TOTPCode, true) {
+			return
+		}
 		token := "tok-" + req.Email
 		f.sessions[token] = req.Email
 		writeCloudJSON(w, http.StatusOK, map[string]any{
-			"session_token": token, "expires_at": int64(1 << 40),
+			"session_token": token, "session_id": fakeSessionID(token), "expires_at": int64(1 << 40),
 			"wrapped_master_key": stored.WrappedMasterKey, "key_wrap_params": stored.KeyWrapParams,
 		})
 	})
@@ -309,17 +362,24 @@ func (f *cloudFakeWorker) handler() http.Handler {
 		var req struct {
 			Email            string `json:"email"`
 			RecoveryAuthHash string `json:"recovery_auth_hash"`
+			EmailCode        string `json:"email_code"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		raw, _ := io.ReadAll(r.Body)
+		json.Unmarshal(raw, &req)
+		f.lastRecover = map[string]any{}
+		json.Unmarshal(raw, &f.lastRecover)
 		stored, ok := f.users[req.Email]
 		if !ok || stored.RecoveryAuthHash != req.RecoveryAuthHash {
 			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 			return
 		}
+		if f.fakeAuthGate(w, req.Email, req.EmailCode, "", false) {
+			return
+		}
 		token := "rtok-" + stored.Email
 		f.sessions[token] = stored.Email
 		writeCloudJSON(w, http.StatusOK, map[string]any{
-			"session_token": token, "expires_at": int64(1 << 40),
+			"session_token": token, "session_id": fakeSessionID(token), "expires_at": int64(1 << 40),
 			"recovery_blob": stored.RecoveryBlob, "recovery_kdf_params": stored.RecoveryKDFParams,
 		})
 	})
@@ -351,6 +411,112 @@ func (f *cloudFakeWorker) handler() http.Handler {
 		stored.RecoveryKDFParams = req.RecoveryKDFParams
 		f.users[email] = stored
 		writeCloudJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("POST /verify/resend", func(w http.ResponseWriter, r *http.Request) {
+		switch f.resendStatus {
+		case http.StatusTooManyRequests:
+			writeCloudJSON(w, http.StatusTooManyRequests, map[string]any{"error": "resend_throttled", "retry_after": 42})
+		case http.StatusConflict:
+			writeCloudJSON(w, http.StatusConflict, map[string]string{"error": "already_verified"})
+		default:
+			writeCloudJSON(w, http.StatusAccepted, map[string]string{"status": "sent"})
+		}
+	})
+	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
+		email, ok := f.sessionEmail(r)
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		out := []map[string]any{}
+		for token, owner := range f.sessions {
+			if owner == email {
+				out = append(out, map[string]any{
+					"id": fakeSessionID(token), "device_name": "Device " + token,
+					"created_at": 1, "last_seen_at": 2, "current": token == bearer,
+				})
+			}
+		}
+		writeCloudJSON(w, http.StatusOK, map[string]any{"sessions": out})
+	})
+	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		email, ok := f.sessionEmail(r)
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		for token, owner := range f.sessions {
+			if owner == email && fakeSessionID(token) == r.PathValue("id") {
+				delete(f.sessions, token)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		writeCloudJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	})
+	mux.HandleFunc("POST /sessions/revoke-others", func(w http.ResponseWriter, r *http.Request) {
+		email, ok := f.sessionEmail(r)
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		n := 0
+		for token, owner := range f.sessions {
+			if owner == email && token != bearer {
+				delete(f.sessions, token)
+				n++
+			}
+		}
+		writeCloudJSON(w, http.StatusOK, map[string]int{"revoked": n})
+	})
+	mux.HandleFunc("POST /totp/{action}", func(w http.ResponseWriter, r *http.Request) {
+		email, ok := f.sessionEmail(r)
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		var req struct {
+			Code string `json:"code"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		switch r.PathValue("action") {
+		case "setup":
+			if f.totp[email] {
+				writeCloudJSON(w, http.StatusConflict, map[string]string{"error": "totp_already_enabled"})
+				return
+			}
+			f.totpPending[email] = true
+			writeCloudJSON(w, http.StatusOK, map[string]string{
+				"secret": "JBSWY3DPEHPK3PXP", "otpauth_uri": "otpauth://totp/CatchM%3A" + email + "?secret=JBSWY3DPEHPK3PXP",
+			})
+		case "enable":
+			switch {
+			case f.totp[email]:
+				writeCloudJSON(w, http.StatusConflict, map[string]string{"error": "totp_already_enabled"})
+			case !f.totpPending[email]:
+				writeCloudJSON(w, http.StatusConflict, map[string]string{"error": "totp_not_set_up"})
+			case req.Code != "654321":
+				writeCloudJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_code"})
+			default:
+				f.totp[email] = true
+				delete(f.totpPending, email)
+				writeCloudJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			}
+		case "disable":
+			switch {
+			case !f.totp[email]:
+				writeCloudJSON(w, http.StatusConflict, map[string]string{"error": "totp_not_enabled"})
+			case req.Code != "654321":
+				writeCloudJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_code"})
+			default:
+				delete(f.totp, email)
+				writeCloudJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	})
 	// Minimal blob endpoints (enough for Sync in the isolation test).
 	mux.HandleFunc("/blobs", func(w http.ResponseWriter, r *http.Request) {
@@ -421,6 +587,10 @@ func httptestNewCloudWorker(t *testing.T) *cloudFakeWorker {
 		sessions: map[string]string{},
 		blobs:    map[string][]byte{},
 		blobVers: map[string]int{},
+
+		unverified:  map[string]bool{},
+		totp:        map[string]bool{},
+		totpPending: map[string]bool{},
 	}
 	server := httptest.NewServer(f.handler())
 	t.Cleanup(server.Close)

@@ -238,6 +238,57 @@ email_code?, totp_code?}`.
   secrets, the Resend DNS and the app release.
 - **App:** part 1 is in `7972358`: challenges, device identity, resend
   and the HIBP warning. It also works against today's Worker.
+- **App part 2** (uncommitted on `feat/cloud-auth-hardening`):
+  - **`cloudsync`:**
+    - `Recover` takes a `RecoverRequest` (device fields and an
+      optional `email_code`), and `LoginWith` returns a `LoginResult`.
+      Both now carry `session_id`, and older Workers ignore the new
+      fields.
+    - New calls: `ListSessions`, `RevokeSession`,
+      `RevokeOtherSessions`, `TOTPSetup`, `TOTPEnable` and
+      `TOTPDisable`.
+    - Typed errors:
+      - `ErrInvalidCode` for a 403 `invalid_code`;
+      - one error per 409 (`ErrTOTPAlreadyEnabled`,
+        `ErrTOTPNotEnabled`, `ErrTOTPNotSetUp`,
+        `ErrAlreadyVerified`), each also matching `ErrConflict`;
+      - `*ThrottledError{RetryAfter}` for a `resend_throttled` 429
+        (also matches `ErrRateLimited`);
+      - `ErrEmailUnavailable` for a 503.
+  - **Server:**
+    - `/api/cloud/recover` passes the device and `email_code`, and
+      answers challenges like login does.
+    - New routes:
+      - `GET /api/cloud/sessions`;
+      - `DELETE /api/cloud/sessions/{id}`, which answers
+        `signed_out:true` and clears the local login when it was this
+        device;
+      - `POST /api/cloud/sessions/revoke-others`;
+      - `POST /api/cloud/totp/{setup,enable,disable}`.
+    - `GET /api/cloud/status` has `totp_enabled`.
+    - A 401 on the new session routes means the session ended
+      elsewhere. It clears the local login and answers
+      `session_ended`.
+    - Codes are normalised: spaces and dashes are dropped.
+  - **Two-factor state:** no endpoint reports it, so the app tracks it
+    in memory with the session:
+    - a login that needed a TOTP code means on, and one that didn't
+      means off;
+    - enable and disable set it;
+    - the server's `totp_already_enabled` / `totp_not_enabled`
+      answers correct it;
+    - after a recover it starts off until one of those corrects it.
+  - **Web (Settings → Cloud sync):**
+    - after signup, the recovery code and then the emailed-code step,
+      with "Send a new code" and its countdown;
+    - email-code and authenticator steps for login and recover;
+    - the breached-password warning, with "Use it anyway" and "Choose
+      another";
+    - a **Security** section: two-factor setup (QR code, key, confirm
+      code), turning it off, and the signed-in devices list with
+      per-device sign-out and "Sign out all other devices".
+    - The QR code is drawn with `qrcode.react` (no dependencies, one
+      lockfile entry).
 
 Changes from the design made while building:
 

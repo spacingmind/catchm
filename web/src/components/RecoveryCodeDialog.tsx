@@ -21,7 +21,16 @@ import {
  * refetchable — the server returns it exactly once), and unmounting
  * discards it.
  */
-export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onAcked: () => void }) {
+export function RecoveryCodeDialog({
+  code,
+  onAcked,
+  notice,
+}: {
+  code: string | null
+  onAcked: () => void
+  /** An extra line under the description, e.g. that recovering turned 2FA off. */
+  notice?: string | null
+}) {
   const { t } = useTranslation()
   // Keyed on the code it was for, so a later code never inherits a stale
   // "Copied" from the previous one (no effect needed to reset it).
@@ -61,6 +70,7 @@ export function RecoveryCodeDialog({ code, onAcked }: { code: string | null; onA
           <DialogTitle>{t("recoveryCode.title")}</DialogTitle>
           <DialogDescription>{t("recoveryCode.description")}</DialogDescription>
         </DialogHeader>
+        {notice && <p className="text-sm text-warning">{notice}</p>}
         <p
           translate="no"
           className="select-all rounded-md bg-muted px-4 py-3 text-center font-mono text-lg tracking-wider break-all"
