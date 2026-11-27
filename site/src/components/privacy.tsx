@@ -1,3 +1,4 @@
+import { siteConfig } from "@/lib/site";
 import { HardDrive, KeyRound, LockKeyhole, MicOff, type LucideIcon } from "lucide-react";
 
 const points: { Icon: LucideIcon; title: string; body: string }[] = [
@@ -45,6 +46,14 @@ export function Privacy() {
           sees the audio or text it works on, under your own account. That includes summaries made with CatchM
           Cloud, which send the transcript unencrypted to be summarised. It
           isn&rsquo;t stored.
+        </p>
+        <p className="mt-3 max-w-2xl text-sm text-subtle">
+          Don&rsquo;t take our word for it: CatchM is open source under the MIT
+          licence.{" "}
+          <a href={siteConfig.repo} className="font-medium text-ink underline underline-offset-4">
+            Read the code on GitHub
+          </a>
+          .
         </p>
       </div>
     </section>

@@ -1,5 +1,7 @@
 import { Logo } from "@/components/logo";
+import { GitHubIcon } from "@/components/platform-icons";
 import { ButtonLink } from "@/components/ui/button";
+import { siteConfig } from "@/lib/site";
 
 const links = [
   { href: "#summary", label: "Summary" },
@@ -29,6 +31,14 @@ export function Header() {
               </li>
             ))}
           </ul>
+          <a
+            href={siteConfig.repo}
+            className="rounded-lg p-2 text-muted transition-colors hover:text-ink"
+            aria-label="CatchM on GitHub"
+            title="Source code on GitHub"
+          >
+            <GitHubIcon className="size-5" />
+          </a>
           <ButtonLink href="#download" size="md" className="ml-2">
             Download
           </ButtonLink>

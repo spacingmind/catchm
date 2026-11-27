@@ -4,7 +4,8 @@
 - Created: 2026-09-28
 - Branch: `feat/meeting-insights`
 - References:
-  - `../../scopedocs/Understand-Anything` (MIT). Borrowed:
+  - [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)
+    (MIT, Yuxiang Lin; credited in `THIRD_PARTY_NOTICES.md`). Borrowed:
     - its schema and tolerant validator (`packages/core/src/schema.ts`)
     - the "deterministic base graph + LLM enrichment" split
     - the domain→flow→step view and the force-graph worker

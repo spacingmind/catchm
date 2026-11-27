@@ -6,3 +6,7 @@ cmd/catchm-desktop/bindings/
 cmd/catchm-desktop/build/bin/
 __pycache__/
 eval-local/
+
+# Agent skills are third-party (see skills-lock.json); install them locally, never commit them.
+.agents/
+.claude/skills/

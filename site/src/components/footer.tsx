@@ -32,6 +32,15 @@ export function Footer() {
               sMind
             </a>
           </p>
+          <p>
+            <a href={siteConfig.repo} className={link}>
+              Source on GitHub
+            </a>
+            {" · "}
+            <a href={siteConfig.license.url} className={link}>
+              {siteConfig.license.name} licence
+            </a>
+          </p>
           <p>© {new Date().getFullYear()} Spacing Mind</p>
         </div>
       </div>

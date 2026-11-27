@@ -2,10 +2,20 @@
 
 **Catch the meeting. Keep the mind.**
 
-Self-hosted meeting companion: listens to meetings, transcribes and
-translates in real time, and turns each meeting into agent-readable
-context (markdown + frontmatter + MCP tools). Single Go binary serving an
-API + web UI on localhost, same shape as smind.
+An open-source meeting companion for Windows and macOS. CatchM listens to
+your meetings (microphone, computer audio or both) and transcribes and
+translates them live. Each meeting becomes files you own: markdown with
+frontmatter, a transcript, a summary with decisions and action items, and
+local MCP tools so AI agents can read them.
+
+- **Cloud (BYOK):** bring a key for Soniox, Deepgram, ElevenLabs,
+  Speechmatics or Gladia, and for any OpenAI-compatible LLM.
+- **Self-host:** whisper.cpp and Ollama on your own machine.
+- **Optional CatchM Cloud sync:** end-to-end encrypted.
+
+Website and downloads: <https://catchm.spacingmind.com>. It's one Go
+binary that serves an API and a web UI; the desktop app wraps the same
+handler with no network port.
 
 ## Install
 
@@ -101,4 +111,10 @@ go run ./cmd/catchm eval --dir eval-local --json          # your own gold files,
 - `docs/plans/` — spec-driven plans.
 - `refs/` — read-only reference clones (gitignored; see AGENTS.md).
 
-MIT.
+## Contributing, security, licence
+
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
+- Security reports: [SECURITY.md](SECURITY.md). Email them; please don't
+  open a public issue.
+- Licence: [MIT](LICENSE).
+- Third-party credits: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
