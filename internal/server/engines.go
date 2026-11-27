@@ -39,6 +39,13 @@ var cloudEngines = []cloudEngine{
 		batch:  func(c *config.Config) stt.BatchEngine { return stt.NewDeepgramEngine(c.Deepgram.APIKey) },
 		verify: func(ctx context.Context, key string) error { return stt.NewDeepgramEngine(key).VerifyKey(ctx) },
 	},
+	{
+		name: "elevenlabs", label: "ElevenLabs",
+		key:    func(c *config.Config) string { return c.ElevenLabs.APIKey },
+		stream: func(c *config.Config) stt.StreamEngine { return stt.NewElevenLabsEngine(c.ElevenLabs.APIKey) },
+		batch:  func(c *config.Config) stt.BatchEngine { return stt.NewElevenLabsEngine(c.ElevenLabs.APIKey) },
+		verify: func(ctx context.Context, key string) error { return stt.NewElevenLabsEngine(key).VerifyKey(ctx) },
+	},
 }
 
 func findCloudEngine(name string) (cloudEngine, bool) {

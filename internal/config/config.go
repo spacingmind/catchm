@@ -180,6 +180,7 @@ type Config struct {
 	WhisperURL string          `yaml:"whisper_url"`
 	Soniox     SonioxConfig    `yaml:"soniox"`
 	Deepgram   APIKeyConfig    `yaml:"deepgram"`
+	ElevenLabs APIKeyConfig    `yaml:"elevenlabs"`
 	Translate  TranslateConfig `yaml:"translate"`
 	Cloud      CloudConfig     `yaml:"cloud"`
 	Summary    SummaryConfig   `yaml:"summary"`
