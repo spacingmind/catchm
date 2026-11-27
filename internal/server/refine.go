@@ -30,21 +30,20 @@ const sonioxCleanupTimeout = 2 * time.Minute
 var refineEngineWhisperReachable = stt.WhisperReachable
 
 // newBatchEngine builds the BatchEngine refine/import uses, by engine
-// name ("soniox" | "whisper"; "none" never reaches it — the caller
-// passes a nil engine to batch.Refine instead). baseURL "" means
-// Soniox's REST default.
+// name ("whisper" or a cloudEngines entry; "none" never reaches it — the
+// caller passes a nil engine to batch.Refine instead).
 func newBatchEngine(cfg *config.Config, engine string) (stt.BatchEngine, error) {
-	switch engine {
-	case "soniox":
-		if cfg.Soniox.APIKey == "" {
-			return nil, errors.New("No Soniox API key is set — add one in Settings → Transcription.")
-		}
-		return stt.NewSonioxAsyncEngine(cfg.Soniox.APIKey, ""), nil
-	case "whisper":
+	if engine == "whisper" {
 		return stt.NewWhisperEngine(cfg.WhisperURL), nil
-	default:
+	}
+	e, ok := findCloudEngine(engine)
+	if !ok {
 		return nil, fmt.Errorf("unknown batch engine %q", engine)
 	}
+	if e.key(cfg) == "" {
+		return nil, missingKeyError{e.label}
+	}
+	return e.batch(cfg), nil
 }
 
 // errEngineNotUsable marks an explicit engine choice that can't run;
@@ -56,40 +55,47 @@ func (e errEngineNotUsable) Error() string { return e.msg }
 
 // selectRefineEngine resolves the request's engine value ("", "auto"
 // or an explicit name) per the plan's auto rules:
-//  1. soniox meeting + Soniox key → soniox
+//  1. the meeting's own cloud engine, if its key is set
 //  2. Whisper reachable → whisper
-//  3. Soniox key set → soniox
-//  4. otherwise → none
+//  3. the configured cloud engine, if its key is set
+//  4. any cloud engine with a key (cloudEngines order)
+//  5. otherwise → none
 //
 // An explicit engine is returned as-is, failing fast when unusable.
 func selectRefineEngine(ctx context.Context, cfg *config.Config, m *meeting.Meeting, engine string) (string, error) {
 	if engine == "" || engine == "auto" {
-		if m.Engine == "soniox" && cfg.Soniox.APIKey != "" {
-			return "soniox", nil
+		if e, ok := findCloudEngine(m.Engine); ok && e.key(cfg) != "" {
+			return e.name, nil
 		}
 		if err := refineEngineWhisperReachable(ctx, cfg.WhisperURL); err == nil {
 			return "whisper", nil
 		}
-		if cfg.Soniox.APIKey != "" {
-			return "soniox", nil
+		if e, ok := findCloudEngine(cfg.Engine); ok && e.key(cfg) != "" {
+			return e.name, nil
+		}
+		for _, e := range cloudEngines {
+			if e.key(cfg) != "" {
+				return e.name, nil
+			}
 		}
 		return "none", nil
 	}
-	switch engine {
-	case "soniox":
-		if cfg.Soniox.APIKey == "" {
-			return "", errEngineNotUsable{"No Soniox API key is set — add one in Settings → Transcription."}
+	if e, ok := findCloudEngine(engine); ok {
+		if e.key(cfg) == "" {
+			return "", errEngineNotUsable{missingKeyError{e.label}.Error()}
 		}
-		return "soniox", nil
+		return e.name, nil
+	}
+	switch engine {
 	case "whisper":
 		if err := refineEngineWhisperReachable(ctx, cfg.WhisperURL); err != nil {
-			return "", errEngineNotUsable{fmt.Sprintf("The Whisper server at %s isn't responding. Start it, or try the Soniox engine.", cfg.WhisperURL)}
+			return "", errEngineNotUsable{fmt.Sprintf("The Whisper server at %s isn't responding. Start it, or use a cloud engine.", cfg.WhisperURL)}
 		}
 		return "whisper", nil
 	case "none":
 		return "none", nil
 	default:
-		return "", errors.New(`engine must be "auto", "soniox", "whisper" or "none"`)
+		return "", errors.New(`engine must be "auto", "none", "whisper" or a cloud engine`)
 	}
 }
 
@@ -299,16 +305,16 @@ func (s *Server) handleImportMeeting(w http.ResponseWriter, r *http.Request) {
 			// explicit, unusable engine fail before the upload is read.
 			if engineName == "whisper" && ext != "wav" {
 				rejectImport(w, r, http.StatusBadRequest, map[string]string{
-					"error": "The Whisper engine only accepts WAV files. Use the Soniox engine for other formats.", "code": "whisper_wav_only"})
+					"error": "The Whisper engine only accepts WAV files. Use a cloud engine for other formats.", "code": "whisper_wav_only"})
 				return
 			}
-			if engineName == "soniox" {
+			if e, ok := findCloudEngine(engineName); ok {
 				s.mu.Lock()
-				noKey := s.cfg.Soniox.APIKey == ""
+				noKey := e.key(s.cfg) == ""
 				s.mu.Unlock()
 				if noKey {
 					rejectImport(w, r, http.StatusServiceUnavailable, map[string]string{
-						"error": "No Soniox API key is set — add one in Settings → Transcription.",
+						"error": missingKeyError{e.label}.Error(),
 						"kind":  string(summarize.KindNotReady)})
 					return
 				}

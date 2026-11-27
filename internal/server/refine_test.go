@@ -143,7 +143,7 @@ func TestRefineExplicitEngineUnusable(t *testing.T) {
 		var v refineErrBody
 		decode(t, w, &v)
 		if w.Code != http.StatusServiceUnavailable || v.Kind != "summary_not_ready" ||
-			!strings.Contains(v.Error, "No Soniox API key") {
+			!strings.Contains(v.Error, "Soniox API key is not set") {
 			t.Fatalf("status = %d body = %+v", w.Code, v)
 		}
 		if len(*names) != 0 {

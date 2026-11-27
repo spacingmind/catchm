@@ -485,8 +485,8 @@ const (
 func (s *Server) startPipeline(id, device, engineName string, opts stt.Options, mode SourceMode) (captureErr string, kind CaptureErrorKind, micErr string) {
 	engine, err := s.newEngine(engineName, s.cfg)
 	if err != nil {
-		if errors.Is(err, errSonioxNoKey) {
-			return "Soniox API key is not set — add it in Settings → Transcription.", CaptureErrMissingAPIKey, ""
+		if isMissingKey(err) {
+			return err.Error(), CaptureErrMissingAPIKey, ""
 		}
 		return err.Error(), CaptureErrEngine, ""
 	}
@@ -626,10 +626,6 @@ func (s *Server) stopPipeline(id string) {
 
 // newEngine builds an stt.StreamEngine by name, falling back to cfg's
 // configured default when name is empty.
-// errSonioxNoKey is the typed cause for a missing Soniox API key, so
-// the capture_error wording doesn't sniff error strings.
-var errSonioxNoKey = errors.New("soniox: no api key configured")
-
 // buildTranslator is the production newTranslator. model is the Ollama
 // model the caller wants (Translate.LiveModel for live meetings,
 // BatchModel for re-transcribe/import); cloud providers ignore it except
@@ -669,17 +665,10 @@ func newEngine(name string, cfg *config.Config) (stt.StreamEngine, error) {
 	if name == "" {
 		name = cfg.Engine
 	}
-	switch name {
-	case "", "whisper":
+	if name == "" || name == "whisper" {
 		return stt.NewWhisperEngine(cfg.WhisperURL), nil
-	case "soniox":
-		if cfg.Soniox.APIKey == "" {
-			return nil, errSonioxNoKey
-		}
-		return stt.NewSonioxEngine(cfg.Soniox.URL, cfg.Soniox.APIKey), nil
-	default:
-		return nil, fmt.Errorf("unknown stt engine %q", name)
 	}
+	return cloudStream(name, cfg)
 }
 
 func (s *Server) handleGetMeeting(w http.ResponseWriter, r *http.Request) {
@@ -1036,8 +1025,8 @@ func (s *Server) handleSttStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	defaultEngine := "whisper"
-	if cfg.Engine == "soniox" {
-		defaultEngine = "soniox"
+	if _, ok := findCloudEngine(cfg.Engine); ok {
+		defaultEngine = cfg.Engine
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), sttStatusTimeout)
@@ -1047,16 +1036,18 @@ func (s *Server) handleSttStatus(w http.ResponseWriter, r *http.Request) {
 		whisper = sttEngineStatus{Reason: fmt.Sprintf(
 			"The Whisper server at %s isn't responding. Start it, or switch to the cloud engine.", cfg.WhisperURL)}
 	}
-	soniox := sttEngineStatus{Ready: true}
-	if cfg.Soniox.APIKey == "" {
-		soniox = sttEngineStatus{Reason: "Add a Soniox API key in Settings → Transcription."}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
+	body := map[string]any{
 		"default_engine": defaultEngine,
 		"whisper":        whisper,
-		"soniox":         soniox,
-	})
+	}
+	for _, e := range cloudEngines {
+		st := sttEngineStatus{Ready: true}
+		if e.key(&cfg) == "" {
+			st = sttEngineStatus{Reason: fmt.Sprintf("Add a %s API key in Settings → Transcription.", e.label)}
+		}
+		body[e.name] = st
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // sanitizedConfig renders cfg in the JSON shape shared by GET and PUT
@@ -1066,13 +1057,14 @@ func (s *Server) handleSttStatus(w http.ResponseWriter, r *http.Request) {
 // secrets themselves never appear in any response.
 func sanitizedConfig(cfg *config.Config) map[string]any {
 	return map[string]any{
-		"setup":              cfg.Setup,
-		"engine":             cfg.Engine,
-		"lang":               cfg.Lang,
-		"ui_language":        cfg.UILanguage,
-		"whisper_url":        cfg.WhisperURL,
-		"soniox":             map[string]any{"url": cfg.Soniox.URL},
-		"soniox_api_key_set": cfg.Soniox.APIKey != "",
+		"setup":                cfg.Setup,
+		"engine":               cfg.Engine,
+		"lang":                 cfg.Lang,
+		"ui_language":          cfg.UILanguage,
+		"whisper_url":          cfg.WhisperURL,
+		"soniox":               map[string]any{"url": cfg.Soniox.URL},
+		"soniox_api_key_set":   cfg.Soniox.APIKey != "",
+		"deepgram_api_key_set": cfg.Deepgram.APIKey != "",
 		"translate": map[string]any{
 			"provider":           cfg.Translate.Provider,
 			"google_api_key_set": cfg.Translate.Google.APIKey != "",
@@ -1121,8 +1113,9 @@ type configRequestBody struct {
 	Soniox     struct {
 		URL string `json:"url"`
 	} `json:"soniox"`
-	SonioxAPIKey string `json:"soniox_api_key"`
-	Translate    struct {
+	SonioxAPIKey   string `json:"soniox_api_key"`
+	DeepgramAPIKey string `json:"deepgram_api_key"`
+	Translate      struct {
 		Provider     string `json:"provider"`
 		GoogleAPIKey string `json:"google_api_key"`
 		Host         string `json:"host"`
@@ -1172,8 +1165,8 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	if req.Engine != "" && req.Engine != "whisper" && req.Engine != "soniox" {
-		httpError(w, http.StatusBadRequest, `engine must be "whisper" or "soniox"`)
+	if req.Engine != "" && !validEngine(req.Engine) {
+		httpError(w, http.StatusBadRequest, "engine: unknown engine "+strconv.Quote(req.Engine))
 		return
 	}
 	switch req.Summary.Provider {
@@ -1229,6 +1222,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.WhisperURL, req.WhisperURL)
 	setIfNonEmpty(&updated.Soniox.URL, req.Soniox.URL)
 	setIfNonEmpty(&updated.Soniox.APIKey, req.SonioxAPIKey)
+	setIfNonEmpty(&updated.Deepgram.APIKey, req.DeepgramAPIKey)
 	setIfNonEmpty(&updated.Translate.Provider, req.Translate.Provider)
 	setIfNonEmpty(&updated.Translate.Google.APIKey, req.Translate.GoogleAPIKey)
 	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)

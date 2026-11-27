@@ -179,6 +179,7 @@ type Config struct {
 	UILanguage string          `yaml:"ui_language"` // "system" (default) | "en" | "vi"; UI text language, not the STT Lang
 	WhisperURL string          `yaml:"whisper_url"`
 	Soniox     SonioxConfig    `yaml:"soniox"`
+	Deepgram   APIKeyConfig    `yaml:"deepgram"`
 	Translate  TranslateConfig `yaml:"translate"`
 	Cloud      CloudConfig     `yaml:"cloud"`
 	Summary    SummaryConfig   `yaml:"summary"`

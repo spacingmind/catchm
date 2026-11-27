@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/spacingmind/catchm/internal/config"
+	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/translate"
 )
 
@@ -111,5 +113,50 @@ func TestTranslateStatusCloudProviders(t *testing.T) {
 	decode(t, do(t, s, "GET", "/api/translate/status", ""), &v)
 	if v.Provider != "llm" || !v.Ready {
 		t.Fatalf("llm: %+v", v)
+	}
+}
+
+// Deepgram goes through the cloud engine registry everywhere engines
+// are named.
+func TestDeepgramRegistered(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+
+	if w := do(t, s, "PUT", "/api/config", `{"engine":"deepgram","deepgram_api_key":"dg"}`); w.Code != http.StatusOK {
+		t.Fatalf("put deepgram: %d %s", w.Code, w.Body.String())
+	}
+	var cfg struct {
+		Engine string `json:"engine"`
+		KeySet bool   `json:"deepgram_api_key_set"`
+	}
+	decode(t, do(t, s, "GET", "/api/config", ""), &cfg)
+	if cfg.Engine != "deepgram" || !cfg.KeySet {
+		t.Fatalf("config = %+v", cfg)
+	}
+	if w := do(t, s, "PUT", "/api/config", `{"engine":"assemblyai"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown engine accepted: %d", w.Code)
+	}
+
+	w := do(t, s, "GET", "/api/stt/status", "")
+	var raw map[string]any
+	decode(t, w, &raw)
+	if raw["default_engine"] != "deepgram" {
+		t.Fatalf("default_engine = %v", raw["default_engine"])
+	}
+	if dg, _ := raw["deepgram"].(map[string]any); dg["ready"] != true {
+		t.Fatalf("deepgram status = %v", raw["deepgram"])
+	}
+
+	m := &meeting.Meeting{Engine: "deepgram"}
+	unreachableWhisper(s)
+	if got, err := selectRefineEngine(context.Background(), s.cfg, m, "auto"); err != nil || got != "deepgram" {
+		t.Fatalf("auto refine engine = %q, %v", got, err)
+	}
+	s.cfg.Deepgram.APIKey = ""
+	if _, err := newEngine("deepgram", s.cfg); !isMissingKey(err) || !strings.Contains(err.Error(), "Deepgram API key is not set") {
+		t.Fatalf("missing key err = %v", err)
+	}
+	if _, err := selectRefineEngine(context.Background(), s.cfg, m, "deepgram"); err == nil {
+		t.Fatal("explicit deepgram without a key was accepted")
 	}
 }

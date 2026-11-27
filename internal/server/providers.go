@@ -16,6 +16,9 @@ const verifyTimeout = 15 * time.Second
 // cheapest authenticated call (docs/plans/active/cloud-mode-providers.md).
 // Tests swap it for a fake.
 var verifyProvider = func(ctx context.Context, name, apiKey string, s *Server) error {
+	if e, ok := findCloudEngine(name); ok && e.verify != nil {
+		return e.verify(ctx, apiKey)
+	}
 	switch name {
 	case "google":
 		return translate.VerifyGoogle(ctx, nil, "", apiKey)
@@ -47,22 +50,29 @@ func (s *Server) handleVerifyProvider(w http.ResponseWriter, r *http.Request) {
 	cfg := *s.cfg
 	s.mu.Unlock()
 	key := req.APIKey
-	switch name {
-	case "google":
+	if e, ok := findCloudEngine(name); ok && e.verify != nil {
 		if key == "" {
-			key = cfg.Translate.Google.APIKey
+			key = e.key(&cfg)
 		}
-	case "llm":
-		if key == "" {
-			key = cfg.LLM.APIKey
-		}
-		if base, fast, _ := cfg.LLM.Resolved(); base == "" || fast == "" {
-			httpError(w, http.StatusBadRequest, "choose a provider (and model) first")
+		name = e.name
+	} else {
+		switch name {
+		case "google":
+			if key == "" {
+				key = cfg.Translate.Google.APIKey
+			}
+		case "llm":
+			if key == "" {
+				key = cfg.LLM.APIKey
+			}
+			if base, fast, _ := cfg.LLM.Resolved(); base == "" || fast == "" {
+				httpError(w, http.StatusBadRequest, "choose a provider (and model) first")
+				return
+			}
+		default:
+			httpError(w, http.StatusBadRequest, `provider must be "google", "llm" or a transcription engine with a key check`)
 			return
 		}
-	default:
-		httpError(w, http.StatusBadRequest, `provider must be "google" or "llm"`)
-		return
 	}
 	if key == "" {
 		httpError(w, http.StatusBadRequest, "no API key to check")
