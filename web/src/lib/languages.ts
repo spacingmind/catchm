@@ -54,3 +54,12 @@ export function languageLabel(code: string): string {
   const hit = LANGUAGES.find((l) => l.code === code)
   return hit ? hit.label : code
 }
+
+/** LANGUAGES' codes in alphabetical order of their names in the active
+ *  UI locale, so no language is put first for everyone. */
+export function sortedLanguageCodes(): string[] {
+  const collator = new Intl.Collator(activeLocale())
+  return LANGUAGES.map((l) => ({ code: l.code, name: languageLabel(l.code) }))
+    .sort((a, b) => collator.compare(a.name, b.name))
+    .map((l) => l.code)
+}

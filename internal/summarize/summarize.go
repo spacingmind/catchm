@@ -127,11 +127,14 @@ func New(cfg *config.Config, cloud CloudAuth) (Summarizer, error) {
 	case ProviderOllama:
 		return &Ollama{Host: cfg.Translate.Host, Model: cfg.Summary.OllamaModel}, nil
 	case ProviderOpenAI:
-		o := cfg.Summary.OpenAI
-		if o.BaseURL == "" || o.Model == "" {
-			return nil, notReady("Add your Cloudflare Account ID and API token in Settings → Summaries.", nil)
+		base, _, strong := cfg.LLM.Resolved()
+		if base == "" || strong == "" || cfg.LLM.APIKey == "" {
+			return nil, notReady("Set up your AI provider (API key and model) in Settings → Summaries.", nil)
 		}
-		return &OpenAI{BaseURL: o.BaseURL, Model: o.Model, APIKey: o.APIKey}, nil
+		return &OpenAI{BaseURL: base, Model: strong, APIKey: cfg.LLM.APIKey,
+			// Anthropic's OpenAI-compatible endpoint rejects a non-default
+			// temperature on current Claude models.
+			NoTemperature: cfg.LLM.Preset == config.LLMAnthropic}, nil
 	case ProviderCloud:
 		if !cfg.Summary.CloudConsent {
 			return nil, consentRequired()

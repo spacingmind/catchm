@@ -29,6 +29,9 @@ type OpenAI struct {
 	BaseURL string
 	Model   string
 	APIKey  string
+	// NoTemperature omits temperature (Anthropic rejects non-default
+	// values); otherwise 0 for repeatable summaries.
+	NoTemperature bool
 	// HTTP defaults to http.DefaultClient.
 	HTTP *http.Client
 
@@ -39,7 +42,7 @@ type OpenAI struct {
 
 func (o *OpenAI) Summarize(ctx context.Context, in Input) (Analysis, error) {
 	if o.BaseURL == "" || o.Model == "" {
-		return Analysis{}, notReady("Add your Cloudflare Account ID and API token in Settings → Summaries.", nil)
+		return Analysis{}, notReady("Set up your AI provider (API key and model) in Settings → Summaries.", nil)
 	}
 	return runLLM(ctx, o, openaiBudgetTokens, in)
 }
@@ -54,7 +57,7 @@ type openaiMessage struct {
 type openaiRequest struct {
 	Model          string          `json:"model"`
 	Messages       []openaiMessage `json:"messages"`
-	Temperature    float64         `json:"temperature"`
+	Temperature    *float64        `json:"temperature,omitempty"`
 	ResponseFormat any             `json:"response_format,omitempty"`
 }
 
@@ -93,6 +96,14 @@ func (o *OpenAI) complete(ctx context.Context, f replyFormat, system, user strin
 	}
 }
 
+func (o *OpenAI) temperature() *float64 {
+	if o.NoTemperature {
+		return nil
+	}
+	zero := 0.0
+	return &zero
+}
+
 func (o *OpenAI) post(ctx context.Context, system, user string, format any) (int, []byte, error) {
 	body, err := json.Marshal(openaiRequest{
 		Model: o.Model,
@@ -100,7 +111,7 @@ func (o *OpenAI) post(ctx context.Context, system, user string, format any) (int
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-		Temperature:    0,
+		Temperature:    o.temperature(),
 		ResponseFormat: format,
 	})
 	if err != nil {

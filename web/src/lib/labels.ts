@@ -3,7 +3,8 @@
  * by every screen so a non-technical user sees one name per concept
  * (the start popover, live status row, compact overlay and Settings all
  * read from here). Wire values stay "mic" / "system" / "both" and
- * "whisper" / "soniox"; the names live in the i18n dictionaries and are
+ * the SttEngine ids; the names live in the i18n dictionaries
+ * (labels.engine.<id>, one per engine in lib/setup.ts OPTIONS) and are
  * resolved at call time.
  */
 import i18next from "i18next"

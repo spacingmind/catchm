@@ -58,7 +58,7 @@ export interface Meeting {
   summary?: string
   notes?: string[]
   refined?: boolean
-  /** Which engine re-transcribed the meeting ("soniox" | "whisper"); empty for engine "none". */
+  /** Which engine re-transcribed the meeting (an SttEngine); empty for engine "none". */
   refined_with?: string
   /** True when the meeting was created from an uploaded recording. */
   imported?: boolean
@@ -75,7 +75,13 @@ export interface Device {
   IsDefault: boolean
 }
 
-export type SttEngine = "whisper" | "soniox"
+/** Bring-your-own-key transcription providers (internal/server
+ *  cloudEngines). Each has `<id>_api_key_set` in AppConfig and a
+ *  write-only `<id>_api_key` in UpdateConfigRequest; the UI's catalog
+ *  of them is lib/setup.ts CLOUD_ENGINES. */
+export type CloudSttEngine = "soniox" | "deepgram" | "elevenlabs" | "speechmatics" | "gladia"
+
+export type SttEngine = "whisper" | CloudSttEngine
 
 /** UI text language preference ("system" follows the OS language).
  *  Not to be confused with the STT Lang below. */
@@ -146,12 +152,27 @@ export interface TranslateModelStatus {
   installed: boolean
 }
 
-/** Response body for GET /api/translate/status. */
-export interface TranslateStatus {
+/** GET /api/translate/status for Ollama: whether it runs and has the
+ *  models (ready = the live model is downloaded). */
+export interface OllamaTranslateStatus {
+  provider: "ollama"
+  ready: boolean
   ollama_reachable: boolean
   live_model: TranslateModelStatus
   batch_model: TranslateModelStatus
 }
+
+/** GET /api/translate/status for Google, the LLM and "none": nothing is
+ *  probed; ready says whether text translation works, reason (English,
+ *  only when not ready) what's missing. */
+export interface CloudTranslateStatus {
+  provider: Exclude<TranslateProvider, "ollama">
+  ready: boolean
+  reason?: string
+}
+
+/** Response body for GET /api/translate/status; narrow on provider. */
+export type TranslateStatus = OllamaTranslateStatus | CloudTranslateStatus
 
 export type TranslateTarget = "live" | "batch"
 
@@ -165,12 +186,9 @@ export interface SttEngineStatus {
   reason?: string
 }
 
-/** GET /api/stt/status response. */
-export interface SttStatus {
-  default_engine: SttEngine
-  whisper: SttEngineStatus
-  soniox: SttEngineStatus
-}
+/** GET /api/stt/status response: the configured engine, plus one
+ *  readiness entry per engine (Whisper and every cloud engine). */
+export type SttStatus = { default_engine: SttEngine } & Record<SttEngine, SttEngineStatus>
 
 /** Body for POST /api/translate/pull. */
 export interface PullTranslateModelRequest {
@@ -200,13 +218,44 @@ export interface TestTranslateResponse {
  *  OpenAI-compatible server. */
 export type SummaryProvider = "ollama" | "catchm-cloud" | "openai"
 
-/** The summary block of GET/PUT /api/config responses. The OpenAI API
- *  key is never included; see AppConfig.summary_openai_api_key_set. */
+/** The summary block of GET/PUT /api/config responses. Provider
+ *  "openai" uses the shared llm block (AppConfig.llm). */
 export interface SummaryConfig {
   provider: SummaryProvider
   ollama_model: string
-  openai: { base_url: string; model: string }
   cloud_consent: boolean
+}
+
+/** llm.preset: an OpenAI-compatible service with known server and
+ *  default models (Go config.LLMPresets), or "custom" (base_url as
+ *  given). "" until one is chosen. */
+export type LlmPreset =
+  | "openai"
+  | "gemini"
+  | "openrouter"
+  | "anthropic"
+  | "groq"
+  | "deepseek"
+  | "zai"
+  | "cloudflare"
+  | "custom"
+
+/** The shared OpenAI-compatible LLM (translate.provider "llm" uses the
+ *  fast model, summary.provider "openai" the strong one). The key is
+ *  never included; see AppConfig.llm_api_key_set. */
+export interface LlmConfig {
+  preset: LlmPreset | ""
+  /** Custom preset only. */
+  base_url: string
+  /** Cloudflare preset only. */
+  account_id: string
+  /** "" = the preset's default (see resolved). */
+  fast_model: string
+  strong_model: string
+  /** After the preset's defaults: what the server will actually call.
+   *  base_url is "" while it can't be named yet (custom without a URL,
+   *  Cloudflare without an account ID). */
+  resolved: { base_url: string; fast_model: string; strong_model: string }
 }
 
 /** GET /api/summary/status response (always 200). ready/reason describe
@@ -227,6 +276,7 @@ export interface SummaryStatus {
     /** RFC3339 timestamp string. */
     reset_at?: string
   }
+  /** The shared LLM (summary provider "openai") has a server, model and key. */
   openai?: { configured: boolean }
   /** Host facts for model recommendations, in GiB rounded to one
    *  decimal. free_disk_gb is the volume holding Ollama's models. Each
@@ -243,23 +293,43 @@ export type SummaryErrorKind =
   | "quota_exceeded"
   | "summary_failed"
 
+/** Which setup the user chose (docs/plans/active/cloud-mode.md): ""
+ *  until the first-run chooser answers; configs from before setups
+ *  load as "custom". */
+export type Setup = "" | "cloud" | "selfhost" | "custom"
+
+/** translate.provider: Ollama on this computer, Google Cloud
+ *  Translation, the shared LLM (AppConfig.llm), or "none" — no text
+ *  translator, only the transcription engine's own translation (Soniox). */
+export type TranslateProvider = "ollama" | "google" | "llm" | "none"
+
+/** `<engine>_api_key_set`: true when that cloud engine's API key is
+ *  stored; the key itself is never sent. */
+type CloudKeySetFlags = { [E in CloudSttEngine as `${E}_api_key_set`]: boolean }
+
+/** `<engine>_api_key`: write-only; omitted/empty preserves the stored key. */
+type CloudKeyFields = { [E in CloudSttEngine as `${E}_api_key`]?: string }
+
 /** Sanitized config shape shared by GET and PUT /api/config responses. */
-export interface AppConfig {
+export interface AppConfig extends CloudKeySetFlags {
+  setup: Setup
   engine: string
   lang: string
   ui_language: UILanguage
   whisper_url: string
   soniox: { url: string }
-  /** True when a Soniox API key is stored; the key itself is never sent. */
-  soniox_api_key_set: boolean
   translate: {
+    provider: TranslateProvider
+    /** True when a Google Cloud Translation key is stored; never the key. */
+    google_api_key_set: boolean
     host: string
     live_model: string
     batch_model: string
   }
+  llm: LlmConfig
+  /** True when the shared LLM's API key is stored; never the key. */
+  llm_api_key_set: boolean
   summary: SummaryConfig
-  /** True when an OpenAI-compatible API key is stored; the key itself is never sent. */
-  summary_openai_api_key_set: boolean
 }
 
 /**
@@ -267,34 +337,46 @@ export interface AppConfig {
  * setIfNonEmpty per field, so only included fields change and omitted or
  * blank ones are left alone. Every field is optional; send just what a
  * page changed, never a full snapshot (a stale snapshot would silently
- * overwrite newer values saved elsewhere). soniox_api_key is write-only
- * and never present in responses; omitting/emptying it preserves the
- * stored key.
+ * overwrite newer values saved elsewhere). The `<engine>_api_key` fields
+ * are write-only and never present in responses; omitting/emptying one
+ * preserves the stored key.
  */
-export interface UpdateConfigRequest {
+export interface UpdateConfigRequest extends CloudKeyFields {
+  /** "" is ignored (partial update); the chooser sends a real setup. */
+  setup?: Exclude<Setup, "">
   engine?: string
   lang?: string
   ui_language?: UILanguage
   whisper_url?: string
   soniox?: { url: string }
-  /** Never present in responses. Omitted/empty preserves the stored key. */
-  soniox_api_key?: string
   translate?: {
-    host: string
-    live_model: string
-    batch_model: string
+    provider?: TranslateProvider
+    /** Write-only; omitted/empty preserves the stored key. */
+    google_api_key?: string
+    host?: string
+    live_model?: string
+    batch_model?: string
   }
   /**
-   * Partial like the rest: omitted/empty strings keep the stored value.
-   * openai.api_key is write-only; omitted/empty preserves the stored key,
-   * except that changing openai.base_url without a new key clears it (a
-   * key is never sent to a server it wasn't entered for).
-   * cloud_consent: false revokes consent.
+   * Unlike the rest, the llm strings are settable to "": a model back to
+   * the preset's default, a custom URL cleared. Omitted = as-is.
+   * api_key is write-only; omitted/empty preserves the stored key, except
+   * that moving the LLM to another server (preset, base_url or
+   * account_id) without a new key drops it (a key is never sent to a
+   * server it wasn't entered for).
    */
+  llm?: {
+    preset?: LlmPreset
+    base_url?: string
+    account_id?: string
+    fast_model?: string
+    strong_model?: string
+    api_key?: string
+  }
+  /** Partial like the rest. cloud_consent: false revokes consent. */
   summary?: {
     provider?: SummaryProvider
     ollama_model?: string
-    openai?: { base_url?: string; model?: string; api_key?: string }
     cloud_consent?: boolean
   }
 }
@@ -708,7 +790,7 @@ export function endMeeting(id: string): Promise<{ status: string }> {
  * transcription, then the summary). Throws RefineError when the summary
  * step failed (the body has a kind), else a plain ApiError.
  */
-export type RefineEngine = "auto" | "soniox" | "whisper" | "none"
+export type RefineEngine = "auto" | "none" | SttEngine
 
 /** Refine's answer: the meeting, plus — in summarize "if_ready" mode —
  *  why the summary wasn't rewritten, when it wasn't. */
@@ -914,17 +996,78 @@ export function getConfig(): Promise<AppConfig> {
   return apiFetch("/api/config")
 }
 
+/** Fired on window with the saved AppConfig (event.detail) after every
+ *  successful PUT /api/config, so views that hold their own copy (the
+ *  first-run chooser in App, Get started) see a new setup at once. */
+export const CONFIG_EVENT = "catchm:config"
+
 /** PUT /api/config — resolves to the sanitized, reloaded config. */
-export function updateConfig(body: UpdateConfigRequest): Promise<AppConfig> {
-  return apiFetch("/api/config", {
+export async function updateConfig(body: UpdateConfigRequest): Promise<AppConfig> {
+  const c = await apiFetch<AppConfig>("/api/config", {
     method: "PUT",
     body: JSON.stringify(body),
   })
+  window.dispatchEvent(new CustomEvent<AppConfig>(CONFIG_EVENT, { detail: c }))
+  return c
 }
 
 /** GET /api/translate/status */
 export function getTranslateStatus(): Promise<TranslateStatus> {
   return apiFetch("/api/translate/status")
+}
+
+/** A provider whose key POST /api/providers/{name}/verify can check
+ *  (cloud engines only where CLOUD_ENGINES says `verifiable`). */
+export type VerifiableProvider = "google" | "llm" | CloudSttEngine
+
+/** POST /api/providers/{name}/verify answer: ok, or the provider's own
+ *  error message (English, as the provider sent it). */
+export interface VerifyResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * POST /api/providers/{name}/verify — checks `apiKey` (a key typed but
+ * not saved yet) or, when omitted, the stored key, with the provider's
+ * cheapest real call. Throws ApiError (400) when there's nothing to
+ * check (no key, or the LLM has no provider/model yet).
+ */
+export function verifyProvider(name: VerifiableProvider, apiKey?: string): Promise<VerifyResult> {
+  return apiFetch(`/api/providers/${name}/verify`, {
+    method: "POST",
+    body: JSON.stringify(apiKey ? { api_key: apiKey } : {}),
+  })
+}
+
+/** Why GET /api/system judges self-hosting slow or not recommended
+ *  (internal/sysinfo/selfhost.go), most serious first. gpu_unknown is
+ *  advisory only: the verdict doesn't count it. */
+export type SelfHostReason =
+  | "ram_low"
+  | "ram_minimum"
+  | "ram_unknown"
+  | "disk_low"
+  | "disk_tight"
+  | "cpu_few"
+  | "gpu_unknown"
+
+/** GET /api/system: this computer, and whether it can run Whisper +
+ *  Ollama well. Sizes in GiB, omitted when they can't be read. */
+export interface MachineCheck {
+  total_ram_gb?: number
+  free_disk_gb?: number
+  cpu_cores: number
+  os: string
+  arch: string
+  apple_silicon: boolean
+  selfhost: "good" | "slow" | "insufficient"
+  selfhost_reasons: SelfHostReason[]
+}
+
+/** GET /api/system — the machine check behind the Self-host setup. */
+export function getMachineCheck(): Promise<MachineCheck> {
+  return apiFetch("/api/system")
 }
 
 /** GET /api/stt/status — whether each transcription engine is ready. */
@@ -1075,4 +1218,53 @@ export function cloudRecover(
     method: "POST",
     body: JSON.stringify({ email, recovery_code: recoveryCode, new_password: newPassword }),
   })
+}
+
+/**
+ * Local MCP server (Settings → MCP). MCP clients either run
+ * `<stdio.command> mcp` themselves (works while the app is closed;
+ * refuses to start while `enabled` is off) or connect to the local
+ * HTTP listener at `http.url` with `Authorization: Bearer <http.token>`.
+ */
+export interface McpSettings {
+  enabled: boolean
+  allow_writes: boolean
+  http: {
+    enabled: boolean
+    port: number
+    /** Empty until Local HTTP is first turned on. */
+    token: string
+    /** The listener is up (MCP and Local HTTP both on, port opened). */
+    running: boolean
+    /** Set while running, e.g. "http://127.0.0.1:4655/mcp". */
+    url: string
+    /** Why the listener isn't running (e.g. the port is taken). */
+    error: string
+  }
+  stdio: { command: string; args: string[] }
+}
+
+/** PUT /api/mcp body: a partial update; omitted fields stay as they are. */
+export interface UpdateMcpRequest {
+  enabled?: boolean
+  allow_writes?: boolean
+  http_enabled?: boolean
+  /** 1024–65535. */
+  port?: number
+}
+
+/** GET /api/mcp */
+export function getMcp(): Promise<McpSettings> {
+  return apiFetch("/api/mcp")
+}
+
+/** PUT /api/mcp — turning Local HTTP on creates a token if there isn't
+ *  one; the HTTP listener restarts on every change. */
+export function updateMcp(patch: UpdateMcpRequest): Promise<McpSettings> {
+  return apiFetch("/api/mcp", { method: "PUT", body: JSON.stringify(patch) })
+}
+
+/** POST /api/mcp/token — a new HTTP token; apps using the old one stop working. */
+export function regenerateMcpToken(): Promise<McpSettings> {
+  return apiFetch("/api/mcp/token", { method: "POST" })
 }

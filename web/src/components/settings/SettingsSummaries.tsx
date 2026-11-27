@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Check, ShieldAlert, TriangleAlert } from "lucide-react"
 import i18next from "i18next"
 import { Trans, useTranslation } from "react-i18next"
 import { cn } from "cn"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Disclosure } from "@/components/Disclosure"
+import { ChoiceCard } from "@/components/settings/ChoiceCard"
+import { LlmProviderForm } from "@/components/settings/LlmProviderForm"
 import { StatusMessage } from "@/components/StatusMessage"
 import {
   descId,
@@ -36,6 +37,8 @@ import { formatDateTime } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { navigate } from "@/lib/route"
+import { useAppConfig } from "@/hooks/useAppConfig"
+import { isOptionVisible, isSelfHostVisible, modulePatch } from "@/lib/setup"
 
 const OLLAMA_DOWNLOAD = "https://ollama.com/download"
 
@@ -52,12 +55,12 @@ interface ProviderOption {
 const PROVIDER_LABEL_KEYS = {
   ollama: "settings.summaries.providerOllama",
   "catchm-cloud": "settings.summaries.providerCloud",
-  openai: "settings.summaries.providerCloudflare",
+  openai: "setup.options.llm",
 } as const
 const PROVIDER_DESC_KEYS = {
   ollama: "settings.summaries.providerOllamaDesc",
   "catchm-cloud": "settings.summaries.providerCloudDesc",
-  openai: "settings.summaries.providerCloudflareDesc",
+  openai: "settings.summaries.providerLlmDesc",
 } as const
 
 const PROVIDERS: ProviderOption[] = [
@@ -73,8 +76,8 @@ const PROVIDERS: ProviderOption[] = [
   },
   {
     value: "openai",
-    labelKey: "settings.summaries.providerCloudflare",
-    descriptionKey: "settings.summaries.providerCloudflareDesc",
+    labelKey: "setup.options.llm",
+    descriptionKey: "settings.summaries.providerLlmDesc",
   },
 ]
 
@@ -175,30 +178,6 @@ const SETUP_POLL_MS = 5000
 
 const CUSTOM_MODEL = "custom"
 
-/** The "Your Cloudflare account" option is the OpenAI-compatible
- *  provider pointed at Workers AI: only the Account ID and API token are
- *  asked for; the base URL and model are derived (no new config field). */
-const CLOUDFLARE_ACCOUNTS_PREFIX = "https://api.cloudflare.com/client/v4/accounts/"
-const CLOUDFLARE_BASE_SUFFIX = "/ai/v1"
-const CLOUDFLARE_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8"
-const CLOUDFLARE_TOKENS_URL = "https://dash.cloudflare.com/profile/api-tokens"
-
-function isCloudflareUrl(url: string): boolean {
-  return url.startsWith(CLOUDFLARE_ACCOUNTS_PREFIX) && url.endsWith(CLOUDFLARE_BASE_SUFFIX)
-}
-
-/** The Cloudflare Account ID inside a saved base_url, if any. */
-function cloudflareAccountId(url: string): string | null {
-  if (!isCloudflareUrl(url)) return null
-  return url.slice(CLOUDFLARE_ACCOUNTS_PREFIX.length, url.length - CLOUDFLARE_BASE_SUFFIX.length)
-}
-
-function cloudflareBaseUrl(accountId: string): string {
-  return `${CLOUDFLARE_ACCOUNTS_PREFIX}${accountId}${CLOUDFLARE_BASE_SUFFIX}`
-}
-
-const OPENAI_KEY_ERROR_ID = "summary-openai-key-error"
-
 /**
  * Asks once before any transcript goes to CatchM Cloud, and saves the
  * answer (summary.cloud_consent). With `select`, accepting also makes
@@ -218,6 +197,7 @@ export function CloudConsentDialog({
   select?: boolean
 }) {
   const { t } = useTranslation()
+  const { config: appConfig } = useAppConfig()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -251,7 +231,10 @@ export function CloudConsentDialog({
       description={
         <>
           <span className="block font-medium text-foreground">{t("settings.summaries.cloudPrivacy")}</span>
-          <span className="mt-2 block">{t("settings.summaries.consentBody")}</span>
+          <span className="mt-2 block">
+            {t("settings.summaries.consentBody")}
+            {isSelfHostVisible(appConfig?.setup ?? "") && <> {t("settings.summaries.consentLocalHint")}</>}
+          </span>
         </>
       }
       confirmLabel={pending ? t("settings.pieces.saving") : t("settings.summaries.consentAccept")}
@@ -307,19 +290,6 @@ export function SettingsSummaries() {
   const [pull, setPull] = useState<PullState>(idlePullState)
   const abortRef = useRef<AbortController | null>(null)
 
-  const [baseUrl, setBaseUrl] = useState("")
-  const [openaiModel, setOpenaiModel] = useState("")
-
-  const [cloudflareAccount, setCloudflareAccount] = useState("")
-  const [cloudflareError, setCloudflareError] = useState<string | null>(null)
-  const [keyInput, setKeyInput] = useState("")
-  const [keyEditing, setKeyEditing] = useState(false)
-  const [keySaving, setKeySaving] = useState(false)
-  const [keyError, setKeyError] = useState<string | null>(null)
-  const keyInputRef = useRef<HTMLInputElement | null>(null)
-  const keyButtonRef = useRef<HTMLButtonElement | null>(null)
-  const restoreKeyFocus = useRef(false)
-
   const load = useCallback(() => {
     getConfig()
       .then((c) => {
@@ -327,9 +297,6 @@ export function SettingsSummaries() {
         const preset = MODEL_PRESETS.some((p) => p.model === c.summary.ollama_model)
         setModelChoice(preset ? c.summary.ollama_model : CUSTOM_MODEL)
         setCustomModel(preset ? "" : c.summary.ollama_model)
-        setBaseUrl(c.summary.openai.base_url)
-        setOpenaiModel(c.summary.openai.model)
-        setCloudflareAccount(cloudflareAccountId(c.summary.openai.base_url) ?? "")
       })
       .catch((err: unknown) => setLoadError(errorMessage(err)))
   }, [])
@@ -359,17 +326,9 @@ export function SettingsSummaries() {
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  useEffect(() => {
-    if (!keyEditing && restoreKeyFocus.current) {
-      restoreKeyFocus.current = false
-      keyButtonRef.current?.focus()
-    }
-  }, [keyEditing])
-
   // One save state per area, so each status shows next to its own control.
   const providerSave = useConfigSave(config, setConfig)
   const modelSave = useConfigSave(config, setConfig)
-  const openaiSave = useConfigSave(config, setConfig)
 
   const chooseProvider = (provider: SummaryProvider) => {
     if (!config || provider === config.summary.provider) {
@@ -381,7 +340,8 @@ export function SettingsSummaries() {
       return
     }
     setPendingProvider(null)
-    void providerSave.put({ summary: { provider } }).then((ok) => ok && refreshStatus())
+    // Leaving the Cloud preset's provider makes the setup Custom.
+    void providerSave.put(modulePatch(config, "summaries", provider)).then((ok) => ok && refreshStatus())
   }
 
   const onConsentAccepted = (c: AppConfig) => {
@@ -456,70 +416,6 @@ export function SettingsSummaries() {
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null
-    }
-  }
-
-  /** Saving the Cloudflare Account ID rewrites the base URL (and the
-   *  model, the first time / when still blank). */
-  const commitCloudflareAccount = () => {
-    const id = cloudflareAccount.trim()
-    if (!id) {
-      setCloudflareError(t("settings.summaries.cloudflareAccountRequired"))
-      return
-    }
-    setCloudflareError(null)
-    const url = cloudflareBaseUrl(id)
-    setBaseUrl(url)
-    // Keep a model already chosen for Workers AI; anything else (a model
-    // from an earlier custom service) gives way to the default.
-    const onCloudflare = isCloudflareUrl(config?.summary.openai.base_url ?? "")
-    const model = onCloudflare && openaiModel.trim() ? openaiModel.trim() : CLOUDFLARE_MODEL
-    if (model !== CLOUDFLARE_MODEL) setOpenaiModel(model)
-    void openaiSave
-      .put({ summary: { openai: { base_url: url, model } } })
-      .then((ok) => ok && refreshStatus())
-  }
-
-
-  const commitOpenaiModel = () => {
-    const v = openaiModel.trim()
-    if (v && v !== config?.summary.openai.model) {
-      void openaiSave.put({ summary: { openai: { model: v } } }).then((ok) => ok && refreshStatus())
-    }
-  }
-
-  const startReplaceKey = () => {
-    setKeyInput("")
-    setKeyError(null)
-    setKeyEditing(true)
-  }
-
-  const closeKeyEditor = () => {
-    restoreKeyFocus.current = true
-    setKeyEditing(false)
-    setKeyInput("")
-    setKeyError(null)
-  }
-
-  const saveKey = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (keySaving) return
-    const key = keyInput.trim()
-    if (!key) {
-      setKeyError(t("settings.transcription.enterKey"))
-      keyInputRef.current?.focus()
-      return
-    }
-    setKeySaving(true)
-    setKeyError(null)
-    const ok = await openaiSave.put({ summary: { openai: { api_key: key } } })
-    setKeySaving(false)
-    if (ok) {
-      closeKeyEditor()
-      refreshStatus()
-    } else {
-      setKeyError(t("settings.transcription.keySaveError"))
-      keyInputRef.current?.focus()
     }
   }
 
@@ -609,7 +505,8 @@ export function SettingsSummaries() {
     freeDiskGb != null && t("settings.summaries.computerDisk", { size: formatGb(freeDiskGb) }),
   ].filter(Boolean)
 
-  const translationModels = translate ? installedModels([translate.live_model, translate.batch_model]) : []
+  const translationModels =
+    translate?.provider === "ollama" ? installedModels([translate.live_model, translate.batch_model]) : []
   const translationGb = translationModels
     .filter((name) => name !== selectedModel)
     .reduce((sum, name) => sum + (modelDownloadGb(name) ?? 0), 0)
@@ -871,145 +768,12 @@ export function SettingsSummaries() {
     </SettingsSection>
   )
 
-  const keySet = config.summary_openai_api_key_set
-  const openaiDetails = (
-    <SettingsSection
-      title={t("settings.summaries.providerCloudflare")}
-      description={t("settings.summaries.cloudflareDesc")}
-    >
-      {baseUrl && !isCloudflareUrl(baseUrl) && (
-        <p className="py-3 text-sm text-muted-foreground">
-          {t("settings.summaries.wasOtherService")} (<span translate="no" className="break-all">{baseUrl}</span>).{" "}
-          {t("settings.summaries.switchToCloudflare")}
-        </p>
-      )}
-      <SettingRow
-        label={t("settings.summaries.accountIdLabel")}
-        htmlFor="summary-cloudflare-account"
-        description={
-          <Trans
-            i18nKey="settings.summaries.accountIdDesc"
-            components={{ ext: <ExternalLink href={CLOUDFLARE_TOKENS_URL}>{null}</ExternalLink> }}
-          />
-        }
-        control={
-          <div className="grid w-72 justify-items-end gap-1">
-            <Input
-              id="summary-cloudflare-account"
-              name="summary_cloudflare_account"
-              {...noAutofill}
-              value={cloudflareAccount}
-              onChange={(e) => setCloudflareAccount(e.target.value)}
-              onBlur={commitCloudflareAccount}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitCloudflareAccount()
-              }}
-              placeholder="e.g. 1234abcd…"
-              aria-invalid={cloudflareError ? true : undefined}
-              aria-describedby={
-                cloudflareError
-                  ? `${descId("summary-cloudflare-account")} summary-cloudflare-error`
-                  : descId("summary-cloudflare-account")
-              }
-              className="w-full"
-            />
-            <StatusMessage id="summary-cloudflare-error" tone="error">
-              {cloudflareError}
-            </StatusMessage>
-          </div>
-        }
-      />
-      <SettingRow
-        label={t("settings.summaries.apiTokenLabel")}
-        htmlFor={keyEditing ? "summary-openai-key" : undefined}
-        id="summary-openai-key"
-        description={t("settings.summaries.apiTokenDesc")}
-        control={
-          keyEditing ? (
-            <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
-              <Input
-                ref={keyInputRef}
-                id="summary-openai-key"
-                name="summary_openai_api_key"
-                type="password"
-                {...noAutofill}
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape" && !keySaving) closeKeyEditor()
-                }}
-                placeholder={t("settings.summaries.newTokenPlaceholder")}
-                readOnly={keySaving}
-                aria-invalid={keyError ? true : undefined}
-                aria-describedby={
-                  keyError ? `${descId("summary-openai-key")} ${OPENAI_KEY_ERROR_ID}` : descId("summary-openai-key")
-                }
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
-                  {t("common.cancel")}
-                </Button>
-                <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
-                  {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
-                </Button>
-              </div>
-              <StatusMessage id={OPENAI_KEY_ERROR_ID} tone="error">
-                {keyError}
-              </StatusMessage>
-            </form>
-          ) : (
-            <div className="flex items-center gap-2">
-              {keySet && (
-                <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                  {t("settings.summaries.tokenSet")}
-                </span>
-              )}
-              <Button
-                ref={keyButtonRef}
-                size="sm"
-                variant="outline"
-                onClick={startReplaceKey}
-                aria-describedby={descId("summary-openai-key")}
-              >
-                {keySet ? t("settings.summaries.replaceToken") : t("settings.summaries.addToken")}
-              </Button>
-            </div>
-          )
-        }
-      />
-      <Disclosure label={t("settings.summaries.modelOptional")}>
-
-        <SettingRow
-          label={t("settings.summaries.modelLegend")}
-          htmlFor="summary-openai-model"
-          description={t("settings.summaries.workersModelDesc", { model: CLOUDFLARE_MODEL })}
-          control={
-            <Input
-              id="summary-openai-model"
-              name="summary_openai_model"
-              translate="no"
-              {...noAutofill}
-              value={openaiModel}
-              onChange={(e) => setOpenaiModel(e.target.value)}
-              onBlur={commitOpenaiModel}
-              placeholder={CLOUDFLARE_MODEL}
-              aria-describedby={descId("summary-openai-model")}
-              className="w-72"
-            />
-          }
-        />
-      </Disclosure>
-      <p className="py-3 text-sm text-muted-foreground">
-        {t("settings.summaries.workersFreeAllowance")}
-      </p>
-      <div className="flex items-center justify-end">
-        <SaveStatus state={openaiSave.save.state} error={openaiSave.save.error} />
-      </div>
+  const llmDetails = (
+    <SettingsSection title={t("setup.options.llm")} description={t("settings.summaries.llmDesc")}>
+      <p className="text-sm text-muted-foreground">{t("settings.summaries.llmShared")}</p>
+      <LlmProviderForm config={config} onSaved={setConfig} onChanged={refreshStatus} idPrefix="summary-llm" />
     </SettingsSection>
   )
-
 
   return (
     <div>
@@ -1023,7 +787,7 @@ export function SettingsSummaries() {
             {t("settings.summaries.providerHelp")}
           </p>
           <div className="mt-2 grid gap-2">
-            {PROVIDERS.map((p) => (
+            {PROVIDERS.filter((p) => isOptionVisible(config.setup, "summaries", p.value)).map((p) => (
               <ChoiceCard
                 key={p.value}
                 name="summary-provider"
@@ -1050,7 +814,7 @@ export function SettingsSummaries() {
 
       {provider === "ollama" && ollamaDetails}
       {provider === "catchm-cloud" && cloudDetails}
-      {provider === "openai" && openaiDetails}
+      {provider === "openai" && llmDetails}
 
       <CloudConsentDialog
         open={pendingProvider === "catchm-cloud"}
@@ -1115,58 +879,5 @@ function SetupStep({
         {children}
       </div>
     </li>
-  )
-}
-
-/**
- * A radio option drawn as a card: the whole card is the label, so
- * clicking anywhere selects it, and arrow keys move between options
- * like any native radio group. The description is the radio's
- * accessible description.
- */
-function ChoiceCard({
-  name,
-  value,
-  checked,
-  onChange,
-  title,
-  description,
-  extra,
-}: {
-  name: string
-  value: string
-  checked: boolean
-  onChange: (value: string) => void
-  title: ReactNode
-  description: string
-  extra?: ReactNode
-}) {
-  const id = `${name}-${value.replace(/[^a-z0-9-]/gi, "-")}`
-  return (
-    <label
-      htmlFor={id}
-      className={cn(
-        "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-        checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
-      )}
-    >
-      <input
-        id={id}
-        type="radio"
-        name={name}
-        value={value}
-        checked={checked}
-        onChange={() => onChange(value)}
-        aria-describedby={`${id}-desc`}
-        className="mt-1 size-4 shrink-0 accent-primary"
-      />
-      <span className="min-w-0">
-        <span className="block text-sm font-medium">{title}</span>
-        <span id={`${id}-desc`} className="block text-sm text-muted-foreground">
-          {description}
-          {extra}
-        </span>
-      </span>
-    </label>
   )
 }

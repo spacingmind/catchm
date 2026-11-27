@@ -120,14 +120,20 @@ tasks:
       # `sed -i -E` would break on macOS).
       - 'sed -i '''' -E ''s/"productVersion": "[^"]*"/"productVersion": "{{.VERSION}}"/'' wails.json'
       - wails build -s -skipbindings -platform darwin/arm64 -ldflags "-X main.version={{.VERSION}} -X main.updateBaseURL={{.UPDATE_BASE_URL}}"
-      - codesign --force --deep -s - build/bin/catchm-desktop.app
       # A plain .dmg: the .app plus an /Applications symlink for the
       # usual drag-to-install window.
       - rm -rf build/bin/dmg-stage && mkdir -p build/bin/dmg-stage
       - ln -sfn /Applications build/bin/dmg-stage/Applications
-      # Shown as "CatchM" in Applications; the executable inside keeps
-      # wails' outputfilename, so renaming the bundle is safe.
+      # The product is "CatchM" everywhere the user can see it: the bundle
+      # in Applications and the executable inside it (Activity Monitor,
+      # the MCP command `…/CatchM.app/Contents/MacOS/CatchM mcp`).
+      # wails' outputfilename stays catchm-desktop because the Windows
+      # installer and update asset names derive from it.
       - cp -R build/bin/catchm-desktop.app build/bin/dmg-stage/CatchM.app
+      - mv build/bin/dmg-stage/CatchM.app/Contents/MacOS/catchm-desktop build/bin/dmg-stage/CatchM.app/Contents/MacOS/CatchM
+      - /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable CatchM" build/bin/dmg-stage/CatchM.app/Contents/Info.plist
+      # Sign after the rename: the signature covers the executable's name.
+      - codesign --force --deep -s - build/bin/dmg-stage/CatchM.app
       # GitHub's macOS runners intermittently fail this with "create
       # failed - Resource busy" (a scanner holding the staged files), so
       # retry a few times before giving up.

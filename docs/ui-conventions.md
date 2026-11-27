@@ -52,6 +52,7 @@ card titles, buttons, badges; everything else normal.
 | Input / select | `h-8` (default); `h-7` only when it shares a row with `sm` chips (tag field) | |
 | Filter chip | `FilterChip` (`Toggle` outline `sm`, `h-7`, `rounded-full`); a removable chip is `Badge` `h-6` with a `size-5` remove button (`X size-3`) | |
 | 2–4 choices | `SegmentedControl` | |
+| On/off that starts or stops something | `Switch` (`ui/switch`) as a `SettingRow` control; a plain preference stays a `Checkbox` with its label beside it (Settings → System) | Settings → MCP |
 | Icons | `size-4` in `text-sm`/`text-base`/`text-lg` text and default buttons; `size-3.5` in `sm` controls and `text-xs` rows; `size-6` in the h1; always `aria-hidden` | |
 | Menu rows | `SelectItem`: `rounded-md px-1.5 py-1 gap-1.5 text-sm`, leading marker in a `size-4` slot | select, project picker |
 

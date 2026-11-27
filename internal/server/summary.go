@@ -119,7 +119,7 @@ func summaryReadiness(ctx context.Context, cfg *config.Config, auth summarize.Cl
 		})
 	}
 	wg.Wait()
-	openai := &openaiSummaryState{Configured: cfg.Summary.OpenAI.BaseURL != "" && cfg.Summary.OpenAI.Model != ""}
+	openai := &openaiSummaryState{Configured: cfg.LLM.Ready()}
 
 	st := summaryStatus{Provider: provider, Ollama: ollama, Cloud: cloud, OpenAI: openai}
 	st.kind = summarize.KindNotReady
@@ -144,7 +144,7 @@ func summaryReadiness(ctx context.Context, cfg *config.Config, auth summarize.Cl
 		}
 	case summarize.ProviderOpenAI:
 		if !openai.Configured {
-			st.Reason = "Add your Cloudflare Account ID and API token in Settings → Summaries."
+			st.Reason = "Set up your AI provider (API key and model) in Settings → Summaries."
 		}
 	default:
 		st.Reason = fmt.Sprintf("Unknown summary provider %q. Pick one in Settings → Summaries.", st.Provider)
@@ -239,7 +239,7 @@ func writeAnalysis(w http.ResponseWriter, a summarize.Analysis, title string) {
 
 // flowsCloudUnsupported is POST /flows' answer for CatchM Cloud, whose
 // Worker has no flows pass yet.
-const flowsCloudUnsupported = "Finding flows isn't available with CatchM Cloud yet. Use On this computer or Your Cloudflare account."
+const flowsCloudUnsupported = "Finding flows isn't available with CatchM Cloud yet. Use your own AI provider (or Ollama) in Settings → Summaries."
 
 // handleFindFlows answers POST /api/meetings/{id}/flows: it runs the
 // on-demand flows pass over the meeting's transcript, stores the flows

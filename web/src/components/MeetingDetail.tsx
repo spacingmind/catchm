@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import i18next from "i18next"
 import { useTranslation } from "react-i18next"
-import { AudioLines, CheckSquare, Cloud, Copy, Download, FileCode, FileText, FileType, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
+import { AudioLines, CheckSquare, Cloud, Copy, Download, FileCode, FileText, FileType, GitBranch, HardDrive, KeyRound, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { EvidenceBar, SourceLink } from "@/components/insights/Evidence"
@@ -49,11 +49,13 @@ import {
   refineMeeting,
   RefineError,
   updateActionItemStatus,
+  type CloudSttEngine,
   type ExportFormat,
   updateConfig,
   updateMeeting,
   type Meeting,
   type MeetingAnalysis,
+  type Setup,
   type TranscriptSource,
   type Utterance,
 } from "@/lib/api"
@@ -63,6 +65,16 @@ import { copyText } from "@/lib/clipboard"
 import { hasWindowControls, saveExport } from "@/lib/wailsRuntime"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { meetingTab, navigate, useRoute, type MeetingTab } from "@/lib/route"
+import {
+  CLOUD_ENGINES,
+  cloudPrivacy,
+  engineOptionName,
+  fileCost,
+  isCloudEngine,
+  isOptionVisible,
+  isSelfHostVisible,
+  refineCloudEngine,
+} from "@/lib/setup"
 
 interface MeetingDetailProps {
   meetingId: string
@@ -82,13 +94,6 @@ const sentence = (s: string) => `${s.replace(/[.\s]+$/, "")}.`
 /** CatchM Cloud's free daily summaries, when the quota endpoint doesn't say. */
 const CLOUD_DEFAULT_LIMIT = 5
 
-/** Soniox's async transcription rate. */
-const SONIOX_RATE_PER_HOUR = 0.1
-/** Shown next to the estimated cost in the Soniox confirm dialog. */
-function sonioxPrivacy(): string {
-  return i18next.t("meetingDetail.sonioxPrivacy")
-}
-
 /** The meeting's length in seconds (0 while live). */
 function meetingSeconds(m: Meeting): number {
   if (!m.ended_at) return 0
@@ -97,10 +102,9 @@ function meetingSeconds(m: Meeting): number {
   return Number.isFinite(start) && Number.isFinite(end) && end > start ? (end - start) / 1000 : 0
 }
 
-/** "about $0.05" for a Soniox pass over the recording. */
-function sonioxCost(m: Meeting): string {
-  const cost = ((meetingSeconds(m) / 3600) * SONIOX_RATE_PER_HOUR).toFixed(2)
-  return i18next.t("meetingDetail.sonioxCost", { cost })
+/** "about $0.05" for a cloud engine's pass over the recording. */
+function cloudCost(m: Meeting, engine: CloudSttEngine): string {
+  return i18next.t("meetingDetail.costAbout", { cost: fileCost(engine, meetingSeconds(m)) })
 }
 
 /** What "Create summary & action items" does, shown next to the button. */
@@ -111,9 +115,10 @@ function summaryHelp(): string {
 /** A refine failure in plain words, with what to do next. Summary
  *  failures carry a `kind` (RefineError); the rest are the raw messages
  *  handleRefine passes through: batch.Refine's sentinels and the Whisper
- *  engine (the only network call before the summary). consent_required
- *  never reaches here: handleRefine asks for consent instead. */
-function refineErrorText(err: unknown): string {
+ *  engine (the only network call before the summary), matched only when
+ *  the setup can use Whisper. consent_required never reaches here:
+ *  handleRefine asks for consent instead. */
+function refineErrorText(err: unknown, setup: Setup): string {
   const raw = errorText(err)
   if (err instanceof RefineError) {
     switch (err.kind) {
@@ -121,7 +126,10 @@ function refineErrorText(err: unknown): string {
         return i18next.t("meetingDetail.refineNotReady", { reason: sentence(raw) })
       case "quota_exceeded": {
         const after = err.reset_at ? formatDateTime(err.reset_at) : i18next.t("meetingDetail.tomorrow")
-        return i18next.t("meetingDetail.refineQuota", { after })
+        // Under Cloud there's no "On this computer" to switch to.
+        return isSelfHostVisible(setup)
+          ? i18next.t("meetingDetail.refineQuota", { after })
+          : i18next.t("meetingDetail.refineQuotaCloud", { after })
       }
       case "summary_failed":
         return i18next.t("meetingDetail.refineFailed")
@@ -131,7 +139,7 @@ function refineErrorText(err: unknown): string {
   // Codes, not message text: the message is already translated.
   if (err instanceof ApiError && err.code === "meeting_active") return i18next.t("meetingDetail.refineStillRecording")
   if (err instanceof ApiError && err.code === "no_audio") return i18next.t("meetingDetail.refineNoAudio")
-  if (/whisper|inference|connection refused|dial tcp/i.test(raw)) {
+  if (isSelfHostVisible(setup) && /whisper|inference|connection refused|dial tcp/i.test(raw)) {
     return i18next.t("meetingDetail.refineWhisperDown")
   }
   return i18next.t("meetingDetail.refineGeneric", { reason: sentence(raw) })
@@ -224,12 +232,14 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const [cloudConsentOpen, setCloudConsentOpen] = useState(false)
   const [cloudSaving, setCloudSaving] = useState(false)
   const [cloudError, setCloudError] = useState<string | null>(null)
-  // "Improve with Soniox": only offered when a key is set.
-  const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
+  // "Improve with …": the cloud engine it uses (one with a key), or null.
+  const [improveEngine, setImproveEngine] = useState<CloudSttEngine | null>(null)
+  // Which providers the setup shows ("" shows all, like Custom).
+  const [setup, setSetup] = useState<Setup>("")
   const [improveOpen, setImproveOpen] = useState(false)
   const [improving, setImproving] = useState(false)
   const [improveError, setImproveError] = useState<string | null>(null)
-  // Why "Improve with Soniox" left the summary as it was (summaries not set up).
+  // Why "Improve with …" left the summary as it was (summaries not set up).
   const [improveSkipped, setImproveSkipped] = useState<string | null>(null)
   // Export menu: busy guard and its inline status (null = none).
   const [exporting, setExporting] = useState(false)
@@ -324,14 +334,16 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     }
   }, [meetingId])
 
-  // A Soniox key decides whether "Improve with Soniox" is offered.
+  // A cloud engine with a key decides whether "Improve with …" is offered.
   const ended = Boolean(meeting?.ended_at)
   useEffect(() => {
     if (!ended) return
     let cancelled = false
     getConfig()
       .then((c) => {
-        if (!cancelled) setSonioxKeySet(c.soniox_api_key_set)
+        if (cancelled) return
+        setImproveEngine(refineCloudEngine(c))
+        setSetup(c.setup)
       })
       .catch(() => undefined)
     return () => {
@@ -544,11 +556,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       if (err instanceof RefineError && err.kind === "consent_required") {
         setConsentOpen(true)
       } else {
-        setError(refineErrorText(err))
-        const setup = err instanceof RefineError && (err.kind === "summary_not_ready" || err.kind === "quota_exceeded")
-        setNeedsSetup(setup)
+        setError(refineErrorText(err, setup))
+        const notSetUp = err instanceof RefineError && (err.kind === "summary_not_ready" || err.kind === "quota_exceeded")
+        setNeedsSetup(notSetUp)
         // The card should now show what's missing, not the old "ready".
-        if (setup) refreshSummaryStatus()
+        if (notSetUp) refreshSummaryStatus()
       }
     } finally {
       setRefining(false)
@@ -556,19 +568,19 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   }
 
   const handleImprove = async () => {
-    if (improving) return
+    if (improving || !improveEngine) return
     setImproving(true)
     setImproveError(null)
     try {
       // if_ready: a better transcript must not wait on summaries being
       // set up; the server says why when it skipped the summary.
-      const m = await refineMeeting(meetingId, { engine: "soniox", summarize: "if_ready" })
+      const m = await refineMeeting(meetingId, { engine: improveEngine, summarize: "if_ready" })
       setImproveSkipped(m.summary_skipped ?? null)
       setMeeting(m)
       reloadAnalysis()
       setImproveOpen(false)
     } catch (err) {
-      setImproveError(refineErrorText(err))
+      setImproveError(refineErrorText(err, setup))
     } finally {
       setImproving(false)
     }
@@ -656,9 +668,16 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
 
   const refined = Boolean(meeting.refined)
   // Offered for an ended meeting transcribed locally (or not at all)
-  // that hasn't already had a Soniox pass, when a key is set.
+  // that hasn't already had a cloud pass, when a cloud engine the setup
+  // shows has its key (refineCloudEngine).
   const showImprove =
-    Boolean(meeting.ended_at) && meeting.engine !== "soniox" && meeting.refined_with !== "soniox" && sonioxKeySet === true
+    Boolean(meeting.ended_at) &&
+    !isCloudEngine(meeting.engine) &&
+    !isCloudEngine(meeting.refined_with) &&
+    improveEngine !== null
+  const improveProvider = improveEngine ? engineOptionName(improveEngine) : ""
+  // The cloud engine that re-transcribed this meeting, if any.
+  const refinedCloud = isCloudEngine(meeting.refined_with) ? meeting.refined_with : null
   // Summaries are manual: ending a meeting doesn't create one, so an
   // ended, unsummarized meeting leads with the call to action.
   const showSummaryCta = !refined && Boolean(meeting.ended_at)
@@ -689,7 +708,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // CatchM Cloud chosen, agreed to and logged in, yet not ready (e.g.
   // today's free summaries are used up): the reason says why, and there's
   // nothing to switch to.
-  const offerCloud = !usingCloud || cloudNeedsLogin || !cloud?.consent
+  const offerCloud =
+    (!usingCloud || cloudNeedsLogin || !cloud?.consent) && isOptionVisible(setup, "summaries", "catchm-cloud")
+  // The card offers only what the setup shows: Ollama on this computer,
+  // or (under Cloud, in its place) the user's own AI provider.
+  const offerLocal = isOptionVisible(setup, "summaries", "ollama")
+  const offerLlm = !offerLocal && isOptionVisible(setup, "summaries", "openai")
 
   // Evidence for Overview's "Source" links, when the Transcript tab shows
   // the lines the analysis cites.
@@ -773,16 +797,16 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           <Button
             variant="outline"
             size="sm"
-            aria-describedby="improve-soniox-desc"
+            aria-describedby="improve-desc"
             onClick={() => {
               setImproveError(null)
               setImproveOpen(true)
             }}
           >
             <AudioLines aria-hidden="true" />
-            {t("meetingDetail.improveButton")}
+            {t("meetingDetail.improveButton", { provider: improveProvider })}
           </Button>
-          <p id="improve-soniox-desc" className="min-w-0 flex-1 text-sm text-muted-foreground">
+          <p id="improve-desc" className="min-w-0 flex-1 text-sm text-muted-foreground">
             {t("meetingDetail.improveDesc")}
           </p>
         </div>
@@ -803,11 +827,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
         )}
       </div>
       <StatusMessage className="sr-only">{summaryAnnouncement}</StatusMessage>
-      {meeting.refined_with === "soniox" && (
+      {refinedCloud && (
         <StatusMessage className="mb-4">
           {improveSkipped
-            ? t("meetingDetail.improvedSkipped", { reason: improveSkipped })
-            : t("meetingDetail.improved")}
+            ? t("meetingDetail.improvedSkipped", { provider: engineOptionName(refinedCloud), reason: improveSkipped })
+            : t("meetingDetail.improved", { provider: engineOptionName(refinedCloud) })}
         </StatusMessage>
       )}
       {refined && (
@@ -823,11 +847,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           <TabsTrigger value="flows">{t("meetingDetail.tabFlows")}</TabsTrigger>
           <TabsTrigger value="transcript">
             {t("meetingDetail.tabTranscript")}
-            {meeting.refined_with === "soniox" && (
-              <Badge variant="secondary">
-                Soniox
-              </Badge>
-            )}
+            {refinedCloud && <Badge variant="secondary">{engineOptionName(refinedCloud)}</Badge>}
           </TabsTrigger>
         </TabsList>
 
@@ -849,26 +869,49 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   <ul className="grid gap-3 sm:grid-cols-2">
-                    <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
-                      <div>
-                        <h3 className="flex items-center gap-2 text-sm font-medium">
-                          <HardDrive aria-hidden="true" className="size-4" />
-                          {t("labels.engine.whisper")}
-                        </h3>
-                        <p id="summary-setup-local-desc" className="mt-1 text-sm text-muted-foreground">
-                          {localGb != null
-                            ? t("meetingDetail.localDescGb", { size: formatGb(localGb) })
-                            : t("meetingDetail.localDescFewGb")}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => navigate({ name: "settings", section: "summaries" })}
-                        aria-describedby="summary-setup-local-desc"
-                      >
-                        {t("meetingDetail.setupLocalButton")}
-                      </Button>
-                    </li>
+                    {offerLocal && (
+                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-medium">
+                            <HardDrive aria-hidden="true" className="size-4" />
+                            {t("labels.engine.whisper")}
+                          </h3>
+                          <p id="summary-setup-local-desc" className="mt-1 text-sm text-muted-foreground">
+                            {localGb != null
+                              ? t("meetingDetail.localDescGb", { size: formatGb(localGb) })
+                              : t("meetingDetail.localDescFewGb")}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => navigate({ name: "settings", section: "summaries" })}
+                          aria-describedby="summary-setup-local-desc"
+                        >
+                          {t("meetingDetail.setupLocalButton")}
+                        </Button>
+                      </li>
+                    )}
+                    {offerLlm && (
+                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-medium">
+                            <KeyRound aria-hidden="true" className="size-4" />
+                            {t("setup.options.llm")}
+                          </h3>
+                          <p id="summary-setup-llm-desc" className="mt-1 text-sm text-muted-foreground">
+                            {t("setup.options.llmSummaryDesc")}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate({ name: "settings", section: "summaries" })}
+                          aria-describedby="summary-setup-llm-desc"
+                        >
+                          {t("getStarted.setUp")}
+                        </Button>
+                      </li>
+                    )}
                     {offerCloud && (
                       <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
                         <div>
@@ -1164,7 +1207,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           setConsentOpen(open)
           if (!open && !consentAccepted.current) {
             setError(
-              t("meetingDetail.consentDeclined"),
+              isSelfHostVisible(setup) ? t("meetingDetail.consentDeclined") : t("meetingDetail.consentDeclinedCloud"),
             )
             setNeedsSetup(true)
           }
@@ -1189,19 +1232,24 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           if (!next && improving) return
           setImproveOpen(next)
         }}
-        title={t("meetingDetail.improveConfirmTitle")}
+        title={t("meetingDetail.improveConfirmTitle", { provider: improveProvider })}
         description={
           <>
             <span className="block">
               {t("meetingDetail.improveConfirmBody")}
             </span>
-            <span className="mt-2 block">
-              {t("meetingDetail.estimatedCost", { cost: sonioxCost(meeting) })}{" "}
-              {sonioxPrivacy()}
-            </span>
+            {improveEngine && (
+              <span className="mt-2 block">
+                {t("meetingDetail.estimatedCost", {
+                  cost: cloudCost(meeting, improveEngine),
+                  rate: CLOUD_ENGINES[improveEngine].fileRatePerHour.toFixed(2),
+                })}{" "}
+                {cloudPrivacy(improveEngine)}
+              </span>
+            )}
           </>
         }
-        confirmLabel={improving ? t("meetingDetail.improving") : t("meetingDetail.improveButton")}
+        confirmLabel={improving ? t("meetingDetail.improving") : t("meetingDetail.improveButton", { provider: improveProvider })}
         pending={improving}
         error={improveError}
         onConfirm={() => void handleImprove()}

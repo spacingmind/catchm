@@ -10,14 +10,15 @@ export function MindMap() {
             id="mindmap-title"
             wide
             eyebrow="Mind map"
+            stage="soon"
             title="See the shape of the meeting"
             body="Topics branch into the decisions and action items under them. Fold a topic, or click an item to see where it was said."
             extra={
               <p className="mt-4 max-w-md text-muted">
-                Need the steps of a process? &ldquo;Find flows&rdquo; pulls those out too, on request.
+                Need the steps of a process? &ldquo;Find flows&rdquo; will pull those out too, on request.
               </p>
             }
-            note="Made from the summary, so it needs a summary written by Ollama or your own AI service. CatchM Cloud's can't draw one yet."
+            note="Coming soon. It's drawn from the summary, so it arrives with summaries out of beta."
             visual={
               <Frame className="bg-card p-3 sm:p-4">
                 <MindMapWindow />

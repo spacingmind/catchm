@@ -66,7 +66,7 @@ func runEval(ctx context.Context, args []string, stdout, stderr io.Writer, newSu
 		case summarize.ProviderOllama:
 			cfg.Summary.OllamaModel = *model
 		case summarize.ProviderOpenAI:
-			cfg.Summary.OpenAI.Model = *model
+			cfg.LLM.StrongModel = *model
 		}
 	}
 
@@ -103,7 +103,8 @@ func runEval(ctx context.Context, args []string, stdout, stderr io.Writer, newSu
 
 func modelOf(cfg *config.Config, provider string) string {
 	if provider == summarize.ProviderOpenAI {
-		return cfg.Summary.OpenAI.Model
+		_, _, strong := cfg.LLM.Resolved()
+		return strong
 	}
 	return cfg.Summary.OllamaModel
 }

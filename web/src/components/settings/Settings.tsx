@@ -1,11 +1,13 @@
 import { useEffect, type ComponentType } from "react"
 import {
+  Boxes,
   Cloud,
   Keyboard,
   Languages,
   Mic,
   Monitor,
   Palette,
+  Plug,
   Settings2,
   Sparkles,
   Speech,
@@ -17,12 +19,14 @@ import { cn } from "cn"
 
 import { SettingsAppearance } from "@/components/settings/SettingsAppearance"
 import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
+import { SettingsMcp } from "@/components/settings/SettingsMcp"
 import { SettingsShortcuts } from "@/components/settings/SettingsShortcuts"
 import { SettingsSummaries } from "@/components/settings/SettingsSummaries"
 import { SettingsSystem } from "@/components/settings/SettingsSystem"
 import { SettingsTranscription } from "@/components/settings/SettingsTranscription"
 import { SettingsTranslation } from "@/components/settings/SettingsTranslation"
 import { SettingsRecording } from "@/components/settings/SettingsRecording"
+import { SettingsSetup } from "@/components/settings/SettingsSetup"
 import { Button } from "@/components/ui/button"
 import { navigate, useRoute } from "@/lib/route"
 import { hasWindowControls } from "@/lib/wailsRuntime"
@@ -39,11 +43,14 @@ interface SectionDef {
 // Adding a section is one entry here: the Section type, the nav, the
 // route and the page all derive from it. The first shown is the default.
 const ALL_SECTIONS = [
+  { id: "setup", labelKey: "settings.nav.setup", icon: Boxes, Page: SettingsSetup },
   { id: "recording", labelKey: "settings.nav.recording", icon: Mic, Page: SettingsRecording },
   { id: "transcription", labelKey: "settings.nav.transcription", icon: Speech, Page: SettingsTranscription },
   { id: "translation", labelKey: "settings.nav.translation", icon: Languages, Page: SettingsTranslation },
   { id: "summaries", labelKey: "settings.nav.summaries", icon: Sparkles, Page: SettingsSummaries },
   { id: "cloud", labelKey: "settings.nav.cloudSync", icon: Cloud, Page: SettingsCloudSync },
+  // Not desktop-only: `catchm serve` runs the same MCP server.
+  { id: "mcp", labelKey: "settings.nav.mcp", icon: Plug, Page: SettingsMcp },
   { id: "appearance", labelKey: "settings.nav.appearance", icon: Palette, Page: SettingsAppearance },
   // M22 §5: global shortcuts/launch-at-login/notifications only mean
   // anything inside the real Wails window — hidden entirely in

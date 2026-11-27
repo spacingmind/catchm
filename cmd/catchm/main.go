@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spacingmind/catchm/internal/config"
+	"github.com/spacingmind/catchm/internal/mcpserver"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/server"
 	"github.com/spacingmind/catchm/internal/tools"
@@ -22,8 +23,16 @@ func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "eval" {
 		os.Exit(evalMain(os.Args[2:]))
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
+		// stdio MCP server, launched by an MCP client (docs/plans/active/local-mcp.md).
+		if err := mcpserver.RunStdio(context.Background(), "dev"); err != nil {
+			fmt.Fprintln(os.Stderr, "catchm mcp:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
-		fmt.Fprintln(os.Stderr, "usage: catchm serve | catchm eval [flags]")
+		fmt.Fprintln(os.Stderr, "usage: catchm serve | catchm mcp | catchm eval [flags]")
 		os.Exit(2)
 	}
 	if err := serve(); err != nil {

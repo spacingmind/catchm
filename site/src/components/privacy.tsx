@@ -1,4 +1,4 @@
-import { HardDrive, LockKeyhole, MicOff, type LucideIcon } from "lucide-react";
+import { HardDrive, KeyRound, LockKeyhole, MicOff, type LucideIcon } from "lucide-react";
 
 const points: { Icon: LucideIcon; title: string; body: string }[] = [
   {
@@ -8,8 +8,13 @@ const points: { Icon: LucideIcon; title: string; body: string }[] = [
   },
   {
     Icon: HardDrive,
-    title: "Stays here by default",
-    body: "Meetings, recordings and settings live in a folder on your computer.",
+    title: "Your files stay here",
+    body: "Meetings, recordings, settings and API keys live in a folder on your computer.",
+  },
+  {
+    Icon: KeyRound,
+    title: "Your keys, your accounts",
+    body: "With your own API key, audio goes from your computer straight to the service you picked, never through CatchM. Or self-host it all.",
   },
   {
     Icon: LockKeyhole,
@@ -24,9 +29,9 @@ export function Privacy() {
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
         <p className="eyebrow">Privacy</p>
         <h2 id="privacy-title" className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
-          Local first. Sync only by choice.
+          Your files, your keys. Sync only by choice.
         </h2>
-        <ul className="mt-12 grid gap-10 md:grid-cols-3 md:gap-8">
+        <ul className="mt-12 grid gap-10 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
           {points.map(({ Icon, title, body }) => (
             <li key={title}>
               <Icon aria-hidden="true" className="size-6" />
@@ -36,8 +41,8 @@ export function Privacy() {
           ))}
         </ul>
         <p className="mt-10 max-w-2xl text-sm text-subtle">
-          Local engines send nothing off your computer; a cloud engine sees the
-          audio or text it works on. That includes summaries made with CatchM
+          Self-hosted engines send nothing off your computer; a cloud service
+          sees the audio or text it works on, under your own account. That includes summaries made with CatchM
           Cloud, which send the transcript unencrypted to be summarised. It
           isn&rsquo;t stored.
         </p>

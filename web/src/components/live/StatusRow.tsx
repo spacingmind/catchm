@@ -21,6 +21,7 @@ import {
 } from "@/lib/api"
 import { sourceLabel, sourceShortLabel } from "@/lib/labels"
 import { DEFAULT_DEVICE_VALUE, deviceSelectValue } from "@/lib/recordPrefs"
+import { engineOptionName, isCloudEngine } from "@/lib/setup"
 
 /** How often a Whisper meeting re-checks GET /api/stt/status. The
  *  Whisper engine always reports "streaming" in /levels, so a server
@@ -58,9 +59,9 @@ const sourceShortcutsHint = () =>
   })
 
 /** What to do about an engine error, per engine: the local Whisper
- *  server and the Soniox cloud fail for different reasons. */
+ *  server and a cloud provider fail for different reasons. */
 function engineErrorHint(engine: string | undefined): string {
-  if (engine === "soniox") return i18next.t("statusRow.hintSoniox")
+  if (isCloudEngine(engine)) return i18next.t("statusRow.hintCloud", { provider: engineOptionName(engine) })
   if (engine === "whisper") return i18next.t("statusRow.hintWhisper")
   return i18next.t("statusRow.hintGeneric")
 }
@@ -128,7 +129,7 @@ function LevelMeter({ label, levels, noSignal }: { label: string; levels: { rms:
 interface StatusRowProps {
   meetingId: string
   startedAt: string
-  /** The meeting's engine id ("whisper" / "soniox"), for the error hint. */
+  /** The meeting's engine id (an SttEngine), for the error hint. */
   engine?: string
   /** Current input, owned by LiveMeeting so it survives this row
    *  unmounting (compact mode) and the compact strip can show it. */

@@ -28,6 +28,7 @@ import {
   type StartMeetingResponse,
   type SttEngine,
   type SttStatus,
+  type TranslateProvider,
   type TranslateStatus,
 } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
@@ -41,35 +42,18 @@ import {
 } from "@/lib/recordPrefs"
 import { engineHint, engineLabel, sourceHint, sourceLabel } from "@/lib/labels"
 import { activeLocale } from "@/i18n"
-import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { languageLabel, sortedLanguageCodes } from "@/lib/languages"
+import {
+  engineHasKey,
+  engineOptionName,
+  engineTranslates,
+  toEngine,
+  translateNeed,
+  translatingEngineNames,
+  visibleEngines,
+} from "@/lib/setup"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
-
-/** Last-used start-flow values (non-secret UI prefs only). */
-const LAST_KEY = "catchm.prefs.startflow"
-
-interface StartPrefs {
-  lang?: string
-  translateTo?: string
-  twoWay?: boolean
-  engine?: SttEngine
-}
-
-function readLast(): StartPrefs {
-  try {
-    const raw = window.localStorage.getItem(LAST_KEY)
-    return raw ? (JSON.parse(raw) as StartPrefs) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeLast(p: StartPrefs) {
-  try {
-    window.localStorage.setItem(LAST_KEY, JSON.stringify(p))
-  } catch {
-    // Storage unavailable — prefs just won't persist.
-  }
-}
+import { readStartPrefs, writeStartPrefs, type StartPrefs } from "@/lib/startPrefs"
 
 /** Backend requires a non-empty title; generate from date/time. */
 function defaultTitle(): string {
@@ -96,7 +80,7 @@ interface StartMeetingPopoverProps {
 
 export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onOpenSettings }: StartMeetingPopoverProps) {
   const { t } = useTranslation()
-  const [last] = useState<StartPrefs>(readLast)
+  const [last] = useState<StartPrefs>(readStartPrefs)
   const [title, setTitle] = useState("")
   const [source, setSource] = useState<AudioSource>("mic")
   const [systemAvailable, setSystemAvailable] = useState(false)
@@ -105,7 +89,10 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const [devices, setDevices] = useState<Device[]>([])
   const [engine, setEngine] = useState<SttEngine>(last.engine ?? "whisper")
   const [configEngine, setConfigEngine] = useState<SttEngine>("whisper")
-  const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
+  // Engines the user can pick from: the setup shows them and, for a
+  // cloud engine, its key is set (null until the config loads).
+  const [pickable, setPickable] = useState<SttEngine[] | null>(null)
+  const [translateProvider, setTranslateProvider] = useState<TranslateProvider>("ollama")
   const [lang, setLang] = useState(last.lang ?? "")
   const [translateTo, setTranslateTo] = useState(last.translateTo ?? "")
   const [twoWay, setTwoWay] = useState(last.twoWay ?? false)
@@ -124,7 +111,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const langRef = useRef<HTMLButtonElement | null>(null)
 
   // Devices + system capability (M19 contract; graceful degrade), plus
-  // the config engine and Soniox key state.
+  // the config engine and which engines have their keys.
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -153,8 +140,12 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
     getConfig()
       .then((c) => {
         if (cancelled) return
-        setConfigEngine(c.engine === "soniox" ? "soniox" : "whisper")
-        setSonioxKeySet(c.soniox_api_key_set)
+        const configured = toEngine(c.engine)
+        setConfigEngine(configured)
+        // The configured engine stays listed without its key, so the
+        // picker never sits on nothing; the status check explains it.
+        setPickable(visibleEngines(c.setup).filter((e) => e === configured || engineHasKey(c, e)))
+        setTranslateProvider(c.translate.provider)
       })
       .catch(() => undefined)
     getSttStatus()
@@ -176,16 +167,12 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
     return () => window.clearTimeout(id)
   }, [open])
 
-  // Engine is only a real choice when Soniox is usable (key set);
-  // otherwise the config engine runs unselected.
-  const usableEngines: { value: SttEngine; label: string }[] =
-    sonioxKeySet === true
-      ? [
-          { value: "whisper", label: engineLabel("whisper") },
-          { value: "soniox", label: engineLabel("soniox") },
-        ]
-      : []
-  const activeEngine = usableEngines.length > 0 ? engine : configEngine
+  // Engine is only a real choice when more than one is pickable (the
+  // setup shows it and its key is set); otherwise the config engine runs
+  // unselected. A remembered engine that's no longer pickable falls back
+  // to the config engine.
+  const usableEngines = pickable ?? []
+  const activeEngine = usableEngines.length > 1 && usableEngines.includes(engine) ? engine : configEngine
 
   // Only an engine the status check positively reports as not ready
   // blocks Start (and "Start anyway" still gets past it).
@@ -194,15 +181,21 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const sttWarning = sttBlocked
     ? t("startMeeting.sttNotReady", { reason: engineStatus.reason || t("startMeeting.sttNotReadyFallback") })
     : null
-  const canSwitchToSoniox =
-    sttBlocked && activeEngine === "whisper" && usableEngines.length > 1 && sttStatus?.soniox.ready === true
+  // Another pickable engine that's ready, offered as "Use … instead".
+  const switchTo = sttBlocked
+    ? usableEngines.find((e) => e !== activeEngine && sttStatus?.[e]?.ready === true)
+    : undefined
 
-  // Ollama only runs when translation is requested and the engine can't
-  // translate itself (Soniox does, one-way and two-way; see
-  // internal/pipeline Start and internal/stt SupportsTranslation).
-  const needsOllama = (twoWay || translateTo !== "") && activeEngine !== "soniox"
+  // A text translator only runs when translation is requested and the
+  // engine can't translate itself (setup.ts engineTranslates; see
+  // internal/pipeline Start and internal/stt SupportsTranslation). With
+  // provider "none" there's no translator at all; any other provider
+  // (Ollama, Google, the LLM) reports its own readiness.
+  const needsTranslator = (twoWay || translateTo !== "") && !engineTranslates(activeEngine)
+  const checkTranslator = needsTranslator && translateProvider !== "none"
+  const needsProvider = needsTranslator && translateProvider === "none"
   useEffect(() => {
-    if (!open || !needsOllama) return
+    if (!open || !checkTranslator) return
     let cancelled = false
     getTranslateStatus()
       .then((st) => {
@@ -214,10 +207,16 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
     return () => {
       cancelled = true
     }
-  }, [open, needsOllama])
-  const translateWarning =
-    needsOllama && translateStatus && (!translateStatus.ollama_reachable || !translateStatus.live_model.installed)
-      ? t("startMeeting.translateNotReady")
+  }, [open, checkTranslator])
+  const translateWarning = needsProvider
+    ? t("startMeeting.translateNeedsProvider", {
+        engine: engineOptionName(activeEngine),
+        translators: translatingEngineNames(),
+      })
+    : checkTranslator && translateStatus?.provider === translateProvider && !translateStatus.ready
+      ? translateStatus.provider === "ollama"
+        ? t("startMeeting.translateNotReady")
+        : t("startMeeting.translateNotReadyCloud", { reason: translateNeed(translateStatus) })
       : null
 
   const openSettings = (section: SettingsSection) => {
@@ -305,7 +304,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
       writeLastProject(project)
       setProjectChoice({ name: project, isNew: false })
       void refreshProjects()
-      writeLast({ lang: lang.trim(), translateTo: translateTo.trim(), twoWay, engine: activeEngine })
+      writeStartPrefs({ lang: lang.trim(), translateTo: translateTo.trim(), twoWay, engine: activeEngine })
       writeStartedDevice(meeting.id, deviceForStart)
       onStarted(meeting)
       onOpenChange(false)
@@ -442,9 +441,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     </SelectTrigger>
                     <SelectContent>
                       {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.detectAuto")}</SelectItem>}
-                      {LANGUAGES.map((l) => (
-                        <SelectItem key={l.code} value={l.code}>
-                          {languageLabel(l.code)}
+                      {sortedLanguageCodes().map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {languageLabel(code)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -464,9 +463,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     </SelectTrigger>
                     <SelectContent>
                       {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.noTranslation")}</SelectItem>}
-                      {LANGUAGES.map((l) => (
-                        <SelectItem key={l.code} value={l.code}>
-                          {languageLabel(l.code)}
+                      {sortedLanguageCodes().map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {languageLabel(code)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -482,19 +481,21 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
 
               {usableEngines.length > 1 && (
                 <div className="grid gap-1.5">
-                  <span id="start-engine-label" className="text-sm font-medium">
-                    {t("startMeeting.transcribeWith")}
-                  </span>
-                  <SegmentedControl
-                    id="start-engine"
-                    labelledBy="start-engine-label"
-                    describedBy="start-engine-hint"
-                    value={engine}
-                    onChange={setEngine}
-                    options={usableEngines}
-                  />
+                  <Label htmlFor="start-engine">{t("startMeeting.transcribeWith")}</Label>
+                  <Select value={activeEngine} onValueChange={(v) => setEngine(v as SttEngine)}>
+                    <SelectTrigger id="start-engine" className="w-full" aria-describedby="start-engine-hint">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {usableEngines.map((e) => (
+                        <SelectItem key={e} value={e}>
+                          {engineLabel(e)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p id="start-engine-hint" className="text-xs text-muted-foreground">
-                    {engineHint(engine)}
+                    {engineHint(activeEngine)}
                   </p>
                 </div>
               )}
@@ -507,9 +508,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
             </StatusMessage>
             {sttBlocked && (
               <div className="flex flex-wrap gap-2">
-                {canSwitchToSoniox && (
-                  <Button type="button" size="sm" variant="outline" onClick={() => setEngine("soniox")}>
-                    {t("startMeeting.useInstead", { engine: engineLabel("soniox") })}
+                {switchTo && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setEngine(switchTo)}>
+                    {t("startMeeting.useInstead", { engine: engineLabel(switchTo) })}
                   </Button>
                 )}
                 {onOpenSettings && (
@@ -527,9 +528,15 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
             </StatusMessage>
             {translateWarning && onOpenSettings && (
               <div className="flex">
-                <Button type="button" size="sm" variant="outline" onClick={() => openSettings("translation")}>
-                  {t("startMeeting.openTranslationSettings")}
-                </Button>
+                {needsProvider ? (
+                  <Button type="button" size="sm" variant="outline" onClick={() => openSettings("setup")}>
+                    {t("startMeeting.openSetup")}
+                  </Button>
+                ) : (
+                  <Button type="button" size="sm" variant="outline" onClick={() => openSettings("translation")}>
+                    {t("startMeeting.openTranslationSettings")}
+                  </Button>
+                )}
               </div>
             )}
           </div>
