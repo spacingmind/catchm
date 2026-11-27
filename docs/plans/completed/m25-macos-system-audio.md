@@ -1,6 +1,6 @@
 # Plan: M25 — macOS system audio via Core Audio process taps
 
-- Status: implemented; manual checks pending (see Validation)
+- Status: done — shipped in v0.6.0. System audio verified by the owner in a real meeting (YouTube transcribed live, 2026-11-27). Not exercised by hand: a real output-device swap and the permission-denied hint.
 - Created: 2026-09-27
 - Repo: `catchm`, Go + a small Objective-C shim in `internal/capture`,
   plus the `Info.plist` usage string for the desktop shell. No `web/`

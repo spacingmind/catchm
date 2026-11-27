@@ -87,7 +87,7 @@ export function deviceSelectValue(device: string, devices: { ID: string }[]): st
 const TRANSPARENT_KEY = "catchm.compact.transparent"
 
 /** See-through compact overlay pref, per device like the theme
- *  (docs/plans/active/compact-transparent.md). */
+ *  (docs/plans/completed/compact-transparent.md). */
 export function readCompactTransparent(): boolean {
   return readStored(TRANSPARENT_KEY) === "true"
 }

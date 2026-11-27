@@ -1,6 +1,6 @@
 # Plan: Light profile — Soniox async, no-Whisper summaries, import, provider presets
 
-- Status: in progress
+- Status: done — merged in #25 (2026-09-28).
 - Created: 2026-09-28
 - Branch: `feat/light-profile`
 - Implementers: GLM coding agents (glm-5.3), three parallel workstreams

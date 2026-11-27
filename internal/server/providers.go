@@ -13,7 +13,7 @@ import (
 const verifyTimeout = 15 * time.Second
 
 // verifyProvider checks a key against a provider's real API with its
-// cheapest authenticated call (docs/plans/active/cloud-mode-providers.md).
+// cheapest authenticated call (docs/plans/completed/cloud-mode-providers.md).
 // Tests swap it for a fake.
 var verifyProvider = func(ctx context.Context, name, apiKey string, s *Server) error {
 	if e, ok := findCloudEngine(name); ok && e.verify != nil {

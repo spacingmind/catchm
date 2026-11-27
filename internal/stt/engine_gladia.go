@@ -20,7 +20,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 )
 
-// Gladia v2 (docs/plans/active/cloud-mode-providers.md#gladia): live
+// Gladia v2 (docs/plans/completed/cloud-mode-providers.md#gladia): live
 // sessions are created over REST and stream over the WebSocket URL it
 // returns; files go through upload + pre-recorded jobs. Live has no
 // speaker separation (Gladia does that for files only). Its translation

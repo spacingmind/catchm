@@ -54,7 +54,7 @@ func (DesktopBridge) SetCompactMode(active bool) {
 }
 
 // SetCompactTransparent toggles the see-through compact overlay
-// (docs/plans/active/compact-transparent.md); a no-op where
+// (docs/plans/completed/compact-transparent.md); a no-op where
 // unsupported (non-macOS), so the frontend can call it unconditionally.
 func (DesktopBridge) SetCompactTransparent(on bool) {
 	if transparentSupported() {

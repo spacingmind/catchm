@@ -23,7 +23,7 @@ type TranslateConfig struct {
 	// "ollama" (local; the default, and what "" means for configs written
 	// before it existed), "google" (Cloud Translation API), "llm"
 	// (the shared OpenAI-compatible LLM block) or "none" (only the engine's
-	// own translation, e.g. Soniox). See docs/plans/active/cloud-mode.md.
+	// own translation, e.g. Soniox). See docs/plans/completed/cloud-mode.md.
 	Provider   string       `yaml:"provider"`
 	Google     APIKeyConfig `yaml:"google"`
 	Host       string       `yaml:"host"`
@@ -50,7 +50,7 @@ type LLMConfig struct {
 }
 
 // LLMPreset is one OpenAI-compatible provider's server and default
-// models (docs/plans/active/cloud-mode-providers.md).
+// models (docs/plans/completed/cloud-mode-providers.md).
 type LLMPreset struct {
 	BaseURL     string // "{account}" is replaced by LLMConfig.AccountID
 	FastModel   string
@@ -155,7 +155,7 @@ type OpenAICompatConfig struct {
 }
 
 // Setup values: the provider set the user picked on first run
-// (docs/plans/active/cloud-mode.md). SetupCloud hides self-hosted
+// (docs/plans/completed/cloud-mode.md). SetupCloud hides self-hosted
 // options in the UI, SetupSelfHost hides cloud providers, SetupCustom
 // shows everything. "" means the user hasn't chosen yet (fresh install).
 const (
@@ -194,7 +194,7 @@ type Config struct {
 	MCP          MCPConfig       `yaml:"mcp"`
 }
 
-// MCPConfig controls the local MCP server (docs/plans/active/local-mcp.md).
+// MCPConfig controls the local MCP server (docs/plans/completed/local-mcp.md).
 // Off by default: `catchm mcp` (stdio) refuses to start, and the local
 // HTTP listener stays closed.
 type MCPConfig struct {

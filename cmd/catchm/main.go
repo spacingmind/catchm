@@ -24,7 +24,7 @@ func main() {
 		os.Exit(evalMain(os.Args[2:]))
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
-		// stdio MCP server, launched by an MCP client (docs/plans/active/local-mcp.md).
+		// stdio MCP server, launched by an MCP client (docs/plans/completed/local-mcp.md).
 		if err := mcpserver.RunStdio(context.Background(), "dev"); err != nil {
 			fmt.Fprintln(os.Stderr, "catchm mcp:", err)
 			os.Exit(1)

@@ -1,6 +1,6 @@
 # Plan: local MCP server
 
-- Status: in progress
+- Status: done — shipped in v0.6.0 (2026-11-27). Follow-ups: try it with Claude Desktop, Claude Code and Cursor; check `catchm-desktop.exe mcp` stdio on Windows (GUI-subsystem executable).
 - Created: 2026-11-27
 - Branch: `feat/cloud-mode` (rides with PR #44)
 

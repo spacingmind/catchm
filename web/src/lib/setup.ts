@@ -1,5 +1,5 @@
 /**
- * The setup catalog (docs/plans/active/cloud-mode.md → "Modules and
+ * The setup catalog (docs/plans/completed/cloud-mode.md → "Modules and
  * options"): which provider options each module has, which side they're
  * on (cloud = bring a key, selfhost = runs on this computer), and the
  * presets that fill every module at once. Every screen that hides one

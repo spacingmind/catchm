@@ -75,7 +75,7 @@ var windowVisible atomic.Bool
 func main() {
 	// `<CatchM executable> mcp` (CatchM.app/Contents/MacOS/CatchM on macOS,
 	// catchm-desktop.exe on Windows): the stdio MCP server an MCP client launches
-	// (docs/plans/active/local-mcp.md). No window, no tray, no
+	// (docs/plans/completed/local-mcp.md). No window, no tray, no
 	// single-instance lock — it only reads/writes the meeting folder.
 	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
 		if err := mcpserver.RunStdio(context.Background(), version); err != nil {

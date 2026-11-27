@@ -10,7 +10,7 @@ import (
 )
 
 // cloudEngine is one bring-your-own-key transcription provider
-// (docs/plans/active/cloud-mode.md). Every place that names engines —
+// (docs/plans/completed/cloud-mode.md). Every place that names engines —
 // live start, refine/import, status, config validation, key checks —
 // goes through this table, so a new provider is one entry here plus
 // its stt package.

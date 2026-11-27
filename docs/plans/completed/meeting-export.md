@@ -1,5 +1,7 @@
 # Meeting export: copy / TXT / Markdown / Word
 
+- Status: done — shipped in v0.4.0.
+
 ## Problem
 
 There's no way to get a meeting out of CatchM except reading the files

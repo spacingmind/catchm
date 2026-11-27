@@ -1,5 +1,7 @@
 # Public landing page (catchm.spacingmind.com)
 
+- Status: done — live at catchm.spacingmind.com. v0.6.0 copy (Cloud BYOK, Beta / Coming soon chips) deployed 2026-11-27. The OG image still says "mind maps" (owner: leave it).
+
 ## Problem
 
 CatchM has no public face. The repo is private, so the download links

@@ -56,7 +56,7 @@ type Server struct {
 	syncNow func() (*cloudsync.SyncResult, error)
 	// newCloudClient is a seam for tests to swap in a fake backend.
 	newCloudClient func() *cloudsync.Client
-	// mcpHTTP is the local MCP HTTP transport (docs/plans/active/local-mcp.md).
+	// mcpHTTP is the local MCP HTTP transport (docs/plans/completed/local-mcp.md).
 	mcpHTTP *mcpserver.HTTPServer
 }
 

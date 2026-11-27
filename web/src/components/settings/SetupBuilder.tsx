@@ -67,7 +67,7 @@ interface Need {
 }
 
 /**
- * The stack builder (docs/plans/active/cloud-mode.md → Builder): a
+ * The stack builder (docs/plans/completed/cloud-mode.md → Builder): a
  * preset control on top, then one section per module with a card per
  * option the setup shows. Choosing a preset fills every module; choosing
  * an option saves it, and turns a Cloud/Self-host setup into Custom when

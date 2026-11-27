@@ -1,5 +1,7 @@
 # macOS release (Apple Silicon, unsigned)
 
+- Status: done — shipped in v0.5.0. v0.6.0 moved the release job to macos-15 and renamed the bundle executable to CatchM.
+
 ## Problem
 
 CatchM ships only a Windows installer. `release.yml` runs on

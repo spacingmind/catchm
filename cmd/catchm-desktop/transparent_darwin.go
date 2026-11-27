@@ -27,7 +27,7 @@ import "C"
 // internal/frontend/desktop/darwin), so Mac.WebviewIsTransparent plus
 // an alpha-0 background colour still shows an opaque window: macOS
 // ignores the colour's alpha while the window is opaque (verified by
-// experiment — see docs/plans/active/compact-transparent.md). This
+// experiment — see docs/plans/completed/compact-transparent.md). This
 // shim is what actually makes the compact overlay see-through.
 
 // setWindowTransparent toggles the app window's see-through state on

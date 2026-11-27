@@ -22,7 +22,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 )
 
-// ElevenLabs Scribe (docs/plans/active/cloud-mode-providers.md#elevenlabs):
+// ElevenLabs Scribe (docs/plans/completed/cloud-mode-providers.md#elevenlabs):
 // realtime with scribe_v3_live (the only Scribe model that separates
 // speakers live), files with scribe_v3. No translation.
 const (

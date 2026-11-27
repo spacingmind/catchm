@@ -20,7 +20,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 )
 
-// Deepgram Nova-3 (docs/plans/active/cloud-mode-providers.md#deepgram):
+// Deepgram Nova-3 (docs/plans/completed/cloud-mode-providers.md#deepgram):
 // realtime over a WebSocket with diarization, files over one REST call.
 // No translation — the pipeline's translation provider handles that.
 const (
