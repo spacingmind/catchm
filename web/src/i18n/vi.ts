@@ -394,6 +394,7 @@ export const vi: Messages = {
     },
   },
   setup: {
+    lockedByEngineTranslation: "Soniox tự dịch, nên luôn dùng bản dịch của Soniox.",
     pageDesc:
       "Chọn nơi chạy từng phần của CatchM. Dịch vụ đám mây cần API key; phần tự vận hành chạy ngay trên máy này.",
     presetLabel: "Bắt đầu từ",

@@ -409,6 +409,7 @@ export const en = {
     },
   },
   setup: {
+    lockedByEngineTranslation: "Soniox translates on its own, so its translation is always used.",
     pageDesc:
       "Choose where each part of CatchM runs. Cloud providers need an API key; self-hosted parts run on this computer.",
     presetLabel: "Start from",

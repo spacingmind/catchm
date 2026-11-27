@@ -1237,6 +1237,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.Summary.Provider, req.Summary.Provider)
 	setIfNonEmpty(&updated.Summary.OllamaModel, req.Summary.OllamaModel)
 	applyLLMUpdate(&updated.LLM, req, llmBaseURL)
+	updated.Normalize()
 	if req.Summary.CloudConsent != nil {
 		updated.Summary.CloudConsent = *req.Summary.CloudConsent
 	}

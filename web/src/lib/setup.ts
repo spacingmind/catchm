@@ -5,7 +5,7 @@
  * presets that fill every module at once. Every screen that hides one
  * side under a setup asks here, so a new provider is one entry below.
  */
-import i18next, { type ParseKeys } from "i18next"
+import i18next, { type ParseKeys, type TFunction } from "i18next"
 
 import type {
   AppConfig,
@@ -177,7 +177,7 @@ export function findOption<M extends ModuleId>(module: M, id: OptionValue[M]): S
 export function currentChoices(config: AppConfig): OptionValue {
   return {
     transcription: config.engine === "soniox" ? "soniox" : "whisper",
-    translation: config.translate.provider,
+    translation: effectiveTranslateProvider(config),
     summaries: config.summary.provider,
   }
 }
@@ -211,6 +211,11 @@ function moduleFieldPatch<M extends ModuleId>(module: M, id: OptionValue[M]): Up
  */
 export function modulePatch<M extends ModuleId>(config: AppConfig, module: M, id: OptionValue[M]): UpdateConfigRequest {
   const patch = moduleFieldPatch(module, id)
+  // An engine that translates on its own (Soniox) always uses its own
+  // translation: picking it locks translation to "built in".
+  if (module === "transcription" && engineTranslates(id as string)) {
+    patch.translate = { provider: "none" }
+  }
   const setup = config.setup
   // Cloud / Self-host mean "only that side", not "exactly the preset's
   // picks": switching between two cloud options keeps Cloud (otherwise
@@ -244,6 +249,31 @@ export function visibleEngines(setup: Setup): SttEngine[] {
  *  SupportsTranslation): then no translation provider is needed. */
 export function engineTranslates(engine: string): boolean {
   return engine === "soniox"
+}
+
+/**
+ * Why an option can't be picked right now (an i18n key), or null.
+ * With Soniox transcribing, translation is locked to Soniox's own
+ * ("none"): the user chose that rule (2026-11-27) so a meeting never
+ * mixes two translators.
+ */
+export function optionLockedKey(config: AppConfig, module: ModuleId, id: string): string | null {
+  if (module === "translation" && id !== "none" && engineTranslates(config.engine)) {
+    return "setup.lockedByEngineTranslation"
+  }
+  return null
+}
+
+/** optionLockedKey as display text (undefined when unlocked). */
+export function lockedReason(t: TFunction, config: AppConfig, module: ModuleId, id: string): string | undefined {
+  const key = optionLockedKey(config, module, id)
+  return key ? t(key as ParseKeys) : undefined
+}
+
+/** The translation choice in effect: "none" whenever the engine
+ *  translates on its own, whatever is stored. */
+export function effectiveTranslateProvider(config: AppConfig): TranslateProvider {
+  return engineTranslates(config.engine) ? "none" : config.translate.provider
 }
 
 /** What a translation provider that isn't ready still needs, in plain

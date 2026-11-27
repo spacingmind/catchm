@@ -29,10 +29,13 @@ import {
 import { noAutofill } from "@/lib/inputProps"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
 import {
+  effectiveTranslateProvider,
   engineTranslates,
   isSelfHostVisible,
   keyAdded,
+  lockedReason,
   modulePatch,
+  optionLockedKey,
   optionsVisible,
   translateNeed,
 } from "@/lib/setup"
@@ -299,7 +302,7 @@ export function SettingsTranslation() {
   }
 
   const setup = config.setup
-  const provider = config.translate.provider
+  const provider = effectiveTranslateProvider(config)
   const options = optionsVisible(setup, "translation")
   // A choice only when the setup shows more than one provider (Self-host
   // has just Ollama).
@@ -326,6 +329,8 @@ export function SettingsTranslation() {
                 onChange={(v) => chooseProvider(v as TranslateProvider)}
                 title={t(o.labelKey)}
                 description={t(o.descKey)}
+                disabled={optionLockedKey(config, "translation", o.id) !== null}
+                reason={lockedReason(t, config, "translation", o.id)}
                 badges={
                   o.badges.length > 0 || keyAdded(config, o) ? <OptionBadges config={config} option={o} /> : undefined
                 }

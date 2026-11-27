@@ -265,7 +265,17 @@ func Load() (*Config, error) {
 		c.Translate.Provider = TranslateOllama
 	}
 	migrateSummaryOpenAI(c)
+	c.Normalize()
 	return c, nil
+}
+
+// Normalize applies rules that tie settings together. With Soniox
+// transcribing, translation is always Soniox's own ("none"): the user's
+// rule (2026-11-27), so a meeting never mixes two translators.
+func (c *Config) Normalize() {
+	if c.Engine == "soniox" {
+		c.Translate.Provider = TranslateNone
+	}
 }
 
 // migrateSummaryOpenAI moves a pre-LLM-block summary.openai server into

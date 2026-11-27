@@ -182,7 +182,7 @@ func TestSetupMigration(t *testing.T) {
 		t.Fatalf("fresh install setup = %q, want empty", c.Setup)
 	}
 
-	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("engine: soniox\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("engine: whisper\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ = Load(); c.Setup != SetupCustom {
@@ -206,5 +206,26 @@ func TestSetupMigration(t *testing.T) {
 	}
 	if c, _ = Load(); c.Setup != SetupCloud || c.Translate.Provider != TranslateNone {
 		t.Fatalf("round trip = %q/%q", c.Setup, c.Translate.Provider)
+	}
+}
+
+// With Soniox, translation is always Soniox's own.
+func TestSonioxLocksTranslation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CATCHM_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("engine: soniox\ntranslate:\n  provider: google\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Translate.Provider != TranslateNone {
+		t.Fatalf("soniox + google loaded as %q, want none", c.Translate.Provider)
+	}
+	c.Engine, c.Translate.Provider = "whisper", TranslateGoogle
+	c.Normalize()
+	if c.Translate.Provider != TranslateGoogle {
+		t.Fatalf("whisper changed the provider to %q", c.Translate.Provider)
 	}
 }

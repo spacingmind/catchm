@@ -18,17 +18,19 @@ import {
 } from "@/lib/api"
 import { navigate } from "@/lib/route"
 import {
+  MODULES,
   currentChoices,
   engineTranslates,
   keyAdded,
-  MODULES,
+  lockedReason,
   modulePatch,
+  optionLockedKey,
   optionsVisible,
   presetPatch,
+  translateNeed,
   type ModuleId,
   type Preset,
   type SetupOption,
-  translateNeed,
 } from "@/lib/setup"
 
 const MODULE_ICONS: Record<ModuleId, LucideIcon> = {
@@ -204,6 +206,8 @@ export function SetupBuilder({
                   title={t(o.labelKey)}
                   description={t(o.descKey)}
                   badges={hasBadges(config, o) ? <OptionBadges config={config} option={o} /> : undefined}
+                  disabled={optionLockedKey(config, module, o.id) !== null}
+                  reason={lockedReason(t, config, module, o.id)}
                 />
               ))}
             </div>
