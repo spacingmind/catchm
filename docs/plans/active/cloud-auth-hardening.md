@@ -231,3 +231,30 @@ email_code?, totp_code?}`.
       **before** an app release that speaks the new protocol. Old
       clients keep working until their user hits a challenge, and then
       they see a clear error to update.
+
+## Progress (2026-11-27)
+
+- **Worker:** `catchm-api` PR #7 (194 tests). The deploy waits on the
+  secrets, the Resend DNS and the app release.
+- **App:** part 1 is in `7972358`: challenges, device identity, resend
+  and the HIBP warning. It also works against today's Worker.
+
+Changes from the design made while building:
+
+- **Release order is reversed: app first, Worker second.** The new
+  client speaks both protocols, so most people update before the Worker
+  changes. Requests with no device fields (apps from before this)
+  get **426** "Update CatchM to the latest version to sign in."
+- **Signups that are never verified can be replaced.** One older than
+  24 h is replaced by the next signup (`users.signup_pending`).
+  Accounts from before this change never are.
+- **Recover asks for the email-code challenge only, not TOTP.** The
+  recovery code is itself the second factor.
+- **Wrong TOTP codes in enable/disable get 403,** so a client doesn't
+  take them for an expired session (401).
+- **Login and recover return `session_id`.**
+- **"Someone tried to sign up" goes out at most once an hour** per
+  account, which protects Resend's 100/day free quota.
+- **Cloudflare can send a message twice.** The Cloudflare binding has
+  no idempotency key, so if Resend accepted a message but its reply was
+  lost, the fallback could send it again.
