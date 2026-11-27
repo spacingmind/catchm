@@ -3,6 +3,7 @@ import { StatusTag } from "@/components/feature-row";
 import { MindMapMock } from "@/components/mind-map-mock";
 import { Shot } from "@/components/ui/shot";
 import { formatDate, type Release } from "@/lib/release";
+import { siteConfig } from "@/lib/site";
 
 const delay = (ms: number) => ({ "--d": `${ms}ms` }) as React.CSSProperties;
 
@@ -21,7 +22,7 @@ export function Hero({ release }: { release: Release }) {
       <div className="mx-auto max-w-6xl px-5 pt-14 pb-28 sm:px-8 sm:pt-20 sm:pb-32">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-end lg:gap-16">
           <div>
-            <p className="eyebrow rise">For Windows and macOS</p>
+            <p className="eyebrow rise">Open source · For Windows and macOS</p>
             <h1
               className="display rise mt-5 text-[clamp(2.9rem,7.4vw,5.6rem)]"
               style={delay(60)}
@@ -45,6 +46,11 @@ export function Hero({ release }: { release: Release }) {
               v{release.version} · {formatDate(release.publishedAt)}
               <br />
               Windows 10/11 · macOS on Apple Silicon
+              <br />
+              <a href={siteConfig.repo} className="underline underline-offset-4 transition-colors hover:text-ink">
+                Source on GitHub
+              </a>{" "}
+              · {siteConfig.license.name} licence
             </p>
           </div>
         </div>

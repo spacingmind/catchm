@@ -62,12 +62,12 @@ func serve() error {
 
 	addr := os.Getenv("CATCHM_ADDR")
 	if addr == "" {
-		addr = ":4649"
+		addr = defaultAddr
 	}
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(tools.New(store), cfg),
+		Handler:           guardFor(addr, server.New(tools.New(store), cfg)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

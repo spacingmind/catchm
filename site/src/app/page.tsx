@@ -30,6 +30,9 @@ export default async function Page() {
     inLanguage: "en",
     downloadUrl: [release.windows.url, release.mac.url],
     publisher: { "@type": "Organization", name: siteConfig.maker.name, url: siteConfig.maker.url },
+    license: siteConfig.license.url,
+    isAccessibleForFree: true,
+    sameAs: [siteConfig.repo],
   }).replace(/</g, "\\u003c");
 
   return (
