@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,11 +46,61 @@ summary:
 	want := SummaryConfig{
 		Provider:     "openai",
 		OllamaModel:  defaultSummaryModel, // unset: default kept
-		OpenAI:       OpenAICompatConfig{BaseURL: "http://127.0.0.1:11435/v1", Model: "gpt-5", APIKey: "sk-sum"},
 		CloudConsent: true,
 	}
 	if c.Summary != want {
 		t.Fatalf("summary = %+v, want %+v", c.Summary, want)
+	}
+	// The old summary.openai server moves into the shared llm block.
+	wantLLM := LLMConfig{Preset: LLMCustom, BaseURL: "http://127.0.0.1:11435/v1", APIKey: "sk-sum", FastModel: "gpt-5", StrongModel: "gpt-5"}
+	if c.LLM != wantLLM {
+		t.Fatalf("llm = %+v, want %+v", c.LLM, wantLLM)
+	}
+}
+
+// A Cloudflare Workers AI URL (all the old settings UI ever wrote)
+// becomes the cloudflare preset with its account ID.
+func TestMigrateCloudflareSummary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CATCHM_HOME", home)
+	yaml := "summary:\n  provider: openai\n  openai:\n    base_url: https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1\n    model: \"@cf/qwen/qwen3-30b-a3b-fp8\"\n    api_key: cf-tok\n"
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LLM.Preset != LLMCloudflare || c.LLM.AccountID != "abc123" || c.LLM.APIKey != "cf-tok" || c.LLM.BaseURL != "" {
+		t.Fatalf("llm = %+v", c.LLM)
+	}
+	base, fast, strong := c.LLM.Resolved()
+	if base != "https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1" || fast != "@cf/qwen/qwen3-30b-a3b-fp8" || strong != fast {
+		t.Fatalf("resolved = %s %s %s", base, fast, strong)
+	}
+	// Saved and reloaded, it stays put and summary.openai is gone.
+	if err := Save(c); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(home, "config.yaml"))
+	if strings.Contains(string(raw), "openai:") {
+		t.Fatalf("summary.openai written again:\n%s", raw)
+	}
+}
+
+func TestLLMResolvedDefaults(t *testing.T) {
+	base, fast, strong := LLMConfig{Preset: LLMGemini, StrongModel: "my-strong"}.Resolved()
+	if base != LLMPresets[LLMGemini].BaseURL || fast != LLMPresets[LLMGemini].FastModel || strong != "my-strong" {
+		t.Fatalf("gemini = %s %s %s", base, fast, strong)
+	}
+	if b, _, _ := (LLMConfig{Preset: LLMCloudflare}).Resolved(); b != "" {
+		t.Fatalf("cloudflare without account resolved to %q", b)
+	}
+	if (LLMConfig{Preset: LLMOpenAI}).Ready() {
+		t.Fatal("ready without a key")
+	}
+	if !(LLMConfig{Preset: LLMOpenAI, APIKey: "k"}).Ready() {
+		t.Fatal("openai preset + key not ready")
 	}
 }
 

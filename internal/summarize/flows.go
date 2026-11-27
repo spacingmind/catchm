@@ -319,7 +319,7 @@ func (o *Ollama) FindFlows(ctx context.Context, in Input, a Analysis) ([]Flow, e
 
 func (o *OpenAI) FindFlows(ctx context.Context, in Input, a Analysis) ([]Flow, error) {
 	if o.BaseURL == "" || o.Model == "" {
-		return nil, notReady("Add your Cloudflare Account ID and API token in Settings → Summaries.", nil)
+		return nil, notReady("Set up your AI provider (API key and model) in Settings → Summaries.", nil)
 	}
 	return runFlows(ctx, o, openaiBudgetTokens, in, a)
 }

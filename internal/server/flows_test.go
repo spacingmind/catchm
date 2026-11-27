@@ -157,7 +157,7 @@ func TestFindFlowsEndpointNotReady(t *testing.T) {
 			s.cloud = &cloudState{email: "a@b.c", sessionToken: "tok"}
 			s.cfg.Summary.Provider = summarize.ProviderCloud
 			s.cfg.Summary.CloudConsent = true
-		}, "Finding flows isn't available with CatchM Cloud yet. Use On this computer or Your Cloudflare account."},
+		}, "Finding flows isn't available with CatchM Cloud yet. Use your own AI provider (or Ollama) in Settings → Summaries."},
 		{"ollama down", func(t *testing.T, s *Server) {
 			down := httptest.NewServer(http.NotFoundHandler())
 			down.Close()

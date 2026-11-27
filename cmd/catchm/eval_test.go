@@ -68,8 +68,8 @@ func TestEvalJSON(t *testing.T) {
 func TestEvalTable(t *testing.T) {
 	code, stdout, _, cfg := runCLI(t, fixedSummarizer{a: summarize.Analysis{Summary: "s"}},
 		"--dir", goldDir, "--provider", "openai", "--model", "m1")
-	if code != 0 || cfg.Summary.OpenAI.Model != "m1" {
-		t.Fatalf("exit %d, openai model %q", code, cfg.Summary.OpenAI.Model)
+	if code != 0 || cfg.LLM.StrongModel != "m1" {
+		t.Fatalf("exit %d, openai model %q", code, cfg.LLM.StrongModel)
 	}
 	for _, s := range []string{"provider: openai  model: m1", "a-en-product-standup", "e-vi-social-catchup", "MEAN (5/5)"} {
 		if !strings.Contains(stdout, s) {

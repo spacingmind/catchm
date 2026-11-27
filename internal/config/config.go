@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -20,13 +21,103 @@ type SonioxConfig struct {
 type TranslateConfig struct {
 	// Provider translates text for engines with no native translation:
 	// "ollama" (local; the default, and what "" means for configs written
-	// before it existed) or "none" (only the engine's own translation, e.g.
-	// Soniox). Cloud translation providers join in a later phase
-	// (docs/plans/active/cloud-mode.md).
-	Provider   string `yaml:"provider"`
-	Host       string `yaml:"host"`
-	LiveModel  string `yaml:"live_model"`
-	BatchModel string `yaml:"batch_model"`
+	// before it existed), "google" (Cloud Translation API), "llm"
+	// (the shared OpenAI-compatible LLM block) or "none" (only the engine's
+	// own translation, e.g. Soniox). See docs/plans/active/cloud-mode.md.
+	Provider   string       `yaml:"provider"`
+	Google     APIKeyConfig `yaml:"google"`
+	Host       string       `yaml:"host"`
+	LiveModel  string       `yaml:"live_model"`
+	BatchModel string       `yaml:"batch_model"`
+}
+
+// APIKeyConfig is a provider that needs nothing but a key.
+type APIKeyConfig struct {
+	APIKey string `yaml:"api_key"` // secret: never returned by GET
+}
+
+// LLMConfig is the one OpenAI-compatible chat completions provider shared
+// by translation (translate.provider "llm", FastModel) and summaries
+// (summary.provider "openai", StrongModel). Preset picks the server and
+// default models (LLMPresets); "custom" uses BaseURL as given.
+type LLMConfig struct {
+	Preset      string `yaml:"preset"`
+	BaseURL     string `yaml:"base_url"`     // custom preset only; presets resolve theirs
+	AccountID   string `yaml:"account_id"`   // cloudflare preset only
+	APIKey      string `yaml:"api_key"`      // secret: never returned by GET
+	FastModel   string `yaml:"fast_model"`   // live translation; "" = preset default
+	StrongModel string `yaml:"strong_model"` // summaries, batch translation; "" = preset default
+}
+
+// LLMPreset is one OpenAI-compatible provider's server and default
+// models (docs/plans/active/cloud-mode-providers.md).
+type LLMPreset struct {
+	BaseURL     string // "{account}" is replaced by LLMConfig.AccountID
+	FastModel   string
+	StrongModel string
+}
+
+// LLM presets (LLMConfig.Preset).
+const (
+	LLMOpenAI     = "openai"
+	LLMGemini     = "gemini"
+	LLMOpenRouter = "openrouter"
+	LLMAnthropic  = "anthropic"
+	LLMGroq       = "groq"
+	LLMDeepSeek   = "deepseek"
+	LLMCloudflare = "cloudflare"
+	LLMCustom     = "custom"
+)
+
+// LLMPresets maps each preset to its server and default models. Model
+// ids are the vendors' current fast/strong picks as of 2026-11; the user
+// can override both.
+var LLMPresets = map[string]LLMPreset{
+	LLMOpenAI:     {BaseURL: "https://api.openai.com/v1", FastModel: "gpt-6-luna", StrongModel: "gpt-6.1-terra"},
+	LLMGemini:     {BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", FastModel: "gemini-2.5-flash-lite", StrongModel: "gemini-3.8-flash"},
+	LLMOpenRouter: {BaseURL: "https://openrouter.ai/api/v1", FastModel: "anthropic/claude-haiku-5.5", StrongModel: "anthropic/claude-sonnet-5.5"},
+	LLMAnthropic:  {BaseURL: "https://api.anthropic.com/v1", FastModel: "claude-haiku-5-5", StrongModel: "claude-sonnet-5-5"},
+	LLMGroq:       {BaseURL: "https://api.groq.com/openai/v1", FastModel: "openai/gpt-oss-20b", StrongModel: "openai/gpt-oss-120b"},
+	LLMDeepSeek:   {BaseURL: "https://api.deepseek.com", FastModel: "deepseek-flash", StrongModel: "deepseek-v4-pro"},
+	LLMCloudflare: {BaseURL: "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1", FastModel: "@cf/qwen/qwen3-30b-a3b-fp8", StrongModel: "@cf/qwen/qwen3-30b-a3b-fp8"},
+}
+
+// Resolved returns the chat completions base URL and the fast/strong
+// models after applying the preset's defaults. BaseURL is "" when the
+// config can't name a server yet (no preset, custom without a URL,
+// cloudflare without an account ID).
+func (l LLMConfig) Resolved() (baseURL, fast, strong string) {
+	p, ok := LLMPresets[l.Preset]
+	switch {
+	case ok && l.Preset == LLMCloudflare:
+		if l.AccountID != "" {
+			baseURL = strings.ReplaceAll(p.BaseURL, "{account}", l.AccountID)
+		}
+	case ok:
+		baseURL = p.BaseURL
+	default:
+		baseURL = l.BaseURL
+	}
+	fast, strong = l.FastModel, l.StrongModel
+	if fast == "" {
+		fast = p.FastModel
+	}
+	if strong == "" {
+		strong = p.StrongModel
+	}
+	if fast == "" {
+		fast = strong
+	}
+	if strong == "" {
+		strong = fast
+	}
+	return baseURL, fast, strong
+}
+
+// Ready reports whether the LLM can be called: a server, a model and a key.
+func (l LLMConfig) Ready() bool {
+	base, fast, _ := l.Resolved()
+	return base != "" && fast != "" && l.APIKey != ""
 }
 
 // CloudConfig holds the non-secret cloud-sync account parameters.
@@ -43,9 +134,11 @@ type CloudConfig struct {
 // SummaryConfig selects and configures the provider that writes meeting
 // summaries, decisions and action items (internal/summarize).
 type SummaryConfig struct {
-	Provider     string             `yaml:"provider"`     // "ollama" (default) | "catchm-cloud" | "openai"
-	OllamaModel  string             `yaml:"ollama_model"` // default "qwen3.5:9b"; host = translate.host
-	OpenAI       OpenAICompatConfig `yaml:"openai"`
+	Provider    string `yaml:"provider"`     // "ollama" (default) | "catchm-cloud" | "openai" (= Config.LLM)
+	OllamaModel string `yaml:"ollama_model"` // default "qwen3.5:9b"; host = translate.host
+	// OpenAI is the pre-LLM-block location of the OpenAI-compatible
+	// summary server. Load moves it into Config.LLM; never written again.
+	OpenAI       OpenAICompatConfig `yaml:"openai,omitempty"`
 	CloudConsent bool               `yaml:"cloud_consent"`
 }
 
@@ -70,6 +163,8 @@ const (
 // Translation providers (TranslateConfig.Provider).
 const (
 	TranslateOllama = "ollama"
+	TranslateGoogle = "google"
+	TranslateLLM    = "llm"
 	TranslateNone   = "none"
 )
 
@@ -87,6 +182,7 @@ type Config struct {
 	Translate  TranslateConfig `yaml:"translate"`
 	Cloud      CloudConfig     `yaml:"cloud"`
 	Summary    SummaryConfig   `yaml:"summary"`
+	LLM        LLMConfig       `yaml:"llm"`
 }
 
 const (
@@ -168,7 +264,27 @@ func Load() (*Config, error) {
 	if c.Translate.Provider == "" {
 		c.Translate.Provider = TranslateOllama
 	}
+	migrateSummaryOpenAI(c)
 	return c, nil
+}
+
+// migrateSummaryOpenAI moves a pre-LLM-block summary.openai server into
+// the shared llm block (once: only while llm names no server). The
+// settings UI only ever wrote Cloudflare Workers AI URLs there, which
+// become the cloudflare preset; anything else becomes custom.
+func migrateSummaryOpenAI(c *Config) {
+	old := c.Summary.OpenAI
+	c.Summary.OpenAI = OpenAICompatConfig{}
+	if old.BaseURL == "" || c.LLM.Preset != "" || c.LLM.BaseURL != "" {
+		return
+	}
+	c.LLM = LLMConfig{Preset: LLMCustom, BaseURL: old.BaseURL, APIKey: old.APIKey, FastModel: old.Model, StrongModel: old.Model}
+	const cfPrefix = "https://api.cloudflare.com/client/v4/accounts/"
+	if rest, ok := strings.CutPrefix(strings.TrimRight(old.BaseURL, "/"), cfPrefix); ok {
+		if account, tail, ok := strings.Cut(rest, "/"); ok && tail == "ai/v1" {
+			c.LLM.Preset, c.LLM.BaseURL, c.LLM.AccountID = LLMCloudflare, "", account
+		}
+	}
 }
 
 // hasTopLevelKey reports whether the YAML document maps key at its top

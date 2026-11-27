@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,14 +87,7 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 				_ = stt.NewSonioxAsyncEngine(cfg.Soniox.APIKey, "").CleanupStale(ctx)
 			}()
 		},
-		newTranslator: func(cfg *config.Config, model string) (translate.Translator, error) {
-			if cfg.Translate.Provider == config.TranslateNone {
-				// Every caller treats an error as "no text translator":
-				// only the engine's own translation (Soniox) is used.
-				return nil, errTranslateNone
-			}
-			return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
-		},
+		newTranslator:  buildTranslator,
 		newSummarizer:  summarize.New,
 		pipelines:      map[string]*pipeline.Pipeline{},
 		newCloudClient: nil,
@@ -134,6 +128,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/translate/pull", s.handleTranslatePull)
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
 	s.mux.HandleFunc("GET /api/stt/status", s.handleSttStatus)
+	s.mux.HandleFunc("POST /api/providers/{name}/verify", s.handleVerifyProvider)
 	s.mux.HandleFunc("GET /api/summary/status", s.handleSummaryStatus)
 
 	s.mux.HandleFunc("POST /api/cloud/signup", s.handleCloudSignup)
@@ -635,6 +630,37 @@ func (s *Server) stopPipeline(id string) {
 // the capture_error wording doesn't sniff error strings.
 var errSonioxNoKey = errors.New("soniox: no api key configured")
 
+// buildTranslator is the production newTranslator. model is the Ollama
+// model the caller wants (Translate.LiveModel for live meetings,
+// BatchModel for re-transcribe/import); cloud providers ignore it except
+// that the LLM uses its strong model for batch work and its fast one
+// live. Every caller treats an error as "no text translator", so an
+// unconfigured provider just leaves lines untranslated (the readiness
+// checks in /api/translate/status tell the user why).
+func buildTranslator(cfg *config.Config, model string) (translate.Translator, error) {
+	switch cfg.Translate.Provider {
+	case config.TranslateNone:
+		return nil, errTranslateNone
+	case config.TranslateGoogle:
+		if cfg.Translate.Google.APIKey == "" {
+			return nil, errors.New("Google Translate API key is not set — add it in Settings → Translation")
+		}
+		return &translate.GoogleTranslator{APIKey: cfg.Translate.Google.APIKey}, nil
+	case config.TranslateLLM:
+		base, fast, strong := cfg.LLM.Resolved()
+		if !cfg.LLM.Ready() {
+			return nil, errors.New("the AI model provider isn't set up — add its API key in Settings → Translation")
+		}
+		m := fast
+		if model == cfg.Translate.BatchModel && model != cfg.Translate.LiveModel {
+			m = strong
+		}
+		return &translate.LLMTranslator{BaseURL: base, APIKey: cfg.LLM.APIKey, Model: m}, nil
+	default:
+		return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
+	}
+}
+
 // errTranslateNone: translate.provider is "none", so there's no text
 // translator — only an engine's native translation.
 var errTranslateNone = errors.New("no translation provider is set up: only the transcription engine's own translation is available")
@@ -870,9 +896,37 @@ func (s *Server) handleTranslateStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), translateStatusTimeout)
 	defer cancel()
 
+	s.mu.Lock()
+	cfg := *s.cfg
+	s.mu.Unlock()
+	// Cloud providers and "none": no Ollama probe. ready says whether
+	// text translation works; reason says what's missing.
+	switch cfg.Translate.Provider {
+	case config.TranslateNone:
+		writeJSON(w, http.StatusOK, map[string]any{"provider": cfg.Translate.Provider, "ready": false,
+			"reason": "Only the transcription engine's own translation (Soniox) is used."})
+		return
+	case config.TranslateGoogle:
+		body := map[string]any{"provider": cfg.Translate.Provider, "ready": cfg.Translate.Google.APIKey != ""}
+		if cfg.Translate.Google.APIKey == "" {
+			body["reason"] = "Add your Google Cloud Translation API key."
+		}
+		writeJSON(w, http.StatusOK, body)
+		return
+	case config.TranslateLLM:
+		body := map[string]any{"provider": cfg.Translate.Provider, "ready": cfg.LLM.Ready()}
+		if !cfg.LLM.Ready() {
+			body["reason"] = "Set up your AI provider (API key and model)."
+		}
+		writeJSON(w, http.StatusOK, body)
+		return
+	}
+
 	names, err := translate.ListModels(ctx, s.cfg.Translate.Host)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
+			"provider":         config.TranslateOllama,
+			"ready":            false,
 			"ollama_reachable": false,
 			"live_model":       map[string]any{"name": s.cfg.Translate.LiveModel, "installed": false},
 			"batch_model":      map[string]any{"name": s.cfg.Translate.BatchModel, "installed": false},
@@ -884,6 +938,8 @@ func (s *Server) handleTranslateStatus(w http.ResponseWriter, r *http.Request) {
 		installed[n] = true
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"provider":         config.TranslateOllama,
+		"ready":            installed[s.cfg.Translate.LiveModel],
 		"ollama_reachable": true,
 		"live_model":       map[string]any{"name": s.cfg.Translate.LiveModel, "installed": installed[s.cfg.Translate.LiveModel]},
 		"batch_model":      map[string]any{"name": s.cfg.Translate.BatchModel, "installed": installed[s.cfg.Translate.BatchModel]},
@@ -1018,21 +1074,38 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 		"soniox":             map[string]any{"url": cfg.Soniox.URL},
 		"soniox_api_key_set": cfg.Soniox.APIKey != "",
 		"translate": map[string]any{
-			"provider":    cfg.Translate.Provider,
-			"host":        cfg.Translate.Host,
-			"live_model":  cfg.Translate.LiveModel,
-			"batch_model": cfg.Translate.BatchModel,
+			"provider":           cfg.Translate.Provider,
+			"google_api_key_set": cfg.Translate.Google.APIKey != "",
+			"host":               cfg.Translate.Host,
+			"live_model":         cfg.Translate.LiveModel,
+			"batch_model":        cfg.Translate.BatchModel,
 		},
+		"llm":             llmJSON(cfg.LLM),
+		"llm_api_key_set": cfg.LLM.APIKey != "",
 		"summary": map[string]any{
-			"provider":     summarize.ProviderOf(cfg),
-			"ollama_model": cfg.Summary.OllamaModel,
-			"openai": map[string]any{
-				"base_url": cfg.Summary.OpenAI.BaseURL,
-				"model":    cfg.Summary.OpenAI.Model,
-			},
+			"provider":      summarize.ProviderOf(cfg),
+			"ollama_model":  cfg.Summary.OllamaModel,
 			"cloud_consent": cfg.Summary.CloudConsent,
 		},
-		"summary_openai_api_key_set": cfg.Summary.OpenAI.APIKey != "",
+	}
+}
+
+// llmJSON is the shared LLM block as the UI sees it: what the user set
+// plus the resolved server and models (preset defaults filled in), so
+// the form can show placeholders. Never the key.
+func llmJSON(l config.LLMConfig) map[string]any {
+	base, fast, strong := l.Resolved()
+	return map[string]any{
+		"preset":       l.Preset,
+		"base_url":     l.BaseURL,
+		"account_id":   l.AccountID,
+		"fast_model":   l.FastModel,
+		"strong_model": l.StrongModel,
+		"resolved": map[string]any{
+			"base_url":     base,
+			"fast_model":   fast,
+			"strong_model": strong,
+		},
 	}
 }
 
@@ -1050,19 +1123,25 @@ type configRequestBody struct {
 	} `json:"soniox"`
 	SonioxAPIKey string `json:"soniox_api_key"`
 	Translate    struct {
-		Provider   string `json:"provider"`
-		Host       string `json:"host"`
-		LiveModel  string `json:"live_model"`
-		BatchModel string `json:"batch_model"`
+		Provider     string `json:"provider"`
+		GoogleAPIKey string `json:"google_api_key"`
+		Host         string `json:"host"`
+		LiveModel    string `json:"live_model"`
+		BatchModel   string `json:"batch_model"`
 	} `json:"translate"`
+	// LLM fields are pointers: "" must be settable (back to the preset's
+	// default model, clearing a custom URL), and omitted means as-is.
+	LLM struct {
+		Preset      *string `json:"preset"`
+		BaseURL     *string `json:"base_url"`
+		AccountID   *string `json:"account_id"`
+		FastModel   *string `json:"fast_model"`
+		StrongModel *string `json:"strong_model"`
+		APIKey      string  `json:"api_key"`
+	} `json:"llm"`
 	Summary struct {
 		Provider    string `json:"provider"`
 		OllamaModel string `json:"ollama_model"`
-		OpenAI      struct {
-			BaseURL string `json:"base_url"`
-			Model   string `json:"model"`
-			APIKey  string `json:"api_key"`
-		} `json:"openai"`
 		// A pointer, unlike the strings: false (revoking consent) must
 		// be settable, and omitted must still mean "leave as-is".
 		CloudConsent *bool `json:"cloud_consent"`
@@ -1110,25 +1189,31 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Translate.Provider {
-	case "", config.TranslateOllama, config.TranslateNone:
+	case "", config.TranslateOllama, config.TranslateGoogle, config.TranslateLLM, config.TranslateNone:
 	default:
-		httpError(w, http.StatusBadRequest, `translate.provider must be "ollama" or "none"`)
+		httpError(w, http.StatusBadRequest, `translate.provider must be "ollama", "google", "llm" or "none"`)
 		return
+	}
+	if p := req.LLM.Preset; p != nil && *p != config.LLMCustom {
+		if _, ok := config.LLMPresets[*p]; !ok {
+			httpError(w, http.StatusBadRequest, "llm.preset: unknown preset "+strconv.Quote(*p))
+			return
+		}
+	}
+	var llmBaseURL string
+	if req.LLM.BaseURL != nil && *req.LLM.BaseURL != "" {
+		normalized, err := validateSummaryBaseURL(*req.LLM.BaseURL)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "llm.base_url: "+err.Error())
+			return
+		}
+		llmBaseURL = normalized
 	}
 	switch req.UILanguage {
 	case "", "system", "en", "vi":
 	default:
 		httpError(w, http.StatusBadRequest, `ui_language must be "system", "en" or "vi"`)
 		return
-	}
-	baseURL := req.Summary.OpenAI.BaseURL
-	if baseURL != "" {
-		normalized, err := validateSummaryBaseURL(baseURL)
-		if err != nil {
-			httpError(w, http.StatusBadRequest, "summary.openai.base_url: "+err.Error())
-			return
-		}
-		baseURL = normalized
 	}
 
 	s.mu.Lock()
@@ -1145,19 +1230,13 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.Soniox.URL, req.Soniox.URL)
 	setIfNonEmpty(&updated.Soniox.APIKey, req.SonioxAPIKey)
 	setIfNonEmpty(&updated.Translate.Provider, req.Translate.Provider)
+	setIfNonEmpty(&updated.Translate.Google.APIKey, req.Translate.GoogleAPIKey)
 	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)
 	setIfNonEmpty(&updated.Translate.LiveModel, req.Translate.LiveModel)
 	setIfNonEmpty(&updated.Translate.BatchModel, req.Translate.BatchModel)
 	setIfNonEmpty(&updated.Summary.Provider, req.Summary.Provider)
 	setIfNonEmpty(&updated.Summary.OllamaModel, req.Summary.OllamaModel)
-	if baseURL != "" && baseURL != updated.Summary.OpenAI.BaseURL && req.Summary.OpenAI.APIKey == "" {
-		// A stored key belongs to the server it was entered for; never
-		// send it to a different one the user switched to.
-		updated.Summary.OpenAI.APIKey = ""
-	}
-	setIfNonEmpty(&updated.Summary.OpenAI.BaseURL, baseURL)
-	setIfNonEmpty(&updated.Summary.OpenAI.Model, req.Summary.OpenAI.Model)
-	setIfNonEmpty(&updated.Summary.OpenAI.APIKey, req.Summary.OpenAI.APIKey)
+	applyLLMUpdate(&updated.LLM, req, llmBaseURL)
 	if req.Summary.CloudConsent != nil {
 		updated.Summary.CloudConsent = *req.Summary.CloudConsent
 	}
@@ -1175,6 +1254,35 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	s.cfg = reloaded
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, sanitizedConfig(reloaded))
+}
+
+// applyLLMUpdate merges a PUT's llm fields. A stored key belongs to the
+// server it was entered for: when the request moves the LLM to another
+// server (preset, custom URL or Cloudflare account) without sending a
+// new key, the old key is dropped rather than sent somewhere new.
+func applyLLMUpdate(l *config.LLMConfig, req configRequestBody, baseURL string) {
+	beforeBase, _, _ := l.Resolved()
+	if req.LLM.Preset != nil {
+		l.Preset = *req.LLM.Preset
+	}
+	if req.LLM.BaseURL != nil {
+		l.BaseURL = baseURL
+	}
+	if req.LLM.AccountID != nil {
+		l.AccountID = strings.TrimSpace(*req.LLM.AccountID)
+	}
+	if req.LLM.FastModel != nil {
+		l.FastModel = strings.TrimSpace(*req.LLM.FastModel)
+	}
+	if req.LLM.StrongModel != nil {
+		l.StrongModel = strings.TrimSpace(*req.LLM.StrongModel)
+	}
+	afterBase, _, _ := l.Resolved()
+	if req.LLM.APIKey != "" {
+		l.APIKey = req.LLM.APIKey
+	} else if beforeBase != afterBase {
+		l.APIKey = ""
+	}
 }
 
 func respondRefineErr(w http.ResponseWriter, err error) {

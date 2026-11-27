@@ -224,7 +224,7 @@ func TestNewSelectsProviderAndGuardsConsent(t *testing.T) {
 	if _, err := New(cfg, CloudAuth{}); kindOf(err) != KindNotReady {
 		t.Fatalf("openai without base url: err = %v", err)
 	}
-	cfg.Summary.OpenAI = config.OpenAICompatConfig{BaseURL: "http://x/v1", Model: "m"}
+	cfg.LLM = config.LLMConfig{Preset: config.LLMCustom, BaseURL: "http://x/v1", StrongModel: "m", APIKey: "k"}
 	if s, err := New(cfg, CloudAuth{}); err != nil {
 		t.Fatal(err)
 	} else if _, ok := s.(*OpenAI); !ok {

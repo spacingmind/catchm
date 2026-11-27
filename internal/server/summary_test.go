@@ -507,7 +507,7 @@ func TestSummaryStatusOpenAI(t *testing.T) {
 	if v.Ready || v.Reason == nil || v.OpenAI == nil || v.OpenAI.Configured {
 		t.Fatalf("unconfigured: %+v", v)
 	}
-	s.cfg.Summary.OpenAI = config.OpenAICompatConfig{BaseURL: "http://127.0.0.1:11435/v1", Model: "gpt-5"}
+	s.cfg.LLM = config.LLMConfig{Preset: config.LLMOpenAI, APIKey: "sk-x"}
 	v = getSummaryStatus(t, s)
 	if !v.Ready || !v.OpenAI.Configured {
 		t.Fatalf("configured: %+v", v)
@@ -535,11 +535,11 @@ func TestTranslatePullSummaryTarget(t *testing.T) {
 
 // TestConfigSummaryRedactionAndPartialPut mirrors the Soniox key tests
 // for summary.openai.api_key, and covers the rest of the summary block.
-func TestConfigSummaryRedactionAndPartialPut(t *testing.T) {
+func TestConfigLLMRedactionAndPartialPut(t *testing.T) {
 	t.Setenv("CATCHM_HOME", t.TempDir())
 	s, _ := newTestServer(t)
 
-	w := do(t, s, "PUT", "/api/config", `{"summary":{"provider":"openai","openai":{"base_url":"http://127.0.0.1:11435/v1/","model":"gpt-5","api_key":"sk-sum-secret"}}}`)
+	w := do(t, s, "PUT", "/api/config", `{"summary":{"provider":"openai"},"llm":{"preset":"custom","base_url":"http://127.0.0.1:11435/v1/","strong_model":"gpt-5","api_key":"sk-sum-secret"}}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("put: status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -547,44 +547,51 @@ func TestConfigSummaryRedactionAndPartialPut(t *testing.T) {
 		t.Fatalf("put response leaks the key: %s", w.Body.String())
 	}
 
-	type summaryBody struct {
+	type body struct {
 		Summary struct {
-			Provider    string            `json:"provider"`
-			OllamaModel string            `json:"ollama_model"`
-			OpenAI      map[string]string `json:"openai"`
-			Consent     bool              `json:"cloud_consent"`
+			Provider string `json:"provider"`
+			Consent  bool   `json:"cloud_consent"`
 		} `json:"summary"`
-		KeySet bool `json:"summary_openai_api_key_set"`
+		LLM struct {
+			Preset      string `json:"preset"`
+			BaseURL     string `json:"base_url"`
+			StrongModel string `json:"strong_model"`
+			Resolved    struct {
+				BaseURL   string `json:"base_url"`
+				FastModel string `json:"fast_model"`
+			} `json:"resolved"`
+		} `json:"llm"`
+		KeySet bool `json:"llm_api_key_set"`
 	}
-	get := func() summaryBody {
+	get := func() body {
 		t.Helper()
 		w := do(t, s, "GET", "/api/config", "")
 		if strings.Contains(w.Body.String(), "sk-sum-secret") {
 			t.Fatalf("get leaks the key: %s", w.Body.String())
 		}
-		var v summaryBody
+		var v body
 		decode(t, w, &v)
 		return v
 	}
 	v := get()
-	if v.Summary.Provider != "openai" || v.Summary.OpenAI["base_url"] != "http://127.0.0.1:11435/v1" || v.Summary.OpenAI["model"] != "gpt-5" || !v.KeySet {
+	if v.Summary.Provider != "openai" || v.LLM.BaseURL != "http://127.0.0.1:11435/v1" || v.LLM.StrongModel != "gpt-5" || !v.KeySet {
 		t.Fatalf("get = %+v", v)
 	}
-	if _, ok := v.Summary.OpenAI["api_key"]; ok {
-		t.Fatal("openai.api_key present in GET")
+	if v.LLM.Resolved.FastModel != "gpt-5" {
+		t.Fatalf("fast model should fall back to the strong one: %+v", v.LLM.Resolved)
 	}
 
 	// Omitted or blank key keeps the stored one; consent toggles both ways.
-	for _, body := range []string{
+	for _, b := range []string{
 		`{"summary":{"cloud_consent":true}}`,
-		`{"summary":{"openai":{"api_key":""}}}`,
+		`{"llm":{"api_key":""}}`,
 		`{"engine":"whisper"}`,
 	} {
-		if w := do(t, s, "PUT", "/api/config", body); w.Code != http.StatusOK {
-			t.Fatalf("put %s: status = %d", body, w.Code)
+		if w := do(t, s, "PUT", "/api/config", b); w.Code != http.StatusOK {
+			t.Fatalf("put %s: status = %d", b, w.Code)
 		}
-		if v := get(); !v.KeySet || v.Summary.Provider != "openai" || v.Summary.OpenAI["model"] != "gpt-5" {
-			t.Fatalf("put %s lost fields: %+v", body, v)
+		if v := get(); !v.KeySet || v.Summary.Provider != "openai" || v.LLM.StrongModel != "gpt-5" {
+			t.Fatalf("put %s lost fields: %+v", b, v)
 		}
 	}
 	if !get().Summary.Consent {
@@ -599,20 +606,22 @@ func TestConfigSummaryRedactionAndPartialPut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if onDisk.Summary.OpenAI.APIKey != "sk-sum-secret" {
-		t.Fatalf("key on disk = %q", onDisk.Summary.OpenAI.APIKey)
+	if onDisk.LLM.APIKey != "sk-sum-secret" {
+		t.Fatalf("key on disk = %q", onDisk.LLM.APIKey)
 	}
 
-	// Pointing at a different server drops a key entered for the old one.
-	do(t, s, "PUT", "/api/config", `{"summary":{"openai":{"base_url":"https://openrouter.ai/api/v1"}}}`)
-	if v := get(); v.KeySet || v.Summary.OpenAI["base_url"] != "https://openrouter.ai/api/v1" {
-		t.Fatalf("base_url change kept the old key: %+v", v)
+	// Moving to another server (here: a preset) drops a key entered for
+	// the old one; the preset's server and defaults resolve.
+	do(t, s, "PUT", "/api/config", `{"llm":{"preset":"openrouter","strong_model":""}}`)
+	if v := get(); v.KeySet || v.LLM.Resolved.BaseURL != "https://openrouter.ai/api/v1" || v.LLM.Resolved.FastModel != config.LLMPresets["openrouter"].FastModel {
+		t.Fatalf("preset change: %+v", v)
 	}
 
 	for _, bad := range []string{
 		`{"summary":{"provider":"claude"}}`,
-		`{"summary":{"openai":{"base_url":"not a url"}}}`,
-		`{"summary":{"openai":{"base_url":"ftp://x/v1"}}}`,
+		`{"llm":{"preset":"bard"}}`,
+		`{"llm":{"base_url":"not a url"}}`,
+		`{"llm":{"base_url":"ftp://x/v1"}}`,
 	} {
 		if w := do(t, s, "PUT", "/api/config", bad); w.Code != http.StatusBadRequest {
 			t.Fatalf("put %s: status = %d, want 400", bad, w.Code)
@@ -634,7 +643,7 @@ func TestConfigSummaryDefaultsOnGet(t *testing.T) {
 			Provider    string `json:"provider"`
 			OllamaModel string `json:"ollama_model"`
 		} `json:"summary"`
-		KeySet *bool `json:"summary_openai_api_key_set"`
+		KeySet *bool `json:"llm_api_key_set"`
 	}
 	decode(t, w, &v)
 	if v.Summary.Provider != "ollama" || v.Summary.OllamaModel != "qwen3.5:9b" || v.KeySet == nil || *v.KeySet {
