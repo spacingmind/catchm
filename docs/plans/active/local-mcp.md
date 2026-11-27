@@ -14,7 +14,9 @@ promised "MCP server: coming soon".
 ## Decisions (owner, 2026-11-27)
 
 - **Two transports:**
-  - **stdio:** the MCP client runs `catchm-desktop mcp` (or
+  - **stdio:** the MCP client runs the app's executable with `mcp`
+    (`/Applications/CatchM.app/Contents/MacOS/CatchM mcp`, `catchm-desktop.exe mcp`
+    on Windows, or
     `catchm mcp`) itself. It reads `~/.catchm` directly, opens no port,
     and works while the app is closed.
   - **Local HTTP:** Streamable HTTP at `http://127.0.0.1:<port>/mcp`,
