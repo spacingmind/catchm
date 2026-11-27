@@ -36,6 +36,7 @@ export const vi: Messages = {
   },
   settings: {
     nav: {
+      setup: "Thiết lập",
       recording: "Ghi âm",
       transcription: "Chép lời",
       translation: "Dịch",
@@ -129,6 +130,7 @@ export const vi: Messages = {
       keySet: "Đã có key",
       replaceKey: "Thay key",
       addKey: "Thêm key",
+      changeSetup: "Đổi thiết lập",
       advancedTitle: "Nâng cao",
       advancedDesc: "Bạn chỉ cần đổi những mục này nếu tự chạy máy chủ của mình.",
       sonioxUrlLabel: "Địa chỉ máy chủ Soniox",
@@ -138,6 +140,10 @@ export const vi: Messages = {
     },
     translation: {
       desc: "Dịch các cuộc họp sang ngôn ngữ khác.",
+      providerLabel: "Dịch bằng",
+      providerDesc: "“Có sẵn trong chép lời” chỉ dùng được với Soniox. Ollama chạy trên máy này và dùng được với mọi công cụ chép lời.",
+      builtInExplain:
+        "Bản dịch đến từ dịch vụ chép lời: Soniox dịch ngay khi chép lời, nên ở đây không cần thiết lập gì. Sắp có thêm các dịch vụ dịch khác.",
       descOllama: "Bản dịch chạy trên máy này bằng Ollama, một ứng dụng miễn phí. Cài từ <ext>ollama.com</ext>, rồi tải các mô hình bên dưới. Thay đổi được lưu khi bạn rời khỏi ô nhập.",
       loadError: "Không tải được cài đặt dịch: {{error}}. Hãy thử lại, hoặc khởi động lại CatchM nếu vẫn lỗi.",
       loading: "Đang tải cài đặt dịch…",
@@ -255,7 +261,8 @@ export const vi: Messages = {
       setupNotReady: "Tóm tắt chưa sẵn sàng.",
       consentTitle: "Gửi bản chép lời đến CatchM Cloud?",
       cloudPrivacy: "Bản chép lời của bạn được gửi đi chưa mã hóa đến CatchM Cloud, nơi dùng Cloudflare Workers AI (hoặc mô hình đối tác không lưu dữ liệu khi Cloudflare quá tải) để viết bản tóm tắt. Nội dung không được lưu lại.",
-      consentBody: "Việc này xảy ra mỗi khi bạn tạo tóm tắt bằng CatchM Cloud. Bản ghi và các cuộc họp đã đồng bộ của bạn vẫn được mã hóa. Nếu bạn muốn giữ mọi thứ trên máy này, hãy chọn “Trên máy này”.",
+      consentBody: "Việc này xảy ra mỗi khi bạn tạo tóm tắt bằng CatchM Cloud. Bản ghi và các cuộc họp đã đồng bộ của bạn vẫn được mã hóa.",
+      consentLocalHint: "Nếu bạn muốn giữ mọi thứ trên máy này, hãy chọn “Trên máy này”.",
       consentAccept: "Tôi đồng ý, dùng CatchM Cloud",
       consentCancel: "Không gửi",
       consentSaveError: "Không lưu được lựa chọn của bạn: {{error}}. Hãy thử lại.",
@@ -340,6 +347,66 @@ export const vi: Messages = {
       languageLabel: "Ngôn ngữ",
       languageDesc: "Lưu trong cài đặt CatchM. Chọn Hệ thống để dùng ngôn ngữ của máy.",
       languageLoadError: "Không tải được cài đặt ngôn ngữ: {{error}}",
+    },
+  },
+  setup: {
+    pageDesc:
+      "Chọn nơi chạy từng phần của CatchM. Dịch vụ đám mây cần API key; phần tự vận hành chạy ngay trên máy này.",
+    presetLabel: "Bắt đầu từ",
+    presets: {
+      cloud: "Đám mây",
+      selfhost: "Tự vận hành",
+      custom: "Tùy chỉnh",
+    },
+    presetDesc: {
+      cloud: "Chỉ dùng dịch vụ đám mây: dán API key là xong, không cần cài gì.",
+      selfhost: "Mọi thứ chạy trên máy này với Whisper và Ollama. Miễn phí và riêng tư.",
+      custom: "Tự chọn từng phần. Mọi lựa chọn đều được hiện.",
+    },
+    modules: {
+      transcriptionDesc: "Chuyển lời mọi người thành văn bản, cả khi đang họp lẫn với bản ghi được nhập.",
+      translationDesc: "Dịch lời mọi người nói, khi dịch vụ chép lời không tự dịch được.",
+      summariesDesc: "Viết tóm tắt, quyết định và việc cần làm sau cuộc họp.",
+    },
+    options: {
+      soniox: "Soniox",
+      sonioxDesc: "Chính xác, phân biệt được người nói và dịch ngay khi chép lời. Cần API key trả phí, từ $0.10 mỗi giờ.",
+      whisper: "Whisper",
+      whisperDesc: "Chạy trên máy này với máy chủ whisper.cpp miễn phí. Không có gì rời khỏi máy này.",
+      builtIn: "Có sẵn trong chép lời",
+      builtInDesc: "Dịch vụ chép lời tự dịch ngay khi chép. Chỉ dùng được với Soniox.",
+      ollama: "Ollama",
+      ollamaTranslateDesc: "Chạy trên máy này với Ollama, một ứng dụng miễn phí. Dùng được với mọi dịch vụ chép lời.",
+      catchmCloud: "CatchM Cloud",
+      catchmCloudDesc: "Tài nguyên miễn phí dùng chung trên máy chủ của CatchM. Cần tài khoản CatchM.",
+      cloudflare: "Tài khoản Cloudflare của bạn",
+      cloudflareDesc: "Workers AI trên tài khoản Cloudflare của riêng bạn. Cần Account ID và API token.",
+      ollamaSummaryDesc: "Chạy trên máy này với Ollama, một ứng dụng miễn phí. Tải về một lần, vài GB.",
+    },
+    badges: {
+      speakers: "Phân biệt người nói",
+      translatesItself: "Tự dịch",
+      free: "Miễn phí",
+      freeTier: "Có gói miễn phí",
+      keyAdded: "Đã có key",
+    },
+    status: {
+      addSonioxKey: "Thêm API key Soniox của bạn.",
+      needsSoniox: "Chỉ Soniox tự dịch được. Với Whisper, cuộc họp sẽ không được dịch.",
+      notReadyFallback: "Chưa thiết lập.",
+      allow: "Cho phép",
+    },
+    chooser: {
+      title: "Chào mừng đến với CatchM",
+      desc: "Bạn muốn chạy CatchM theo cách nào? Bạn có thể đổi bất cứ lúc nào trong Cài đặt → Thiết lập.",
+      groupLabel: "Thiết lập",
+      recommended: "Nên dùng",
+      cloudDesc: "Dán API key là xong, không cần cài gì. Soniox chép lời và dịch, CatchM Cloud viết tóm tắt.",
+      selfhostDesc: "Chạy trên máy này: Whisper + Ollama. Miễn phí và riêng tư, nhưng bạn tự cài và chạy cả hai.",
+      customDesc: "Tự chọn từng phần.",
+      continue: "Tiếp tục",
+      saving: "Đang lưu…",
+      saveError: "Không lưu được lựa chọn của bạn: {{error}}. Hãy thử lại.",
     },
   },
   app: {
@@ -492,6 +559,9 @@ export const vi: Messages = {
     useInstead: "Dùng {{engine}}",
     openSettings: "Mở cài đặt",
     openTranslationSettings: "Mở cài đặt Dịch",
+    translateNeedsProvider:
+      "Công cụ chép lời này không tự dịch được. Hãy dùng Soniox, hoặc chọn một dịch vụ dịch trong Cài đặt → Thiết lập.",
+    openSetup: "Mở Thiết lập",
     startAnyway: "Vẫn bắt đầu",
     starting: "Đang bắt đầu…",
   },
@@ -503,6 +573,8 @@ export const vi: Messages = {
     refineNotReady: "Tóm tắt chưa được thiết lập. {{reason}} Hãy sửa trong Cài đặt → Tóm tắt, rồi thử lại.",
     refineQuota:
       "Đã dùng hết số tóm tắt miễn phí hôm nay. Hãy thử lại sau {{after}}, hoặc chuyển sang “$t(labels.engine.whisper)” trong Cài đặt → Tóm tắt.",
+    refineQuotaCloud:
+      "Đã dùng hết số tóm tắt miễn phí hôm nay. Hãy thử lại sau {{after}}, hoặc dùng tài khoản Cloudflare của bạn trong Cài đặt → Tóm tắt.",
     tomorrow: "ngày mai",
     refineFailed: "CatchM chưa viết được tóm tắt lần này. Hãy thử lại sau một lát.",
     refineGone: "Cuộc họp này không còn tồn tại. Hãy quay lại danh sách cuộc họp.",
@@ -582,6 +654,8 @@ export const vi: Messages = {
     renameMeeting: "Đổi tên cuộc họp",
     consentDeclined:
       "Chưa tạo tóm tắt nào. CatchM Cloud cần bạn đồng ý trước khi nhận bản chép lời. Để giữ mọi thứ trên máy này, hãy chuyển sang “$t(labels.engine.whisper)” trong Cài đặt → Tóm tắt.",
+    consentDeclinedCloud:
+      "Chưa tạo tóm tắt nào. CatchM Cloud cần bạn đồng ý trước khi nhận bản chép lời. Bạn cũng có thể dùng tài khoản Cloudflare của mình trong Cài đặt → Tóm tắt.",
     improveConfirmTitle: "Cải thiện bản chép lời này bằng Soniox?",
     improveConfirmBody:
       "CatchM nghe lại bản ghi và bổ sung ai nói gì (tên người nói) cùng bản chép lời chính xác hơn, rồi viết lại tóm tắt.",
@@ -731,6 +805,7 @@ export const vi: Messages = {
     sonioxNoKey: "$t(labels.engine.soniox) cần API key Soniox. Hãy thêm trong Cài đặt → Chép lời.",
     whisperFormat: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy dùng $t(labels.engine.soniox) cho định dạng khác.",
     freePrivate: "Miễn phí và riêng tư.",
+    whisperWavConvert: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy chuyển bản ghi sang WAV trước.",
     sonioxHintShort: "Chính xác hơn và phân biệt được người nói.",
     costLine: "Chi phí ước tính: khoảng ${{cost}} với giá $0.10 mỗi giờ.",
     openTranscriptionSettings: "Mở Cài đặt → Chép lời",

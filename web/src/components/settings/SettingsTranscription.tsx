@@ -19,9 +19,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { getConfig, type AppConfig, type SttEngine } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import { engineHint, engineLabel } from "@/lib/labels"
+import { navigate } from "@/lib/route"
+import { isCloudVisible, isSelfHostVisible, visibleEngines } from "@/lib/setup"
 import { isAbsoluteUrl } from "@/lib/url"
 
-const ENGINES: SttEngine[] = ["whisper", "soniox"]
+// Display order of the engine picker (setup.ts lists cloud first).
+const ENGINE_ORDER: SttEngine[] = ["whisper", "soniox"]
 
 const WHISPER_SERVER_DOCS = "https://github.com/ggml-org/whisper.cpp/tree/master/examples/server"
 const SONIOX_SITE = "https://soniox.com"
@@ -163,6 +166,13 @@ export function SettingsTranscription() {
 
   const keySet = config.soniox_api_key_set
   const engine: SttEngine = config.engine === "soniox" ? "soniox" : "whisper"
+  // The setup hides the other side: no Whisper under Cloud, no Soniox
+  // under Self-host. A single engine is shown, not picked.
+  const shown = visibleEngines(config.setup)
+  const engines = ENGINE_ORDER.filter((e) => shown.includes(e))
+  const showWhisper = isSelfHostVisible(config.setup)
+  const showSoniox = isCloudVisible(config.setup)
+  const advancedWhisper = showWhisper && engine !== "whisper"
 
   // "On this computer" doesn't work until the user runs a Whisper
   // server, so while it's the engine its address sits in the main
@@ -221,123 +231,151 @@ export function SettingsTranscription() {
             </>
           }
           control={
-            <SegmentedControl
-              id="stt-engine"
-              labelledBy={labelId("stt-engine")}
-              describedBy={descId("stt-engine")}
-              value={engine}
-              onChange={setEngine}
-              options={ENGINES.map((e) => ({ value: e, label: engineLabel(e) }))}
-            />
-          }
-        />
-        {engine === "whisper" && whisperRow}
-        <SettingRow
-          label={t("settings.transcription.keyLabel")}
-          htmlFor={keyEditing ? "soniox-key" : undefined}
-          id="soniox-key"
-          description={
-            <>
-              {t("settings.transcription.keyDesc", { engine: engineLabel("soniox") })}{" "}
-              <ExternalLink href={SONIOX_SITE}>{t("settings.transcription.getKeyLink")}</ExternalLink>
-            </>
-          }
-          control={
-            keyEditing ? (
-              <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
-                <Input
-                  ref={keyInputRef}
-                  id="soniox-key"
-                  name="soniox_api_key"
-                  type="password"
-                  {...noAutofill}
-                  value={keyInput}
-                  onChange={(e) => setKeyInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && !keySaving) closeKeyEditor()
-                  }}
-                  placeholder={t("settings.transcription.keyPlaceholder")}
-                  // readOnly, not disabled, so focus can return here on failure.
-                  readOnly={keySaving}
-                  aria-invalid={keyError ? true : undefined}
-                  aria-describedby={keyError ? `${descId("soniox-key")} ${KEY_ERROR_ID}` : descId("soniox-key")}
-                  // The user just asked to add/replace the key: move focus into the field.
-                  autoFocus
-                />
-                <div className="flex gap-2">
-                  <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
-                    {t("common.cancel")}
-                  </Button>
-                  <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
-                    {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
-                  </Button>
-                </div>
-                <StatusMessage id={KEY_ERROR_ID} tone="error">
-                  {keyError}
-                </StatusMessage>
-              </form>
+            engines.length > 1 ? (
+              <SegmentedControl
+                id="stt-engine"
+                labelledBy={labelId("stt-engine")}
+                describedBy={descId("stt-engine")}
+                value={engine}
+                onChange={setEngine}
+                options={engines.map((e) => ({ value: e, label: engineLabel(e) }))}
+              />
             ) : (
-              <div className="flex items-center gap-2">
-                {keySet ? (
-                  <>
-                    <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                      {t("settings.transcription.keySet")}
-                    </span>
-                    <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
-                      {t("settings.transcription.replaceKey")}
-                    </Button>
-                  </>
-                ) : (
-                  <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
-                    {t("settings.transcription.addKey")}
-                  </Button>
-                )}
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">{engineLabel(engine)}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigate({ name: "settings", section: "setup" })}
+                  aria-describedby={descId("stt-engine")}
+                >
+                  {t("settings.transcription.changeSetup")}
+                </Button>
               </div>
             )
           }
         />
+        {showWhisper && engine === "whisper" && whisperRow}
+        {showSoniox && (
+          <SettingRow
+            label={t("settings.transcription.keyLabel")}
+            htmlFor={keyEditing ? "soniox-key" : undefined}
+            id="soniox-key"
+            description={
+              <>
+                {t("settings.transcription.keyDesc", { engine: engineLabel("soniox") })}{" "}
+                <ExternalLink href={SONIOX_SITE}>{t("settings.transcription.getKeyLink")}</ExternalLink>
+              </>
+            }
+            control={
+              keyEditing ? (
+                <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
+                  <Input
+                    ref={keyInputRef}
+                    id="soniox-key"
+                    name="soniox_api_key"
+                    type="password"
+                    {...noAutofill}
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape" && !keySaving) closeKeyEditor()
+                    }}
+                    placeholder={t("settings.transcription.keyPlaceholder")}
+                    // readOnly, not disabled, so focus can return here on failure.
+                    readOnly={keySaving}
+                    aria-invalid={keyError ? true : undefined}
+                    aria-describedby={keyError ? `${descId("soniox-key")} ${KEY_ERROR_ID}` : descId("soniox-key")}
+                    // The user just asked to add/replace the key: move focus into the field.
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
+                      {t("common.cancel")}
+                    </Button>
+                    <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
+                      {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
+                    </Button>
+                  </div>
+                  <StatusMessage id={KEY_ERROR_ID} tone="error">
+                    {keyError}
+                  </StatusMessage>
+                </form>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {keySet ? (
+                    <>
+                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
+                        {t("settings.transcription.keySet")}
+                      </span>
+                      <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
+                        {t("settings.transcription.replaceKey")}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
+                      {t("settings.transcription.addKey")}
+                    </Button>
+                  )}
+                </div>
+              )
+            }
+          />
+        )}
         <div className="flex items-center justify-end">
           <SaveStatus state={save.state} error={save.error} />
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t("settings.transcription.advancedTitle")} description={t("settings.transcription.advancedDesc")}>
-        <Disclosure label={engine === "whisper" ? t("settings.transcription.sonioxUrlLabel") : t("settings.transcription.urlsLabel")}>
-          <div className="grid gap-2">
-            {engine !== "whisper" && whisperRow}
-            <SettingRow
-              label={t("settings.transcription.sonioxUrlLabel")}
-              htmlFor="stt-soniox-url"
-              description={t("settings.transcription.sonioxUrlDesc", { engine: engineLabel("soniox") })}
-              control={
-                <div className="grid w-96 justify-items-end gap-1">
-                  <Input
-                    id="stt-soniox-url"
-                    name="soniox_url"
-                    type="url"
-                    {...noAutofill}
-                    value={sonioxUrl}
-                    onChange={(e) => setSonioxUrl(e.target.value)}
-                    onBlur={commitSonioxUrl}
-                    placeholder="wss://stt-rt.soniox.com/transcribe-websocket…"
-                    aria-invalid={urlErrors.soniox ? true : undefined}
-                    aria-describedby={
-                      urlErrors.soniox
-                        ? `${descId("stt-soniox-url")} ${SONIOX_URL_ERROR_ID}`
-                        : descId("stt-soniox-url")
-                    }
-                    className="w-full"
-                  />
-                  <StatusMessage id={SONIOX_URL_ERROR_ID} tone="error" className="break-words">
-                    {urlErrors.soniox}
-                  </StatusMessage>
-                </div>
-              }
-            />
-          </div>
-        </Disclosure>
-      </SettingsSection>
+      {(advancedWhisper || showSoniox) && (
+        <SettingsSection title={t("settings.transcription.advancedTitle")} description={t("settings.transcription.advancedDesc")}>
+          <Disclosure
+            label={
+              advancedWhisper && showSoniox
+                ? t("settings.transcription.urlsLabel")
+                : advancedWhisper
+                  ? t("settings.transcription.whisperUrlLabel")
+                  : t("settings.transcription.sonioxUrlLabel")
+            }
+          >
+            <div className="grid gap-2">
+              {advancedWhisper && whisperRow}
+              {showSoniox && (
+                <SettingRow
+                  label={t("settings.transcription.sonioxUrlLabel")}
+                  htmlFor="stt-soniox-url"
+                  description={t("settings.transcription.sonioxUrlDesc", { engine: engineLabel("soniox") })}
+                  control={
+                    <div className="grid w-96 justify-items-end gap-1">
+                      <Input
+                        id="stt-soniox-url"
+                        name="soniox_url"
+                        type="url"
+                        {...noAutofill}
+                        value={sonioxUrl}
+                        onChange={(e) => setSonioxUrl(e.target.value)}
+                        onBlur={commitSonioxUrl}
+                        placeholder="wss://stt-rt.soniox.com/transcribe-websocket…"
+                        aria-invalid={urlErrors.soniox ? true : undefined}
+                        aria-describedby={
+                          urlErrors.soniox
+                            ? `${descId("stt-soniox-url")} ${SONIOX_URL_ERROR_ID}`
+                            : descId("stt-soniox-url")
+                        }
+                        className="w-full"
+                      />
+                      <StatusMessage id={SONIOX_URL_ERROR_ID} tone="error" className="break-words">
+                        {urlErrors.soniox}
+                      </StatusMessage>
+                    </div>
+                  }
+                />
+              )}
+            </div>
+          </Disclosure>
+        </SettingsSection>
+      )}
     </div>
   )
 }

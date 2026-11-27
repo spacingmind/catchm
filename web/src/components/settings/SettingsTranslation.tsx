@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { TriangleAlert } from "lucide-react"
 import { Trans, useTranslation } from "react-i18next"
 
 import { StatusMessage } from "@/components/StatusMessage"
-import { descId, ExternalLink, SaveStatus, SettingRow, SettingsSection } from "@/components/settings/pieces"
+import {
+  descId,
+  ExternalLink,
+  labelId,
+  SaveStatus,
+  SegmentedControl,
+  SettingRow,
+  SettingsSection,
+} from "@/components/settings/pieces"
 import { useConfigSave } from "@/components/settings/useConfigSave"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,11 +25,13 @@ import {
   pullTranslateModel,
   testTranslate,
   type AppConfig,
+  type TranslateProvider,
   type TranslateStatus,
   type TranslateTarget,
 } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { engineTranslates, isSelfHostVisible, modulePatch } from "@/lib/setup"
 import { isAbsoluteUrl } from "@/lib/url"
 
 interface PullState {
@@ -128,6 +139,12 @@ export function SettingsTranslation() {
   const hostSave = useConfigSave(config, setConfig)
   const liveSave = useConfigSave(config, setConfig)
   const batchSave = useConfigSave(config, setConfig)
+  const providerSave = useConfigSave(config, setConfig)
+
+  const chooseProvider = (provider: TranslateProvider) => {
+    if (!config || provider === config.translate.provider) return
+    void providerSave.put(modulePatch(config, "translation", provider)).then((ok) => ok && refreshStatus())
+  }
 
   const commitHost = () => {
     const v = host.trim()
@@ -266,293 +283,344 @@ export function SettingsTranslation() {
     )
   }
 
-  return (
-    <div>
-      <SettingsSection
-        title={t("settings.nav.translation")}
-        description={
-          <Trans
-            i18nKey="settings.translation.descOllama"
-            components={{ ext: <ExternalLink href={OLLAMA_DOWNLOAD}>{null}</ExternalLink> }}
-          />
-        }
-      >
-        <SettingRow
-          label={t("settings.translation.hostLabel")}
-          htmlFor="translate-host"
-          description={t("settings.translation.hostDesc")}
-          control={
-            <div className="grid w-96 justify-items-end gap-1">
-              <Input
-                id="translate-host"
-                name="ollama_host"
-                type="url"
-                {...noAutofill}
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                onBlur={commitHost}
-                placeholder="http://127.0.0.1:11434…"
-                aria-invalid={hostError ? true : undefined}
-                aria-describedby={
-                  hostError ? `${descId("translate-host")} translate-host-error` : descId("translate-host")
-                }
-                className="w-full"
-              />
-              <StatusMessage id="translate-host-error" tone="error" className="break-words">
-                {hostError}
-              </StatusMessage>
-              <SaveStatus state={hostSave.save.state} error={hostSave.save.error} />
-            </div>
-          }
-        />
-        <SettingRow
-          label={t("settings.translation.liveModel")}
-          htmlFor="translate-live-model"
-          description={t("settings.translation.liveModelDesc")}
-          control={
-            <div className="grid w-72 justify-items-end gap-1">
-              <Input
-                id="translate-live-model"
-                name="live_model"
-                translate="no"
-                {...noAutofill}
-                value={liveModel}
-                onChange={(e) => setLiveModel(e.target.value)}
-                onBlur={() => commitModel("live_model")}
-                placeholder="translategemma:4b…"
-                aria-describedby={descId("translate-live-model")}
-                className="w-full"
-              />
-              <SaveStatus state={liveSave.save.state} error={liveSave.save.error} />
-            </div>
-          }
-        />
-        <SettingRow
-          label={t("settings.translation.batchModel")}
-          htmlFor="translate-batch-model"
-          description={t("settings.translation.batchModelDesc")}
-          control={
-            <div className="grid w-72 justify-items-end gap-1">
-              <Input
-                id="translate-batch-model"
-                name="batch_model"
-                translate="no"
-                {...noAutofill}
-                value={batchModel}
-                onChange={(e) => setBatchModel(e.target.value)}
-                onBlur={() => commitModel("batch_model")}
-                placeholder="translategemma:12b…"
-                aria-describedby={descId("translate-batch-model")}
-                className="w-full"
-              />
-              <SaveStatus state={batchSave.save.state} error={batchSave.save.error} />
-            </div>
-          }
-        />
-      </SettingsSection>
+  const setup = config.setup
+  const provider: TranslateProvider = config.translate.provider === "none" ? "none" : "ollama"
+  // Custom (or not chosen yet) picks between built-in and Ollama here;
+  // Cloud never shows Ollama, Self-host always does.
+  const showPicker = setup === "custom" || setup === ""
+  const showOllama = provider === "ollama" && isSelfHostVisible(setup)
 
-      <SettingsSection title={t("settings.translation.statusTitle")} description={t("settings.translation.statusDesc")}>
-        <div className={statusError ? "mb-4 flex flex-wrap items-center justify-between gap-2" : undefined}>
-          <StatusMessage tone="error" className="min-w-0 break-words">
-            {statusError && t("settings.translation.statusCheckError", { error: statusError })}
-          </StatusMessage>
-          {statusError && (
-            <Button size="sm" variant="outline" onClick={refreshStatus} disabled={checking}>
-              {checking ? t("settings.system.checking") : t("settings.translation.checkAgain")}
-            </Button>
+  const providerSection = (
+    <SettingsSection title={t("settings.nav.translation")} description={t("settings.translation.desc")}>
+      {showPicker && (
+        <SettingRow
+          label={t("settings.translation.providerLabel")}
+          id="translate-provider"
+          description={t("settings.translation.providerDesc")}
+          control={
+            <div className="grid justify-items-end gap-1">
+              <SegmentedControl
+                id="translate-provider"
+                labelledBy={labelId("translate-provider")}
+                describedBy={descId("translate-provider")}
+                value={provider}
+                onChange={chooseProvider}
+                options={[
+                  { value: "none", label: t("setup.options.builtIn") },
+                  { value: "ollama", label: t("setup.options.ollama") },
+                ]}
+              />
+              <SaveStatus state={providerSave.save.state} error={providerSave.save.error} />
+            </div>
+          }
+        />
+      )}
+      {!showOllama && (
+        <div className="grid gap-2 py-4">
+          <p className="text-sm text-muted-foreground">{t("settings.translation.builtInExplain")}</p>
+          {!engineTranslates(config.engine) && (
+            <p className="flex items-start gap-1.5 text-sm font-medium text-warning">
+              <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              {t("setup.status.needsSoniox")}
+            </p>
           )}
         </div>
-        <SettingRow
-          label={t("settings.translation.ollamaLabel")}
-          id="translate-status-ollama"
-          description={
-            status && !status.ollama_reachable ? (
+      )}
+    </SettingsSection>
+  )
+
+  return (
+    <div>
+      {(showPicker || !showOllama) && providerSection}
+      {showOllama && (
+        <>
+          <SettingsSection
+            title={showPicker ? t("setup.options.ollama") : t("settings.nav.translation")}
+            description={
               <Trans
-                i18nKey="settings.translation.ollamaDown"
+                i18nKey="settings.translation.descOllama"
                 components={{ ext: <ExternalLink href={OLLAMA_DOWNLOAD}>{null}</ExternalLink> }}
               />
-            ) : (
-              t("settings.translation.ollamaMustRun")
-            )
-          }
-          control={
-            status ? (
-              <Badge
-                variant={status.ollama_reachable ? "secondary" : "destructive"}
-                className={
-                  status.ollama_reachable ? "border-transparent bg-primary/15 text-primary" : undefined
-                }
-              >
-                {status.ollama_reachable ? t("settings.translation.running") : t("settings.translation.notRunning")}
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="motion-safe:animate-pulse">
-                {t("settings.translation.checkingOllama")}
-              </Badge>
-            )
-          }
-        />
-        {(["live", "batch"] as const).map((target) => {
-          const model = target === "live" ? status?.live_model : status?.batch_model
-          const pull = pulls[target]
-          const label = t(TARGET_KEY[target])
-          const rowId = `translate-status-${target}`
-          return (
+            }
+          >
             <SettingRow
-              key={target}
-              label={label}
-              id={rowId}
-              description={
-                model?.name ? (
-                  <span translate="no" className="break-all">
-                    {model.name}
-                  </span>
-                ) : (
-                  "—"
-                )
-              }
+              label={t("settings.translation.hostLabel")}
+              htmlFor="translate-host"
+              description={t("settings.translation.hostDesc")}
               control={
-                <div className="grid w-72 justify-items-end gap-2">
-                  {model ? (
-                    <Badge variant={model.installed ? "secondary" : "outline"}>
-                      {model.installed ? t("settings.translation.downloaded") : t("settings.translation.notDownloaded")}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="motion-safe:animate-pulse">
-                      {t("settings.system.checking")}
-                    </Badge>
-                  )}
-                  {model && !model.installed && (
-                    <div className="grid w-full justify-items-end gap-2">
-                      {pull.running ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => cancelPull(target)}
-                          aria-describedby={descId(rowId)}
-                        >
-                          {t("updateBanner.cancelDownload")}
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          onClick={() => void handlePull(target)}
-                          aria-describedby={descId(rowId)}
-                        >
-                          {t("settings.translation.downloadModel")}
-                        </Button>
-                      )}
-                      {pull.running && pull.percent !== null && (
-                        <Progress value={pull.percent} aria-label={t("settings.translation.downloadProgressAria", { model: t(TARGET_KEY[target]) })} />
-                      )}
-                      <StatusMessage className="text-xs break-words">{pull.statusText}</StatusMessage>
-                      <StatusMessage tone="error" className="text-xs break-words">
-                        {pull.error && t("settings.translation.pullErrorHint", { error: pull.error })}
-                      </StatusMessage>
-                    </div>
-                  )}
+                <div className="grid w-96 justify-items-end gap-1">
+                  <Input
+                    id="translate-host"
+                    name="ollama_host"
+                    type="url"
+                    {...noAutofill}
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                    onBlur={commitHost}
+                    placeholder="http://127.0.0.1:11434…"
+                    aria-invalid={hostError ? true : undefined}
+                    aria-describedby={
+                      hostError ? `${descId("translate-host")} translate-host-error` : descId("translate-host")
+                    }
+                    className="w-full"
+                  />
+                  <StatusMessage id="translate-host-error" tone="error" className="break-words">
+                    {hostError}
+                  </StatusMessage>
+                  <SaveStatus state={hostSave.save.state} error={hostSave.save.error} />
                 </div>
               }
             />
-          )
-        })}
-      </SettingsSection>
+            <SettingRow
+              label={t("settings.translation.liveModel")}
+              htmlFor="translate-live-model"
+              description={t("settings.translation.liveModelDesc")}
+              control={
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="translate-live-model"
+                    name="live_model"
+                    translate="no"
+                    {...noAutofill}
+                    value={liveModel}
+                    onChange={(e) => setLiveModel(e.target.value)}
+                    onBlur={() => commitModel("live_model")}
+                    placeholder="translategemma:4b…"
+                    aria-describedby={descId("translate-live-model")}
+                    className="w-full"
+                  />
+                  <SaveStatus state={liveSave.save.state} error={liveSave.save.error} />
+                </div>
+              }
+            />
+            <SettingRow
+              label={t("settings.translation.batchModel")}
+              htmlFor="translate-batch-model"
+              description={t("settings.translation.batchModelDesc")}
+              control={
+                <div className="grid w-72 justify-items-end gap-1">
+                  <Input
+                    id="translate-batch-model"
+                    name="batch_model"
+                    translate="no"
+                    {...noAutofill}
+                    value={batchModel}
+                    onChange={(e) => setBatchModel(e.target.value)}
+                    onBlur={() => commitModel("batch_model")}
+                    placeholder="translategemma:12b…"
+                    aria-describedby={descId("translate-batch-model")}
+                    className="w-full"
+                  />
+                  <SaveStatus state={batchSave.save.state} error={batchSave.save.error} />
+                </div>
+              }
+            />
+          </SettingsSection>
 
-      <SettingsSection title={t("settings.translation.tryTitle")} description={t("settings.translation.tryDesc")}>
-        <form noValidate onSubmit={(e) => void handleTest(e)} className="grid gap-3">
-          <SettingRow
-            label={t("settings.translation.testTextLabel")}
-            htmlFor="test-text"
-            control={
-              <div className="grid w-96 justify-items-end gap-1">
-                <Input
-                  ref={testTextRef}
-                  id="test-text"
-                  name="test_text"
-                  autoComplete="off"
-                  value={testText}
-                  onChange={(e) => setTestText(e.target.value)}
-                  placeholder={t("settings.translation.testTextPlaceholder")}
-                  aria-invalid={testFieldErrors.text ? true : undefined}
-                  aria-describedby={testFieldErrors.text ? "test-text-error" : undefined}
-                  className="w-full"
-                />
-                <StatusMessage id="test-text-error" tone="error">
-                  {testFieldErrors.text}
-                </StatusMessage>
-              </div>
-            }
-          />
-          <SettingRow
-            label={t("settings.translation.testLangLabel")}
-            htmlFor="test-lang"
-            control={
-              <div className="grid justify-items-end gap-1">
-                <Select
-                  value={testLang || undefined}
-                  onValueChange={(v) => {
-                    setTestLang(v)
-                    setTestFieldErrors((e) => ({ ...e, lang: undefined }))
-                  }}
-                >
-                  <SelectTrigger
-                    ref={testLangRef}
-                    id="test-lang"
-                    className="w-44"
-                    aria-invalid={testFieldErrors.lang ? true : undefined}
-                    aria-describedby={testFieldErrors.lang ? "test-lang-error" : undefined}
+          <SettingsSection title={t("settings.translation.statusTitle")} description={t("settings.translation.statusDesc")}>
+            <div className={statusError ? "mb-4 flex flex-wrap items-center justify-between gap-2" : undefined}>
+              <StatusMessage tone="error" className="min-w-0 break-words">
+                {statusError && t("settings.translation.statusCheckError", { error: statusError })}
+              </StatusMessage>
+              {statusError && (
+                <Button size="sm" variant="outline" onClick={refreshStatus} disabled={checking}>
+                  {checking ? t("settings.system.checking") : t("settings.translation.checkAgain")}
+                </Button>
+              )}
+            </div>
+            <SettingRow
+              label={t("settings.translation.ollamaLabel")}
+              id="translate-status-ollama"
+              description={
+                status && !status.ollama_reachable ? (
+                  <Trans
+                    i18nKey="settings.translation.ollamaDown"
+                    components={{ ext: <ExternalLink href={OLLAMA_DOWNLOAD}>{null}</ExternalLink> }}
+                  />
+                ) : (
+                  t("settings.translation.ollamaMustRun")
+                )
+              }
+              control={
+                status ? (
+                  <Badge
+                    variant={status.ollama_reachable ? "secondary" : "destructive"}
+                    className={
+                      status.ollama_reachable ? "border-transparent bg-primary/15 text-primary" : undefined
+                    }
                   >
-                    <SelectValue placeholder={t("settings.translation.choosePlaceholder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LANGUAGES.map((l) => (
-                      <SelectItem key={l.code} value={l.code}>
-                        {languageLabel(l.code)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <StatusMessage id="test-lang-error" tone="error">
-                  {testFieldErrors.lang}
-                </StatusMessage>
+                    {status.ollama_reachable ? t("settings.translation.running") : t("settings.translation.notRunning")}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="motion-safe:animate-pulse">
+                    {t("settings.translation.checkingOllama")}
+                  </Badge>
+                )
+              }
+            />
+            {(["live", "batch"] as const).map((target) => {
+              const model = target === "live" ? status?.live_model : status?.batch_model
+              const pull = pulls[target]
+              const label = t(TARGET_KEY[target])
+              const rowId = `translate-status-${target}`
+              return (
+                <SettingRow
+                  key={target}
+                  label={label}
+                  id={rowId}
+                  description={
+                    model?.name ? (
+                      <span translate="no" className="break-all">
+                        {model.name}
+                      </span>
+                    ) : (
+                      "—"
+                    )
+                  }
+                  control={
+                    <div className="grid w-72 justify-items-end gap-2">
+                      {model ? (
+                        <Badge variant={model.installed ? "secondary" : "outline"}>
+                          {model.installed ? t("settings.translation.downloaded") : t("settings.translation.notDownloaded")}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="motion-safe:animate-pulse">
+                          {t("settings.system.checking")}
+                        </Badge>
+                      )}
+                      {model && !model.installed && (
+                        <div className="grid w-full justify-items-end gap-2">
+                          {pull.running ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => cancelPull(target)}
+                              aria-describedby={descId(rowId)}
+                            >
+                              {t("updateBanner.cancelDownload")}
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => void handlePull(target)}
+                              aria-describedby={descId(rowId)}
+                            >
+                              {t("settings.translation.downloadModel")}
+                            </Button>
+                          )}
+                          {pull.running && pull.percent !== null && (
+                            <Progress value={pull.percent} aria-label={t("settings.translation.downloadProgressAria", { model: t(TARGET_KEY[target]) })} />
+                          )}
+                          <StatusMessage className="text-xs break-words">{pull.statusText}</StatusMessage>
+                          <StatusMessage tone="error" className="text-xs break-words">
+                            {pull.error && t("settings.translation.pullErrorHint", { error: pull.error })}
+                          </StatusMessage>
+                        </div>
+                      )}
+                    </div>
+                  }
+                />
+              )
+            })}
+          </SettingsSection>
+
+          <SettingsSection title={t("settings.translation.tryTitle")} description={t("settings.translation.tryDesc")}>
+            <form noValidate onSubmit={(e) => void handleTest(e)} className="grid gap-3">
+              <SettingRow
+                label={t("settings.translation.testTextLabel")}
+                htmlFor="test-text"
+                control={
+                  <div className="grid w-96 justify-items-end gap-1">
+                    <Input
+                      ref={testTextRef}
+                      id="test-text"
+                      name="test_text"
+                      autoComplete="off"
+                      value={testText}
+                      onChange={(e) => setTestText(e.target.value)}
+                      placeholder={t("settings.translation.testTextPlaceholder")}
+                      aria-invalid={testFieldErrors.text ? true : undefined}
+                      aria-describedby={testFieldErrors.text ? "test-text-error" : undefined}
+                      className="w-full"
+                    />
+                    <StatusMessage id="test-text-error" tone="error">
+                      {testFieldErrors.text}
+                    </StatusMessage>
+                  </div>
+                }
+              />
+              <SettingRow
+                label={t("settings.translation.testLangLabel")}
+                htmlFor="test-lang"
+                control={
+                  <div className="grid justify-items-end gap-1">
+                    <Select
+                      value={testLang || undefined}
+                      onValueChange={(v) => {
+                        setTestLang(v)
+                        setTestFieldErrors((e) => ({ ...e, lang: undefined }))
+                      }}
+                    >
+                      <SelectTrigger
+                        ref={testLangRef}
+                        id="test-lang"
+                        className="w-44"
+                        aria-invalid={testFieldErrors.lang ? true : undefined}
+                        aria-describedby={testFieldErrors.lang ? "test-lang-error" : undefined}
+                      >
+                        <SelectValue placeholder={t("settings.translation.choosePlaceholder")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LANGUAGES.map((l) => (
+                          <SelectItem key={l.code} value={l.code}>
+                            {languageLabel(l.code)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <StatusMessage id="test-lang-error" tone="error">
+                      {testFieldErrors.lang}
+                    </StatusMessage>
+                  </div>
+                }
+              />
+              <SettingRow
+                label={t("settings.translation.modelLabel")}
+                htmlFor="test-target"
+                control={
+                  <Select value={testTarget} onValueChange={(v) => setTestTarget(v as TranslateTarget)}>
+                    <SelectTrigger id="test-target" className="w-52">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="live">{t(TARGET_KEY.live)}</SelectItem>
+                      <SelectItem value="batch">{t(TARGET_KEY.batch)}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                }
+              />
+              <div className="flex items-center justify-end">
+                <Button type="submit" disabled={testing} aria-busy={testing || undefined}>
+                  {testing ? t("settings.translation.translating") : t("settings.translation.testButton")}
+                </Button>
               </div>
-            }
-          />
-          <SettingRow
-            label={t("settings.translation.modelLabel")}
-            htmlFor="test-target"
-            control={
-              <Select value={testTarget} onValueChange={(v) => setTestTarget(v as TranslateTarget)}>
-                <SelectTrigger id="test-target" className="w-52">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="live">{t(TARGET_KEY.live)}</SelectItem>
-                  <SelectItem value="batch">{t(TARGET_KEY.batch)}</SelectItem>
-                </SelectContent>
-              </Select>
-            }
-          />
-          <div className="flex items-center justify-end">
-            <Button type="submit" disabled={testing} aria-busy={testing || undefined}>
-              {testing ? t("settings.translation.translating") : t("settings.translation.testButton")}
-            </Button>
-          </div>
-        </form>
-        <StatusMessage className="mt-3 break-words text-foreground">
-          {testResult && (
-            <>
-              <span aria-hidden="true" className="text-muted-foreground">
-                →{" "}
-              </span>
-              {testResult}
-            </>
-          )}
-        </StatusMessage>
-        <StatusMessage tone="error" className="mt-3 break-words">
-          {testError && t("settings.translation.testErrorHint", { error: testError })}
-        </StatusMessage>
-      </SettingsSection>
+            </form>
+            <StatusMessage className="mt-3 break-words text-foreground">
+              {testResult && (
+                <>
+                  <span aria-hidden="true" className="text-muted-foreground">
+                    →{" "}
+                  </span>
+                  {testResult}
+                </>
+              )}
+            </StatusMessage>
+            <StatusMessage tone="error" className="mt-3 break-words">
+              {testError && t("settings.translation.testErrorHint", { error: testError })}
+            </StatusMessage>
+          </SettingsSection>
+        </>
+      )}
     </div>
   )
 }

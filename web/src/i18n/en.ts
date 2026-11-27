@@ -51,6 +51,7 @@ export const en = {
   },
   settings: {
     nav: {
+      setup: "Setup",
       recording: "Recording",
       transcription: "Transcription",
       translation: "Translation",
@@ -144,6 +145,7 @@ export const en = {
       keySet: "Key set",
       replaceKey: "Replace key",
       addKey: "Add key",
+      changeSetup: "Change setup",
       advancedTitle: "Advanced",
       advancedDesc: "You only need to change these if you run your own servers.",
       sonioxUrlLabel: "Soniox server address",
@@ -153,6 +155,10 @@ export const en = {
     },
     translation: {
       desc: "Translate meetings into another language.",
+      providerLabel: "Translate with",
+      providerDesc: "“Built into transcription” works only with Soniox. Ollama runs on this computer and works with any transcription.",
+      builtInExplain:
+        "Translation comes from your transcription provider: Soniox translates as it transcribes, so there’s nothing to set up here. More translation providers are coming.",
       descOllama: "Translation runs on this computer with Ollama, a free app. Install it from <ext>ollama.com</ext>, then download the models below. Changes save when you leave a field.",
       loadError: "Couldn’t load translation settings: {{error}}. Try again, or restart CatchM if it keeps failing.",
       loading: "Loading translation settings…",
@@ -270,7 +276,8 @@ export const en = {
       setupNotReady: "Summaries aren’t ready yet.",
       consentTitle: "Send transcripts to CatchM Cloud?",
       cloudPrivacy: "Your transcript is sent unencrypted to CatchM Cloud, which uses Cloudflare Workers AI (or a zero-retention partner model when Cloudflare is busy) to write the summary. It isn’t stored.",
-      consentBody: "This happens each time you create a summary with CatchM Cloud. Your recordings and your synced meetings stay encrypted. If you’d rather keep everything on this computer, choose “On this computer” instead.",
+      consentBody: "This happens each time you create a summary with CatchM Cloud. Your recordings and your synced meetings stay encrypted.",
+      consentLocalHint: "If you’d rather keep everything on this computer, choose “On this computer” instead.",
       consentAccept: "I agree, use CatchM Cloud",
       consentCancel: "Don’t send",
       consentSaveError: "Couldn’t save your choice: {{error}}. Try again.",
@@ -355,6 +362,66 @@ export const en = {
       languageLabel: "Language",
       languageDesc: "Saved in your CatchM settings. System follows your computer's language.",
       languageLoadError: "Couldn’t load the language setting: {{error}}",
+    },
+  },
+  setup: {
+    pageDesc:
+      "Choose where each part of CatchM runs. Cloud providers need an API key; self-hosted parts run on this computer.",
+    presetLabel: "Start from",
+    presets: {
+      cloud: "Cloud",
+      selfhost: "Self-host",
+      custom: "Custom",
+    },
+    presetDesc: {
+      cloud: "Cloud providers only: paste an API key, nothing to install.",
+      selfhost: "Everything runs on this computer with Whisper and Ollama. Free and private.",
+      custom: "Pick each part yourself. Every option is shown.",
+    },
+    modules: {
+      transcriptionDesc: "Turns what people say into text, live and for imported recordings.",
+      translationDesc: "Translates what people say, when the transcription can’t translate on its own.",
+      summariesDesc: "Writes the summary, decisions and action items after a meeting.",
+    },
+    options: {
+      soniox: "Soniox",
+      sonioxDesc: "Accurate, tells speakers apart and translates as it goes. Paid API key, from $0.10 per hour.",
+      whisper: "Whisper",
+      whisperDesc: "Runs on this computer with the free whisper.cpp server. Nothing leaves this computer.",
+      builtIn: "Built into transcription",
+      builtInDesc: "The transcription provider translates as it goes. Works only with Soniox.",
+      ollama: "Ollama",
+      ollamaTranslateDesc: "Runs on this computer with Ollama, a free app. Works with any transcription.",
+      catchmCloud: "CatchM Cloud",
+      catchmCloudDesc: "A free shared pool on CatchM’s servers. Needs a CatchM account.",
+      cloudflare: "Your Cloudflare account",
+      cloudflareDesc: "Workers AI on your own Cloudflare account. Needs an Account ID and API token.",
+      ollamaSummaryDesc: "Runs on this computer with Ollama, a free app. One-time download of a few GB.",
+    },
+    badges: {
+      speakers: "Speakers",
+      translatesItself: "Translates itself",
+      free: "Free",
+      freeTier: "Free tier",
+      keyAdded: "Key added",
+    },
+    status: {
+      addSonioxKey: "Add your Soniox API key.",
+      needsSoniox: "Only Soniox translates on its own. With Whisper, meetings aren’t translated.",
+      notReadyFallback: "Not set up yet.",
+      allow: "Allow",
+    },
+    chooser: {
+      title: "Welcome to CatchM",
+      desc: "How do you want to run CatchM? You can change this any time in Settings → Setup.",
+      groupLabel: "Setup",
+      recommended: "Recommended",
+      cloudDesc: "Paste an API key, nothing to install. Soniox transcribes and translates, CatchM Cloud writes the summaries.",
+      selfhostDesc: "Runs on this computer: Whisper + Ollama. Free and private, but you install and run both.",
+      customDesc: "Pick each part.",
+      continue: "Continue",
+      saving: "Saving…",
+      saveError: "Couldn’t save your choice: {{error}}. Try again.",
     },
   },
   app: {
@@ -507,6 +574,9 @@ export const en = {
     useInstead: "Use {{engine}} instead",
     openSettings: "Open settings",
     openTranslationSettings: "Open translation settings",
+    translateNeedsProvider:
+      "This engine can’t translate on its own. Use Soniox, or choose a translation provider in Settings → Setup.",
+    openSetup: "Open setup",
     startAnyway: "Start anyway",
     starting: "Starting…",
   },
@@ -647,6 +717,7 @@ export const en = {
     sonioxNoKey: "$t(labels.engine.soniox) needs a Soniox API key. Add one in Settings → Transcription.",
     whisperFormat: "$t(labels.engine.whisper) only reads .wav files. Use $t(labels.engine.soniox) for other formats.",
     freePrivate: "Free and private.",
+    whisperWavConvert: "$t(labels.engine.whisper) only reads .wav files. Convert the recording to WAV first.",
     sonioxHintShort: "More accurate and tells speakers apart.",
     costLine: "Estimated cost: about ${{cost}} at $0.10 per hour.",
     openTranscriptionSettings: "Open Settings → Transcription",
@@ -785,6 +856,8 @@ export const en = {
     refineNotReady: "Summaries aren’t set up yet. {{reason}} Fix this in Settings → Summaries, then try again.",
     refineQuota:
       "Today’s free summaries are used up. Try again after {{after}}, or switch to “$t(labels.engine.whisper)” in Settings → Summaries.",
+    refineQuotaCloud:
+      "Today’s free summaries are used up. Try again after {{after}}, or use your own Cloudflare account in Settings → Summaries.",
     tomorrow: "tomorrow",
     refineFailed: "CatchM couldn’t write the summary this time. Try again in a moment.",
     refineGone: "This meeting no longer exists. Go back to your meetings.",
@@ -864,6 +937,8 @@ export const en = {
     renameMeeting: "Rename meeting",
     consentDeclined:
       "No summary was created. CatchM Cloud needs your OK before it gets the transcript. To keep everything on this computer, switch to “$t(labels.engine.whisper)” in Settings → Summaries.",
+    consentDeclinedCloud:
+      "No summary was created. CatchM Cloud needs your OK before it gets the transcript. You can also use your own Cloudflare account in Settings → Summaries.",
     improveConfirmTitle: "Improve this transcript with Soniox?",
     improveConfirmBody:
       "CatchM listens to the recording again and adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.",

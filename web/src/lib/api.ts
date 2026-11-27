@@ -243,8 +243,18 @@ export type SummaryErrorKind =
   | "quota_exceeded"
   | "summary_failed"
 
+/** Which setup the user chose (docs/plans/active/cloud-mode.md): ""
+ *  until the first-run chooser answers; configs from before setups
+ *  load as "custom". */
+export type Setup = "" | "cloud" | "selfhost" | "custom"
+
+/** translate.provider: Ollama on this computer, or "none" — no text
+ *  translator, only the transcription engine's own translation (Soniox). */
+export type TranslateProvider = "ollama" | "none"
+
 /** Sanitized config shape shared by GET and PUT /api/config responses. */
 export interface AppConfig {
+  setup: Setup
   engine: string
   lang: string
   ui_language: UILanguage
@@ -253,6 +263,7 @@ export interface AppConfig {
   /** True when a Soniox API key is stored; the key itself is never sent. */
   soniox_api_key_set: boolean
   translate: {
+    provider: TranslateProvider
     host: string
     live_model: string
     batch_model: string
@@ -272,6 +283,8 @@ export interface AppConfig {
  * stored key.
  */
 export interface UpdateConfigRequest {
+  /** "" is ignored (partial update); the chooser sends a real setup. */
+  setup?: Exclude<Setup, "">
   engine?: string
   lang?: string
   ui_language?: UILanguage
@@ -280,9 +293,10 @@ export interface UpdateConfigRequest {
   /** Never present in responses. Omitted/empty preserves the stored key. */
   soniox_api_key?: string
   translate?: {
-    host: string
-    live_model: string
-    batch_model: string
+    provider?: TranslateProvider
+    host?: string
+    live_model?: string
+    batch_model?: string
   }
   /**
    * Partial like the rest: omitted/empty strings keep the stored value.
@@ -914,12 +928,19 @@ export function getConfig(): Promise<AppConfig> {
   return apiFetch("/api/config")
 }
 
+/** Fired on window with the saved AppConfig (event.detail) after every
+ *  successful PUT /api/config, so views that hold their own copy (the
+ *  first-run chooser in App, Get started) see a new setup at once. */
+export const CONFIG_EVENT = "catchm:config"
+
 /** PUT /api/config — resolves to the sanitized, reloaded config. */
-export function updateConfig(body: UpdateConfigRequest): Promise<AppConfig> {
-  return apiFetch("/api/config", {
+export async function updateConfig(body: UpdateConfigRequest): Promise<AppConfig> {
+  const c = await apiFetch<AppConfig>("/api/config", {
     method: "PUT",
     body: JSON.stringify(body),
   })
+  window.dispatchEvent(new CustomEvent<AppConfig>(CONFIG_EVENT, { detail: c }))
+  return c
 }
 
 /** GET /api/translate/status */

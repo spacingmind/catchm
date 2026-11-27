@@ -6,9 +6,11 @@ import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useAppConfig } from "@/hooks/useAppConfig"
 import { useAnnounceChange, useStatusCheck } from "@/hooks/useStatusCheck"
 import { getSttStatus, getSummaryStatus, getTranslateStatus } from "@/lib/api"
 import { navigate } from "@/lib/route"
+import { engineTranslates } from "@/lib/setup"
 
 /**
  * "Hide" on the card. The value is whether the required item
@@ -78,15 +80,21 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
   const { t } = useTranslation()
   const stt = useStatusCheck(getSttStatus)
   const summary = useStatusCheck(getSummaryStatus)
-  const translate = useStatusCheck(getTranslateStatus)
+  const { config } = useAppConfig()
+  // Translation provider "none": only the engine's own translation
+  // (Soniox), so there's nothing to check, and no Ollama step to show.
+  const builtInTranslation = config?.translate.provider === "none"
+  const translate = useStatusCheck(getTranslateStatus, { enabled: config != null && !builtInTranslation })
   const [hidden, setHidden] = useState<HiddenMark | null>(readHidden)
 
   const sttEngine = stt.data ? stt.data[stt.data.default_engine] : undefined
   const sttReady = stt.data ? (sttEngine?.ready ?? false) : null
   const summaryReady = summary.data ? summary.data.ready : null
-  const translateReady = translate.data
-    ? translate.data.ollama_reachable && translate.data.live_model.installed
-    : null
+  const translateReady = builtInTranslation
+    ? engineTranslates(config.engine)
+    : translate.data
+      ? translate.data.ollama_reachable && translate.data.live_model.installed
+      : null
 
   // Hidden while transcription wasn't ready, and now it is: from here on
   // it breaking again should bring the card back.
@@ -122,11 +130,14 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
       state: itemState(translateReady, translate.error),
       reason:
         translateReady === false
-          ? translate.data?.ollama_reachable
-            ? t("getStarted.modelMissing")
-            : t("getStarted.needsOllama")
+          ? builtInTranslation
+            ? t("setup.status.needsSoniox")
+            : translate.data?.ollama_reachable
+              ? t("getStarted.modelMissing")
+              : t("getStarted.needsOllama")
           : undefined,
-      section: "translation",
+      // Built-in translation is fixed by the engine choice, in Setup.
+      section: builtInTranslation ? "setup" : "translation",
     },
   ]
 

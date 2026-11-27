@@ -25,9 +25,11 @@ import {
   type AudioSources,
   type AudioSource,
   type Device,
+  type Setup,
   type StartMeetingResponse,
   type SttEngine,
   type SttStatus,
+  type TranslateProvider,
   type TranslateStatus,
 } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
@@ -42,6 +44,7 @@ import {
 import { engineHint, engineLabel, sourceHint, sourceLabel } from "@/lib/labels"
 import { activeLocale } from "@/i18n"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { engineTranslates, visibleEngines } from "@/lib/setup"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Last-used start-flow values (non-secret UI prefs only). */
@@ -106,6 +109,10 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const [engine, setEngine] = useState<SttEngine>(last.engine ?? "whisper")
   const [configEngine, setConfigEngine] = useState<SttEngine>("whisper")
   const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
+  // Which engines the setup shows, and whether translation has a text
+  // translator (Ollama) or only the engine's own ("none").
+  const [setup, setSetup] = useState<Setup>("")
+  const [translateProvider, setTranslateProvider] = useState<TranslateProvider>("ollama")
   const [lang, setLang] = useState(last.lang ?? "")
   const [translateTo, setTranslateTo] = useState(last.translateTo ?? "")
   const [twoWay, setTwoWay] = useState(last.twoWay ?? false)
@@ -155,6 +162,8 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
         if (cancelled) return
         setConfigEngine(c.engine === "soniox" ? "soniox" : "whisper")
         setSonioxKeySet(c.soniox_api_key_set)
+        setSetup(c.setup)
+        setTranslateProvider(c.translate.provider === "none" ? "none" : "ollama")
       })
       .catch(() => undefined)
     getSttStatus()
@@ -176,16 +185,17 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
     return () => window.clearTimeout(id)
   }, [open])
 
-  // Engine is only a real choice when Soniox is usable (key set);
+  // Engine is only a real choice when Soniox is usable (key set) and
+  // the setup shows both (Cloud hides Whisper, Self-host hides Soniox);
   // otherwise the config engine runs unselected.
+  const shownEngines = visibleEngines(setup)
   const usableEngines: { value: SttEngine; label: string }[] =
     sonioxKeySet === true
-      ? [
-          { value: "whisper", label: engineLabel("whisper") },
-          { value: "soniox", label: engineLabel("soniox") },
-        ]
+      ? (["whisper", "soniox"] as const)
+          .filter((e) => shownEngines.includes(e))
+          .map((e) => ({ value: e, label: engineLabel(e) }))
       : []
-  const activeEngine = usableEngines.length > 0 ? engine : configEngine
+  const activeEngine = usableEngines.length > 1 ? engine : configEngine
 
   // Only an engine the status check positively reports as not ready
   // blocks Start (and "Start anyway" still gets past it).
@@ -197,10 +207,13 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   const canSwitchToSoniox =
     sttBlocked && activeEngine === "whisper" && usableEngines.length > 1 && sttStatus?.soniox.ready === true
 
-  // Ollama only runs when translation is requested and the engine can't
-  // translate itself (Soniox does, one-way and two-way; see
-  // internal/pipeline Start and internal/stt SupportsTranslation).
-  const needsOllama = (twoWay || translateTo !== "") && activeEngine !== "soniox"
+  // A text translator only runs when translation is requested and the
+  // engine can't translate itself (Soniox does, one-way and two-way; see
+  // internal/pipeline Start and internal/stt SupportsTranslation). With
+  // provider "none" there's no translator at all.
+  const needsTranslator = (twoWay || translateTo !== "") && !engineTranslates(activeEngine)
+  const needsOllama = needsTranslator && translateProvider === "ollama"
+  const needsProvider = needsTranslator && translateProvider === "none"
   useEffect(() => {
     if (!open || !needsOllama) return
     let cancelled = false
@@ -215,8 +228,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
       cancelled = true
     }
   }, [open, needsOllama])
-  const translateWarning =
-    needsOllama && translateStatus && (!translateStatus.ollama_reachable || !translateStatus.live_model.installed)
+  const translateWarning = needsProvider
+    ? t("startMeeting.translateNeedsProvider")
+    : needsOllama && translateStatus && (!translateStatus.ollama_reachable || !translateStatus.live_model.installed)
       ? t("startMeeting.translateNotReady")
       : null
 
@@ -527,9 +541,15 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
             </StatusMessage>
             {translateWarning && onOpenSettings && (
               <div className="flex">
-                <Button type="button" size="sm" variant="outline" onClick={() => openSettings("translation")}>
-                  {t("startMeeting.openTranslationSettings")}
-                </Button>
+                {needsProvider ? (
+                  <Button type="button" size="sm" variant="outline" onClick={() => openSettings("setup")}>
+                    {t("startMeeting.openSetup")}
+                  </Button>
+                ) : (
+                  <Button type="button" size="sm" variant="outline" onClick={() => openSettings("translation")}>
+                    {t("startMeeting.openTranslationSettings")}
+                  </Button>
+                )}
               </div>
             )}
           </div>

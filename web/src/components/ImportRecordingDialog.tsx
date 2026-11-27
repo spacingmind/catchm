@@ -20,11 +20,12 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toggle } from "@/components/ui/toggle"
 import { ArrowLeftRight } from "lucide-react"
-import { ApiError, getConfig, importRecording, type Meeting } from "@/lib/api"
+import { ApiError, getConfig, importRecording, type Meeting, type Setup } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import type { TFunction } from "i18next"
 import { engineLabel } from "@/lib/labels"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { visibleEngines } from "@/lib/setup"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Radix Select can't hold an item with value ""; stands in for "unset". */
@@ -92,6 +93,8 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
   const [twoWay, setTwoWay] = useState(false)
   const [engine, setEngine] = useState<"soniox" | "whisper">("soniox")
   const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
+  // Cloud hides Whisper, Self-host hides Soniox.
+  const [setup, setSetup] = useState<Setup>("")
   const [duration, setDuration] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState<number | null>(null)
@@ -111,7 +114,9 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
     void refreshProjects()
     getConfig()
       .then((c) => {
-        if (!cancelled) setSonioxKeySet(c.soniox_api_key_set)
+        if (cancelled) return
+        setSonioxKeySet(c.soniox_api_key_set)
+        setSetup(c.setup)
       })
       .catch(() => {
         if (!cancelled) setSonioxKeySet(null)
@@ -160,12 +165,18 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
 
   const whisperDisabled = file !== null && !isWav(file)
   const sonioxDisabled = sonioxKeySet === false
+  const shownEngines = visibleEngines(setup)
+  const onlyEngine = shownEngines.length === 1 ? shownEngines[0] : null
   // Keep the selection usable when a file's format disables it.
   // Fall back to whichever engine is usable, so the form never sits on
   // a disabled choice (and never shows Soniox's cost/privacy line while
-  // the file would really be transcribed on this computer).
+  // the file would really be transcribed on this computer). With one
+  // engine shown (Cloud or Self-host), that's the engine.
   const activeEngine: "soniox" | "whisper" =
-    engine === "whisper" && whisperDisabled ? "soniox" : engine === "soniox" && sonioxDisabled && !whisperDisabled ? "whisper" : engine
+    onlyEngine ??
+    (engine === "whisper" && whisperDisabled ? "soniox" : engine === "soniox" && sonioxDisabled && !whisperDisabled ? "whisper" : engine)
+  // The only engine shown can't take this import (no key, not a WAV).
+  const engineBlocked = onlyEngine !== null && (onlyEngine === "soniox" ? sonioxDisabled : whisperDisabled)
   const showCost = activeEngine === "soniox" && duration !== null
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -355,18 +366,23 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
               onChange={setEngine}
               options={[
                 {
-                  value: "soniox",
+                  value: "soniox" as const,
                   label: engineLabel("soniox"),
                   disabled: sonioxDisabled,
                   reason: sonioxDisabled ? t("importRecording.sonioxNoKey") : undefined,
                 },
                 {
-                  value: "whisper",
+                  value: "whisper" as const,
                   label: engineLabel("whisper"),
                   disabled: whisperDisabled,
-                  reason: whisperDisabled ? t("importRecording.whisperFormat") : undefined,
+                  // "Use Soniox" only when Soniox is there to use.
+                  reason: whisperDisabled
+                    ? onlyEngine === "whisper"
+                      ? t("importRecording.whisperWavConvert")
+                      : t("importRecording.whisperFormat")
+                    : undefined,
                 },
-              ]}
+              ].filter((o) => shownEngines.includes(o.value))}
             />
             <p id="import-engine-reason" className="text-xs text-muted-foreground">
               {activeEngine === "soniox" ? t("importRecording.sonioxHintShort") : t("importRecording.freePrivate")}
@@ -406,7 +422,7 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
             <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
               {t("common.cancel")}
             </Button>
-            <Button type="submit" disabled={submitting || !file} aria-busy={submitting || undefined}>
+            <Button type="submit" disabled={submitting || !file || engineBlocked} aria-busy={submitting || undefined}>
               {submitting ? <Loader2 aria-hidden="true" className="motion-safe:animate-spin" /> : <Upload aria-hidden="true" />}
               {submitting ? t("importRecording.importing") : t("importRecording.importRecording")}
             </Button>

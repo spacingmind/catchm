@@ -6,6 +6,7 @@ import { cn } from "cn"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Disclosure } from "@/components/Disclosure"
+import { ChoiceCard } from "@/components/settings/ChoiceCard"
 import { StatusMessage } from "@/components/StatusMessage"
 import {
   descId,
@@ -36,6 +37,8 @@ import { formatDateTime } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { navigate } from "@/lib/route"
+import { useAppConfig } from "@/hooks/useAppConfig"
+import { isOptionVisible, isSelfHostVisible, modulePatch } from "@/lib/setup"
 
 const OLLAMA_DOWNLOAD = "https://ollama.com/download"
 
@@ -218,6 +221,7 @@ export function CloudConsentDialog({
   select?: boolean
 }) {
   const { t } = useTranslation()
+  const { config: appConfig } = useAppConfig()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -251,7 +255,10 @@ export function CloudConsentDialog({
       description={
         <>
           <span className="block font-medium text-foreground">{t("settings.summaries.cloudPrivacy")}</span>
-          <span className="mt-2 block">{t("settings.summaries.consentBody")}</span>
+          <span className="mt-2 block">
+            {t("settings.summaries.consentBody")}
+            {isSelfHostVisible(appConfig?.setup ?? "") && <> {t("settings.summaries.consentLocalHint")}</>}
+          </span>
         </>
       }
       confirmLabel={pending ? t("settings.pieces.saving") : t("settings.summaries.consentAccept")}
@@ -381,7 +388,8 @@ export function SettingsSummaries() {
       return
     }
     setPendingProvider(null)
-    void providerSave.put({ summary: { provider } }).then((ok) => ok && refreshStatus())
+    // Leaving the Cloud preset's provider makes the setup Custom.
+    void providerSave.put(modulePatch(config, "summaries", provider)).then((ok) => ok && refreshStatus())
   }
 
   const onConsentAccepted = (c: AppConfig) => {
@@ -1023,7 +1031,7 @@ export function SettingsSummaries() {
             {t("settings.summaries.providerHelp")}
           </p>
           <div className="mt-2 grid gap-2">
-            {PROVIDERS.map((p) => (
+            {PROVIDERS.filter((p) => isOptionVisible(config.setup, "summaries", p.value)).map((p) => (
               <ChoiceCard
                 key={p.value}
                 name="summary-provider"
@@ -1115,58 +1123,5 @@ function SetupStep({
         {children}
       </div>
     </li>
-  )
-}
-
-/**
- * A radio option drawn as a card: the whole card is the label, so
- * clicking anywhere selects it, and arrow keys move between options
- * like any native radio group. The description is the radio's
- * accessible description.
- */
-function ChoiceCard({
-  name,
-  value,
-  checked,
-  onChange,
-  title,
-  description,
-  extra,
-}: {
-  name: string
-  value: string
-  checked: boolean
-  onChange: (value: string) => void
-  title: ReactNode
-  description: string
-  extra?: ReactNode
-}) {
-  const id = `${name}-${value.replace(/[^a-z0-9-]/gi, "-")}`
-  return (
-    <label
-      htmlFor={id}
-      className={cn(
-        "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-        checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
-      )}
-    >
-      <input
-        id={id}
-        type="radio"
-        name={name}
-        value={value}
-        checked={checked}
-        onChange={() => onChange(value)}
-        aria-describedby={`${id}-desc`}
-        className="mt-1 size-4 shrink-0 accent-primary"
-      />
-      <span className="min-w-0">
-        <span className="block text-sm font-medium">{title}</span>
-        <span id={`${id}-desc`} className="block text-sm text-muted-foreground">
-          {description}
-          {extra}
-        </span>
-      </span>
-    </label>
   )
 }

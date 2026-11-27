@@ -54,6 +54,7 @@ import {
   updateMeeting,
   type Meeting,
   type MeetingAnalysis,
+  type Setup,
   type TranscriptSource,
   type Utterance,
 } from "@/lib/api"
@@ -63,6 +64,7 @@ import { copyText } from "@/lib/clipboard"
 import { hasWindowControls, saveExport } from "@/lib/wailsRuntime"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
 import { meetingTab, navigate, useRoute, type MeetingTab } from "@/lib/route"
+import { isOptionVisible, isSelfHostVisible } from "@/lib/setup"
 
 interface MeetingDetailProps {
   meetingId: string
@@ -111,9 +113,10 @@ function summaryHelp(): string {
 /** A refine failure in plain words, with what to do next. Summary
  *  failures carry a `kind` (RefineError); the rest are the raw messages
  *  handleRefine passes through: batch.Refine's sentinels and the Whisper
- *  engine (the only network call before the summary). consent_required
- *  never reaches here: handleRefine asks for consent instead. */
-function refineErrorText(err: unknown): string {
+ *  engine (the only network call before the summary), matched only when
+ *  the setup can use Whisper. consent_required never reaches here:
+ *  handleRefine asks for consent instead. */
+function refineErrorText(err: unknown, setup: Setup): string {
   const raw = errorText(err)
   if (err instanceof RefineError) {
     switch (err.kind) {
@@ -121,7 +124,10 @@ function refineErrorText(err: unknown): string {
         return i18next.t("meetingDetail.refineNotReady", { reason: sentence(raw) })
       case "quota_exceeded": {
         const after = err.reset_at ? formatDateTime(err.reset_at) : i18next.t("meetingDetail.tomorrow")
-        return i18next.t("meetingDetail.refineQuota", { after })
+        // Under Cloud there's no "On this computer" to switch to.
+        return isSelfHostVisible(setup)
+          ? i18next.t("meetingDetail.refineQuota", { after })
+          : i18next.t("meetingDetail.refineQuotaCloud", { after })
       }
       case "summary_failed":
         return i18next.t("meetingDetail.refineFailed")
@@ -131,7 +137,7 @@ function refineErrorText(err: unknown): string {
   // Codes, not message text: the message is already translated.
   if (err instanceof ApiError && err.code === "meeting_active") return i18next.t("meetingDetail.refineStillRecording")
   if (err instanceof ApiError && err.code === "no_audio") return i18next.t("meetingDetail.refineNoAudio")
-  if (/whisper|inference|connection refused|dial tcp/i.test(raw)) {
+  if (isSelfHostVisible(setup) && /whisper|inference|connection refused|dial tcp/i.test(raw)) {
     return i18next.t("meetingDetail.refineWhisperDown")
   }
   return i18next.t("meetingDetail.refineGeneric", { reason: sentence(raw) })
@@ -226,6 +232,8 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const [cloudError, setCloudError] = useState<string | null>(null)
   // "Improve with Soniox": only offered when a key is set.
   const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
+  // Which providers the setup shows ("" shows all, like Custom).
+  const [setup, setSetup] = useState<Setup>("")
   const [improveOpen, setImproveOpen] = useState(false)
   const [improving, setImproving] = useState(false)
   const [improveError, setImproveError] = useState<string | null>(null)
@@ -331,7 +339,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
     let cancelled = false
     getConfig()
       .then((c) => {
-        if (!cancelled) setSonioxKeySet(c.soniox_api_key_set)
+        if (cancelled) return
+        setSonioxKeySet(c.soniox_api_key_set)
+        setSetup(c.setup)
       })
       .catch(() => undefined)
     return () => {
@@ -544,11 +554,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       if (err instanceof RefineError && err.kind === "consent_required") {
         setConsentOpen(true)
       } else {
-        setError(refineErrorText(err))
-        const setup = err instanceof RefineError && (err.kind === "summary_not_ready" || err.kind === "quota_exceeded")
-        setNeedsSetup(setup)
+        setError(refineErrorText(err, setup))
+        const notSetUp = err instanceof RefineError && (err.kind === "summary_not_ready" || err.kind === "quota_exceeded")
+        setNeedsSetup(notSetUp)
         // The card should now show what's missing, not the old "ready".
-        if (setup) refreshSummaryStatus()
+        if (notSetUp) refreshSummaryStatus()
       }
     } finally {
       setRefining(false)
@@ -568,7 +578,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
       reloadAnalysis()
       setImproveOpen(false)
     } catch (err) {
-      setImproveError(refineErrorText(err))
+      setImproveError(refineErrorText(err, setup))
     } finally {
       setImproving(false)
     }
@@ -658,7 +668,11 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // Offered for an ended meeting transcribed locally (or not at all)
   // that hasn't already had a Soniox pass, when a key is set.
   const showImprove =
-    Boolean(meeting.ended_at) && meeting.engine !== "soniox" && meeting.refined_with !== "soniox" && sonioxKeySet === true
+    Boolean(meeting.ended_at) &&
+    meeting.engine !== "soniox" &&
+    meeting.refined_with !== "soniox" &&
+    sonioxKeySet === true &&
+    isOptionVisible(setup, "transcription", "soniox")
   // Summaries are manual: ending a meeting doesn't create one, so an
   // ended, unsummarized meeting leads with the call to action.
   const showSummaryCta = !refined && Boolean(meeting.ended_at)
@@ -689,7 +703,12 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // CatchM Cloud chosen, agreed to and logged in, yet not ready (e.g.
   // today's free summaries are used up): the reason says why, and there's
   // nothing to switch to.
-  const offerCloud = !usingCloud || cloudNeedsLogin || !cloud?.consent
+  const offerCloud =
+    (!usingCloud || cloudNeedsLogin || !cloud?.consent) && isOptionVisible(setup, "summaries", "catchm-cloud")
+  // The card offers only what the setup shows: Ollama on this computer,
+  // or (under Cloud, in its place) the user's own Cloudflare account.
+  const offerLocal = isOptionVisible(setup, "summaries", "ollama")
+  const offerCloudflare = !offerLocal && isOptionVisible(setup, "summaries", "openai")
 
   // Evidence for Overview's "Source" links, when the Transcript tab shows
   // the lines the analysis cites.
@@ -849,26 +868,49 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   <ul className="grid gap-3 sm:grid-cols-2">
-                    <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
-                      <div>
-                        <h3 className="flex items-center gap-2 text-sm font-medium">
-                          <HardDrive aria-hidden="true" className="size-4" />
-                          {t("labels.engine.whisper")}
-                        </h3>
-                        <p id="summary-setup-local-desc" className="mt-1 text-sm text-muted-foreground">
-                          {localGb != null
-                            ? t("meetingDetail.localDescGb", { size: formatGb(localGb) })
-                            : t("meetingDetail.localDescFewGb")}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => navigate({ name: "settings", section: "summaries" })}
-                        aria-describedby="summary-setup-local-desc"
-                      >
-                        {t("meetingDetail.setupLocalButton")}
-                      </Button>
-                    </li>
+                    {offerLocal && (
+                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-medium">
+                            <HardDrive aria-hidden="true" className="size-4" />
+                            {t("labels.engine.whisper")}
+                          </h3>
+                          <p id="summary-setup-local-desc" className="mt-1 text-sm text-muted-foreground">
+                            {localGb != null
+                              ? t("meetingDetail.localDescGb", { size: formatGb(localGb) })
+                              : t("meetingDetail.localDescFewGb")}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => navigate({ name: "settings", section: "summaries" })}
+                          aria-describedby="summary-setup-local-desc"
+                        >
+                          {t("meetingDetail.setupLocalButton")}
+                        </Button>
+                      </li>
+                    )}
+                    {offerCloudflare && (
+                      <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-medium">
+                            <Cloud aria-hidden="true" className="size-4" />
+                            {t("setup.options.cloudflare")}
+                          </h3>
+                          <p id="summary-setup-cloudflare-desc" className="mt-1 text-sm text-muted-foreground">
+                            {t("setup.options.cloudflareDesc")}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate({ name: "settings", section: "summaries" })}
+                          aria-describedby="summary-setup-cloudflare-desc"
+                        >
+                          {t("getStarted.setUp")}
+                        </Button>
+                      </li>
+                    )}
                     {offerCloud && (
                       <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
                         <div>
@@ -1164,7 +1206,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           setConsentOpen(open)
           if (!open && !consentAccepted.current) {
             setError(
-              t("meetingDetail.consentDeclined"),
+              isSelfHostVisible(setup) ? t("meetingDetail.consentDeclined") : t("meetingDetail.consentDeclinedCloud"),
             )
             setNeedsSetup(true)
           }

@@ -11,6 +11,7 @@ import { UpdateBanner } from "@/components/UpdateBanner"
 import { ActionItemsSkeleton, MeetingDetailSkeleton, SettingsSkeleton } from "@/components/ViewSkeletons"
 import { Button } from "@/components/ui/button"
 import type { Section as SettingsSection } from "@/components/settings/Settings"
+import { useAppConfig } from "@/hooks/useAppConfig"
 import { getMeeting, listMeetings, type CaptureErrorKind, type Meeting, type StartMeetingResponse } from "@/lib/api"
 import { formatRoute, MEETINGS, navigate, parseRoute, useHash, type Route } from "@/lib/route"
 import { hasWindowControls, notifyReadyForEvents, windowEventsOn } from "@/lib/wailsRuntime"
@@ -21,6 +22,8 @@ import { hasWindowControls, notifyReadyForEvents, windowEventsOn } from "@/lib/w
 const MeetingDetail = lazy(() => import("@/components/MeetingDetail").then((m) => ({ default: m.MeetingDetail })))
 const ActionItems = lazy(() => import("@/components/ActionItems").then((m) => ({ default: m.ActionItems })))
 const Settings = lazy(() => import("@/components/settings/Settings").then((m) => ({ default: m.Settings })))
+// Shown once, on first run.
+const SetupChooser = lazy(() => import("@/components/SetupChooser").then((m) => ({ default: m.SetupChooser })))
 
 /** How often the live state is re-derived from the server. */
 const LIVE_POLL_MS = 3000
@@ -298,6 +301,15 @@ function App() {
   const showLive = view === "live" && current !== null && !current.ended_at
   const showCompactShell = liveCompact && showLive
 
+  // First run (setup not chosen yet): the setup chooser takes the place
+  // of every view but Live and Settings (where Setup is the same choice).
+  // Held back until the config answers, so the list doesn't flash first;
+  // a failed load just shows the app.
+  const appConfig = useAppConfig()
+  const chooserPending = !appConfig.loaded && view !== "live" && view !== "settings"
+  const firstRun = appConfig.config?.setup === "" && view !== "live" && view !== "settings"
+  const showView = (v: View) => !showCompactShell && !chooserPending && !firstRun && view === v
+
   return (
     <div className={showCompactShell ? "bg-background text-foreground" : "flex min-h-svh text-foreground"}>
       {/* Skip link: first tab stop, visible only while focused. */}
@@ -369,7 +381,12 @@ function App() {
             )}
           </div>
         )}
-        {!showCompactShell && view === "list" && (
+        {!showCompactShell && firstRun && appConfig.config && (
+          <Suspense fallback={null}>
+            <SetupChooser config={appConfig.config} onDone={() => navigate(MEETINGS)} />
+          </Suspense>
+        )}
+        {showView("list") && (
           <MeetingList
             project={activeProject}
             onOpenProject={openProject}
@@ -378,10 +395,12 @@ function App() {
             onImportRecording={importRecording}
           />
         )}
-        {!showCompactShell && view === "projects" && <AllProjects onOpenProject={openProject} />}
+        {showView("projects") && <AllProjects onOpenProject={openProject} />}
         {/* A routed meeting still being fetched (reload, deep link). Its
             own slot, so LiveMeeting's position below never shifts. */}
-        {!showCompactShell && routeId !== null && current === null && <MeetingDetailSkeleton />}
+        {!showCompactShell && !chooserPending && !firstRun && routeId !== null && current === null && (
+          <MeetingDetailSkeleton />
+        )}
         {showLive && (
           <LiveMeeting
             meeting={current}
@@ -401,7 +420,7 @@ function App() {
             }}
           />
         )}
-        {!showCompactShell && view === "detail" && current?.ended_at && (
+        {showView("detail") && current?.ended_at && (
           <Suspense fallback={<MeetingDetailSkeleton />}>
             <MeetingDetail
               key={current.id}
@@ -412,7 +431,7 @@ function App() {
             />
           </Suspense>
         )}
-        {!showCompactShell && view === "action-items" && (
+        {showView("action-items") && (
           <Suspense fallback={<ActionItemsSkeleton />}>
             <ActionItems onOpenMeeting={openMeeting} />
           </Suspense>
