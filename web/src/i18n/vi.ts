@@ -31,6 +31,7 @@ export const vi: Messages = {
       deepgram: "Đám mây (Deepgram)",
       elevenlabs: "Đám mây (ElevenLabs)",
       speechmatics: "Đám mây (Speechmatics)",
+      gladia: "Đám mây (Gladia)",
     },
     engineHint: {
       whisper: "Miễn phí và riêng tư. Cần máy chủ Whisper miễn phí chạy trên máy này.",
@@ -38,6 +39,7 @@ export const vi: Messages = {
       deepgram: "Nhanh và phân biệt được người nói. Cần API key Deepgram trả phí.",
       elevenlabs: "Phân biệt được người nói. Cần API key ElevenLabs (gói miễn phí có sẵn vài giờ).",
       speechmatics: "Phân biệt được người nói, nhiều ngôn ngữ. Cần API key Speechmatics.",
+      gladia: "Hơn 100 ngôn ngữ, theo kịp khi người nói đổi ngôn ngữ giữa câu. Chỉ phân biệt người nói khi chép lại. Cần API key Gladia.",
     },
   },
   settings: {
@@ -432,6 +434,9 @@ export const vi: Messages = {
       speechmatics: "Speechmatics",
       speechmaticsDesc:
         "Speechmatics Enhanced: phân biệt được người nói, hơn 55 ngôn ngữ. Khoảng $0.80 mỗi giờ khi chép lời trực tiếp; tài khoản mới được tặng $100 dùng thử.",
+      gladia: "Gladia",
+      gladiaDesc:
+        "Gladia Solaria: hơn 100 ngôn ngữ, theo kịp khi người nói đổi ngôn ngữ. Khi họp trực tiếp chưa phân biệt được người nói (chép lại thì có). Khoảng €0.68 mỗi giờ khi chép lời trực tiếp; có sẵn giờ miễn phí để dùng thử.",
       whisper: "Whisper",
       whisperDesc: "Chạy trên máy này với máy chủ whisper.cpp miễn phí. Không có gì rời khỏi máy này.",
       builtIn: "Có sẵn trong chép lời",

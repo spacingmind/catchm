@@ -1,6 +1,6 @@
 # Plan: Cloud / Self-host / Custom setup, bring-your-own-key providers
 
-- Status: proposed
+- Status: phases 1–6 implemented on `feat/cloud-mode`; real-key checks pending (see Progress)
 - Created: 2026-11-27
 - Branch: `feat/cloud-mode` (one PR per phase below)
 - Research: [cloud-mode-providers.md](cloud-mode-providers.md) (API notes and
@@ -264,3 +264,51 @@ else follows `docs/ui-conventions.md`.
 - Per-provider usage/cost tracking in the UI.
 - Storing keys in the OS keychain (keys stay in `config.yaml` like Soniox's
   today; revisit with signing/notarization).
+
+## Progress (2026-11-27)
+
+Phases 1–6 are implemented and committed on `feat/cloud-mode`. Every
+engine is tested with `-race` against fake servers that replay its
+documented messages. **No real key has been tried yet.**
+
+Changes from the plan made while building:
+
+- **Soniox locks translation** (user, 2026-11-27): with Soniox
+  transcribing, translation is always Soniox's own (`config.Normalize`,
+  plus disabled cards in the UI).
+- **Cloud preset translation stays "none"** (Soniox translates on its
+  own), so Cloud needs no Google key.
+- **Speechmatics and Gladia don't use their own translation:**
+  - Speechmatics translation costs $0.65/h, covers English pairs only,
+    and its sentence-level results would have to be matched to the
+    transcript by time.
+  - Gladia's link between a translation and its utterance isn't
+    documented clearly.
+  - The Translation module covers both, so `SupportsTranslation` is
+    false for every engine except Soniox.
+- **DeepL is deferred:** Vietnamese in its API couldn't be confirmed
+  without a key.
+- **Gladia live doesn't separate speakers** (Gladia supports that for
+  files only). Its card has no Speakers badge and says so.
+- **Deepgram opts out of model training** (`mip_opt_out=true`).
+- **Engines that read the language as auto (or two-way)** use the
+  provider's multi-language mode:
+  - Deepgram `multi`;
+  - Speechmatics `melia-1` `multi`;
+  - Gladia code switching;
+  - ElevenLabs omits the language.
+- **One registry:** `internal/server/engines.go` (`cloudEngines`) and
+  `web/src/lib/setup.ts` (`CLOUD_ENGINES` plus the options) are the only
+  places that list engines.
+
+### To check with real keys (criterion 4)
+
+| Engine | Unverified against the live API |
+|---|---|
+| Deepgram | `diarize=true` speaker labels live; handshake 401 body |
+| ElevenLabs | `scribe_v3_live` id, `diarized_transcript` / `segment_index` flow, `vie` code |
+| Speechmatics | `operating_point: enhanced` accepted live; melia-1 `multi` with Vietnamese |
+| Gladia | live init body fields; `end_session` / close 1000 on stop |
+| Google | key check via `/languages` |
+| LLM presets | 2026 model ids (overridable in Advanced) |
+

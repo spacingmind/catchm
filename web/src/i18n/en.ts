@@ -46,6 +46,7 @@ export const en = {
       deepgram: "Cloud (Deepgram)",
       elevenlabs: "Cloud (ElevenLabs)",
       speechmatics: "Cloud (Speechmatics)",
+      gladia: "Cloud (Gladia)",
     },
     engineHint: {
       whisper: "Free and private. Needs the free Whisper server running on this computer.",
@@ -53,6 +54,7 @@ export const en = {
       deepgram: "Fast and tells speakers apart. Needs a paid Deepgram API key.",
       elevenlabs: "Tells speakers apart. Needs an ElevenLabs API key (the free plan includes some hours).",
       speechmatics: "Tells speakers apart, many languages. Needs a Speechmatics API key.",
+      gladia: "100+ languages, switches between them mid-sentence. Speakers only when re-transcribed. Needs a Gladia API key.",
     },
   },
   settings: {
@@ -447,6 +449,9 @@ export const en = {
       speechmatics: "Speechmatics",
       speechmaticsDesc:
         "Speechmatics Enhanced: tells speakers apart, 55+ languages. About $0.80 per hour live; new accounts get $100 free credit.",
+      gladia: "Gladia",
+      gladiaDesc:
+        "Gladia Solaria: 100+ languages, follows people switching language. Live meetings don't tell speakers apart (re-transcribing does). About €0.68 per hour live; free hours to start.",
       whisper: "Whisper",
       whisperDesc: "Runs on this computer with the free whisper.cpp server. Nothing leaves this computer.",
       builtIn: "Built into transcription",

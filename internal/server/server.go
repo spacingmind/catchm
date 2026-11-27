@@ -1067,6 +1067,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 		"deepgram_api_key_set":     cfg.Deepgram.APIKey != "",
 		"elevenlabs_api_key_set":   cfg.ElevenLabs.APIKey != "",
 		"speechmatics_api_key_set": cfg.Speechmatics.APIKey != "",
+		"gladia_api_key_set":       cfg.Gladia.APIKey != "",
 		"translate": map[string]any{
 			"provider":           cfg.Translate.Provider,
 			"google_api_key_set": cfg.Translate.Google.APIKey != "",
@@ -1119,6 +1120,7 @@ type configRequestBody struct {
 	DeepgramAPIKey     string `json:"deepgram_api_key"`
 	ElevenLabsAPIKey   string `json:"elevenlabs_api_key"`
 	SpeechmaticsAPIKey string `json:"speechmatics_api_key"`
+	GladiaAPIKey       string `json:"gladia_api_key"`
 	Translate          struct {
 		Provider     string `json:"provider"`
 		GoogleAPIKey string `json:"google_api_key"`
@@ -1229,6 +1231,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.Deepgram.APIKey, req.DeepgramAPIKey)
 	setIfNonEmpty(&updated.ElevenLabs.APIKey, req.ElevenLabsAPIKey)
 	setIfNonEmpty(&updated.Speechmatics.APIKey, req.SpeechmaticsAPIKey)
+	setIfNonEmpty(&updated.Gladia.APIKey, req.GladiaAPIKey)
 	setIfNonEmpty(&updated.Translate.Provider, req.Translate.Provider)
 	setIfNonEmpty(&updated.Translate.Google.APIKey, req.Translate.GoogleAPIKey)
 	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)

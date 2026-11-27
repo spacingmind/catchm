@@ -182,6 +182,7 @@ type Config struct {
 	Deepgram     APIKeyConfig    `yaml:"deepgram"`
 	ElevenLabs   APIKeyConfig    `yaml:"elevenlabs"`
 	Speechmatics APIKeyConfig    `yaml:"speechmatics"`
+	Gladia       APIKeyConfig    `yaml:"gladia"`
 	Translate    TranslateConfig `yaml:"translate"`
 	Cloud        CloudConfig     `yaml:"cloud"`
 	Summary      SummaryConfig   `yaml:"summary"`

@@ -53,6 +53,13 @@ var cloudEngines = []cloudEngine{
 		batch:  func(c *config.Config) stt.BatchEngine { return stt.NewSpeechmaticsEngine(c.Speechmatics.APIKey) },
 		verify: func(ctx context.Context, key string) error { return stt.NewSpeechmaticsEngine(key).VerifyKey(ctx) },
 	},
+	{
+		name: "gladia", label: "Gladia",
+		key:    func(c *config.Config) string { return c.Gladia.APIKey },
+		stream: func(c *config.Config) stt.StreamEngine { return stt.NewGladiaEngine(c.Gladia.APIKey) },
+		batch:  func(c *config.Config) stt.BatchEngine { return stt.NewGladiaEngine(c.Gladia.APIKey) },
+		verify: func(ctx context.Context, key string) error { return stt.NewGladiaEngine(key).VerifyKey(ctx) },
+	},
 }
 
 func findCloudEngine(name string) (cloudEngine, bool) {

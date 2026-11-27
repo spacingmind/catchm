@@ -88,6 +88,15 @@ export const OPTIONS: readonly SetupOption[] = [
     section: "transcription",
   },
   {
+    id: "gladia",
+    module: "transcription",
+    side: "cloud",
+    labelKey: "setup.options.gladia",
+    descKey: "setup.options.gladiaDesc",
+    badges: ["freeTier"],
+    section: "transcription",
+  },
+  {
     id: "whisper",
     module: "transcription",
     side: "selfhost",
@@ -200,6 +209,11 @@ export const CLOUD_ENGINES: Record<CloudSttEngine, CloudEngineInfo> = {
     keyUrl: "https://portal.speechmatics.com/settings/api-keys",
     verifiable: true,
     fileRatePerHour: 0.75,
+  },
+  gladia: {
+    keyUrl: "https://app.gladia.io",
+    verifiable: true,
+    fileRatePerHour: 0.3,
   },
 }
 
