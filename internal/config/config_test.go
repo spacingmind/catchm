@@ -229,3 +229,10 @@ func TestSonioxLocksTranslation(t *testing.T) {
 		t.Fatalf("whisper changed the provider to %q", c.Translate.Provider)
 	}
 }
+
+func TestZAIPreset(t *testing.T) {
+	base, fast, strong := LLMConfig{Preset: LLMZAI, APIKey: "k"}.Resolved()
+	if base != "https://api.z.ai/api/paas/v4" || fast != "glm-5.1" || strong != "glm-5.1" {
+		t.Fatalf("zai = %s %s %s", base, fast, strong)
+	}
+}

@@ -65,6 +65,7 @@ const (
 	LLMAnthropic  = "anthropic"
 	LLMGroq       = "groq"
 	LLMDeepSeek   = "deepseek"
+	LLMZAI        = "zai"
 	LLMCloudflare = "cloudflare"
 	LLMCustom     = "custom"
 )
@@ -79,6 +80,9 @@ var LLMPresets = map[string]LLMPreset{
 	LLMAnthropic:  {BaseURL: "https://api.anthropic.com/v1", FastModel: "claude-haiku-5-5", StrongModel: "claude-sonnet-5-5"},
 	LLMGroq:       {BaseURL: "https://api.groq.com/openai/v1", FastModel: "openai/gpt-oss-20b", StrongModel: "openai/gpt-oss-120b"},
 	LLMDeepSeek:   {BaseURL: "https://api.deepseek.com", FastModel: "deepseek-flash", StrongModel: "deepseek-v4-pro"},
+	// Z.AI's pay-as-you-go OpenAI-compatible endpoint (GLM). GLM Coding
+	// Plan keys only work on /api/coding/paas/v4: use Custom for those.
+	LLMZAI:        {BaseURL: "https://api.z.ai/api/paas/v4", FastModel: "glm-5.1", StrongModel: "glm-5.1"},
 	LLMCloudflare: {BaseURL: "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1", FastModel: "@cf/qwen/qwen3-30b-a3b-fp8", StrongModel: "@cf/qwen/qwen3-30b-a3b-fp8"},
 }
 
