@@ -5,6 +5,7 @@ import { QRCodeSVG } from "qrcode.react"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { StatusMessage } from "@/components/StatusMessage"
 import { oneTimeCodeProps } from "@/components/settings/CloudCodeStep"
+import { CloudPassword } from "@/components/settings/CloudPassword"
 import { SettingRow, SettingsSection, descId } from "@/components/settings/pieces"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,17 +36,30 @@ const sessionEnded = (err: unknown) => err instanceof ApiError && err.code === "
  * longer logged in.
  */
 export function CloudSecurity({
+  email,
   totpEnabled,
   onStatusChange,
   onSessionEnded,
+  onRecovered,
 }: {
+  email: string
   totpEnabled: boolean
   onStatusChange: () => void
   onSessionEnded: (message: string | null) => void
+  /** A new password was set with the recovery code: show the new code once. */
+  onRecovered: (recoveryCode: string, twoFactorDisabled: boolean) => void
 }) {
   const { t } = useTranslation()
   return (
     <SettingsSection title={t("settings.cloudSync.security.title")} description={t("settings.cloudSync.security.desc")}>
+      <CloudPassword
+        email={email}
+        onSessionEnded={onSessionEnded}
+        onRecovered={(code, twoFactorOff) => {
+          onRecovered(code, twoFactorOff)
+          onStatusChange()
+        }}
+      />
       <TwoFactor totpEnabled={totpEnabled} onStatusChange={onStatusChange} onSessionEnded={onSessionEnded} />
       <Devices onSessionEnded={onSessionEnded} />
     </SettingsSection>

@@ -412,6 +412,33 @@ func (f *cloudFakeWorker) handler() http.Handler {
 		f.users[email] = stored
 		writeCloudJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("/account/change-password", func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		email, ok := f.sessions[bearer]
+		if !ok {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired session"})
+			return
+		}
+		var req cloudsync.ChangePasswordRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		stored := f.users[email]
+		if req.CurrentAuthHash != stored.AuthHash {
+			writeCloudJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+			return
+		}
+		stored.AuthHash, stored.AuthSalt, stored.KDFParams, stored.WrappedMasterKey = req.AuthHash, req.AuthSalt, req.KDFParams, req.WrappedMasterKey
+		f.users[email] = stored
+		signedOut := 0
+		if req.SignOutOthers {
+			for tok, e := range f.sessions {
+				if e == email && tok != bearer {
+					delete(f.sessions, tok)
+					signedOut++
+				}
+			}
+		}
+		writeCloudJSON(w, http.StatusOK, map[string]any{"status": "ok", "signed_out": signedOut})
+	})
 	mux.HandleFunc("POST /verify/resend", func(w http.ResponseWriter, r *http.Request) {
 		switch f.resendStatus {
 		case http.StatusTooManyRequests:
@@ -853,5 +880,58 @@ func TestCloudSignupBreachedPasswordWarns(t *testing.T) {
 	passwordBreachCount = func(context.Context, string) (int, error) { return 0, context.DeadlineExceeded }
 	if warnIfBreached(httptest.NewRecorder(), httptest.NewRequest("POST", "/", nil), "password", false) {
 		t.Fatal("a failed lookup warned")
+	}
+}
+
+// Change password: the current one must be right; afterwards the new one
+// logs in, the old one doesn't, and the recovery code still works.
+func TestCloudChangePassword(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newCloudTestServer(t)
+	_, body := doCloud(t, s, http.MethodPost, "/api/cloud/signup",
+		`{"email":"chg@example.com","password":"old password"}`)
+	recoveryCode, _ := body["recovery_code"].(string)
+	if recoveryCode == "" {
+		t.Fatalf("signup: %v", body)
+	}
+
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/change-password",
+		`{"current_password":"not it","new_password":"brand new password"}`)
+	if code != http.StatusForbidden || body["code"] != "wrong_password" {
+		t.Fatalf("wrong current = %d %v", code, body)
+	}
+	// Still logged in after a wrong current password.
+	if _, st := doCloud(t, s, http.MethodGet, "/api/cloud/status", ""); st["logged_in"] != true {
+		t.Fatalf("logged out by a wrong current password: %v", st)
+	}
+	code, body = doCloud(t, s, http.MethodPost, "/api/cloud/change-password",
+		`{"current_password":"old password","new_password":"old password"}`)
+	if code != http.StatusBadRequest || body["code"] != "same_password" {
+		t.Fatalf("same password = %d %v", code, body)
+	}
+
+	code, body = doCloud(t, s, http.MethodPost, "/api/cloud/change-password",
+		`{"current_password":"old password","new_password":"brand new password","sign_out_others":true}`)
+	if code != http.StatusOK {
+		t.Fatalf("change = %d %v", code, body)
+	}
+	if code, _ := doCloud(t, s, http.MethodPost, "/api/cloud/login", `{"email":"chg@example.com","password":"brand new password"}`); code != http.StatusOK {
+		t.Fatalf("login with new password = %d", code)
+	}
+	if code, _ := doCloud(t, s, http.MethodPost, "/api/cloud/login", `{"email":"chg@example.com","password":"old password"}`); code != http.StatusUnauthorized {
+		t.Fatalf("login with old password = %d", code)
+	}
+	if code, _ := doCloud(t, s, http.MethodPost, "/api/cloud/recover",
+		`{"email":"chg@example.com","recovery_code":"`+recoveryCode+`","new_password":"third one here"}`); code != http.StatusOK {
+		t.Fatalf("recovery code stopped working after a change = %d", code)
+	}
+}
+
+func TestCloudChangePasswordNeedsLogin(t *testing.T) {
+	s, _ := newCloudTestServer(t)
+	code, body := doCloud(t, s, http.MethodPost, "/api/cloud/change-password",
+		`{"current_password":"a","new_password":"b"}`)
+	if code != http.StatusUnauthorized || body["code"] != "not_logged_in" {
+		t.Fatalf("not logged in = %d %v", code, body)
 	}
 }

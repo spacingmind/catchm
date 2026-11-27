@@ -23,6 +23,10 @@ var (
 	// or expired.
 	ErrUnauthorized = errors.New("cloudsync: unauthorized")
 
+	// ErrWrongPassword: change-password's current password didn't match
+	// (the session itself is fine).
+	ErrWrongPassword = errors.New("cloudsync: wrong current password")
+
 	// ErrNotFound is a 404: the blob does not exist, or exists but
 	// belongs to a different account — the server does not distinguish.
 	ErrNotFound = errors.New("cloudsync: not found")
@@ -405,6 +409,34 @@ func (c *Client) TOTPEnable(sessionToken, code string) error {
 // ErrInvalidCode for a wrong code; ErrTOTPNotEnabled when it's off.
 func (c *Client) TOTPDisable(sessionToken, code string) error {
 	return c.doJSON(http.MethodPost, "/totp/disable", sessionToken, map[string]string{"code": code}, nil)
+}
+
+// ChangePasswordRequest is the POST /account/change-password body: the
+// current password's auth hash (proof beyond the session) and the
+// password half re-wrapped under the new password.
+type ChangePasswordRequest struct {
+	CurrentAuthHash  string `json:"current_auth_hash"`
+	AuthHash         string `json:"auth_hash"`
+	AuthSalt         string `json:"auth_salt"`
+	KDFParams        string `json:"kdf_params"`
+	WrappedMasterKey string `json:"wrapped_master_key"`
+	SignOutOthers    bool   `json:"sign_out_others"`
+}
+
+// ChangePassword sets a new password for a signed-in user who knows the
+// current one; the recovery code is unchanged. It returns how many other
+// sessions were signed out. ErrWrongPassword when the current password
+// is wrong; ErrUnauthorized when the session ended; ErrNotFound on a
+// server without the endpoint.
+func (c *Client) ChangePassword(sessionToken string, req ChangePasswordRequest) (int, error) {
+	var out struct {
+		SignedOut int `json:"signed_out"`
+	}
+	err := c.doJSON(http.MethodPost, "/account/change-password", sessionToken, req, &out)
+	if errors.Is(err, ErrUnauthorized) && strings.Contains(err.Error(), "invalid credentials") {
+		return 0, ErrWrongPassword
+	}
+	return out.SignedOut, err
 }
 
 // ResetPassword overwrites the account's password-path fields and

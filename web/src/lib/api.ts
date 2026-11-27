@@ -436,6 +436,8 @@ const ERROR_KEYS = {
   totp_not_enabled: "errors.totpNotEnabled",
   totp_not_set_up: "errors.totpNotSetUp",
   cloud_unsupported: "errors.cloudUnsupported",
+  wrong_password: "errors.wrongPassword",
+  same_password: "errors.samePassword",
 } as const
 
 /** The user-facing text for an error body: translated when the server
@@ -1336,6 +1338,25 @@ export function cloudSync(): Promise<SyncResult> {
 
 /** POST /api/cloud/recover — returns the NEW rotated recovery code (one-time display, same contract as signup).
  *  An unverified account answers the email_code challenge like login. */
+/** POST /api/cloud/change-password: a new password for the signed-in
+ *  user, proven by the current one; the recovery code is unchanged.
+ *  409 password_breached asks to confirm (acceptBreached). */
+export function cloudChangePassword(
+  currentPassword: string,
+  newPassword: string,
+  opts: { signOutOthers?: boolean; acceptBreached?: boolean } = {},
+): Promise<{ signed_out: number }> {
+  return apiFetch("/api/cloud/change-password", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      sign_out_others: opts.signOutOthers ?? false,
+      accept_breached: opts.acceptBreached || undefined,
+    }),
+  })
+}
+
 export function cloudRecover(
   email: string,
   recoveryCode: string,

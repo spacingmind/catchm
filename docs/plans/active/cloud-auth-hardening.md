@@ -336,3 +336,26 @@ Changes from the design made while building:
     since inbound mail counts against the shared Resend quota.
 - **Still to watch:** the shared Resend free quota (100/day) during the
   first days, while every existing account verifies at its next login.
+
+## Follow-up: change / forgot password while signed in (2026-11-27)
+
+- **Worker:** `POST /account/change-password` (catchm-api PR #12) takes
+  the session plus `current_auth_hash`, so a stolen session token alone
+  can't change the password. It re-wraps only the password half; the
+  recovery code stays valid. `sign_out_others` ends the other sessions
+  in the same batch.
+- **Emails:** `/account/change-password` and `/account/reset-password`
+  both send `password_changed`, in the shared branded layout. The text
+  says how the password changed:
+  - "Change password": the recovery code still works, so "Forgot
+    password?" takes the account back;
+  - recovery code: the code was replaced, so the first step is to
+    reply and lock the account.
+- **App:** Settings → Cloud sync → Security → Password:
+  - "Change password": current password, new password and its
+    confirmation, and "Sign out all other devices" (on by default). A
+    breached new password gets the same warning as signup;
+  - "Forgot password?" while signed in: recovery code and a new
+    password, through the existing recover flow. The new recovery code
+    is shown once.
+  - The log-in form keeps its own "Forgot password?".

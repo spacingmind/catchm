@@ -165,6 +165,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/cloud/status", s.handleCloudStatus)
 	s.mux.HandleFunc("POST /api/cloud/sync", s.handleCloudSync)
 	s.mux.HandleFunc("POST /api/cloud/recover", s.handleCloudRecover)
+	s.mux.HandleFunc("POST /api/cloud/change-password", s.handleCloudChangePassword)
 	s.mux.HandleFunc("PUT /api/cloud/server", s.handleCloudServer)
 	s.mux.HandleFunc("GET /api/cloud/sessions", s.handleCloudSessions)
 	s.mux.HandleFunc("DELETE /api/cloud/sessions/{id}", s.handleCloudRevokeSession)
