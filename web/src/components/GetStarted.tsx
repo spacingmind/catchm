@@ -10,7 +10,7 @@ import { useAppConfig } from "@/hooks/useAppConfig"
 import { useAnnounceChange, useStatusCheck } from "@/hooks/useStatusCheck"
 import { getSttStatus, getSummaryStatus, getTranslateStatus } from "@/lib/api"
 import { navigate } from "@/lib/route"
-import { engineTranslates, translateNeed } from "@/lib/setup"
+import { engineTranslates, needsTranslatorText, translateNeed } from "@/lib/setup"
 
 /**
  * "Hide" on the card. The value is whether the required item
@@ -82,7 +82,7 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
   const summary = useStatusCheck(getSummaryStatus)
   const { config } = useAppConfig()
   // Translation provider "none": only the engine's own translation
-  // (Soniox), so there's nothing to check, and no Ollama step to show.
+  // (setup.ts engineTranslates), so there's nothing to check, and no Ollama step to show.
   const builtInTranslation = config?.translate.provider === "none"
   const translate = useStatusCheck(getTranslateStatus, { enabled: config != null && !builtInTranslation })
   const [hidden, setHidden] = useState<HiddenMark | null>(readHidden)
@@ -134,7 +134,7 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
       reason:
         translateReady === false
           ? builtInTranslation || !translateStatus
-            ? t("setup.status.needsSoniox")
+            ? needsTranslatorText(config?.engine ?? "")
             : translateNeed(translateStatus)
           : undefined,
       // Built-in translation is fixed by the engine choice, in Setup.

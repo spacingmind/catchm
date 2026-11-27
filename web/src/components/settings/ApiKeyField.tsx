@@ -22,11 +22,12 @@ function providerMessage(error: string): string {
 type CheckState = { state: "idle" } | { state: "checking" } | { state: "ok" } | { state: "failed"; text: string }
 
 /**
- * A write-only API key as a settings row (the Soniox key's pattern):
- * "Key added ✓" + Check key + Replace key once one is stored, or Add key;
- * editing shows a password field with Cancel, Check key (the typed key,
- * before saving) and Save key. Check key answers inline: the key works,
- * or the provider's own error.
+ * A write-only API key as a settings row: "Key added ✓" + Check key +
+ * Replace key once one is stored, or Add key; editing shows a password
+ * field with Cancel, Check key (the typed key, before saving) and Save
+ * key. Check key answers inline: the key works, or the provider's own
+ * error. Without `verify` (a provider with no key check) there's no
+ * Check key.
  *
  * `blockedReason`: the key can't be added yet (e.g. the server isn't
  * named), shown as text next to the disabled Add key button.
@@ -47,7 +48,7 @@ export function ApiKeyField({
   /** Saves the typed key; resolves true on success. */
   onSave: (key: string) => Promise<boolean>
   /** Checks a typed key, or the stored one when called without. */
-  verify: (key?: string) => Promise<VerifyResult>
+  verify?: (key?: string) => Promise<VerifyResult>
   blockedReason?: string
 }) {
   const { t } = useTranslation()
@@ -102,6 +103,7 @@ export function ApiKeyField({
   }
 
   const runCheck = async (key?: string) => {
+    if (!verify) return
     if (editing && !key) {
       setError(t("settings.transcription.enterKey"))
       inputRef.current?.focus()
@@ -190,16 +192,18 @@ export function ApiKeyField({
               <Button type="button" size="sm" variant="outline" disabled={saving} onClick={closeEditor}>
                 {t("common.cancel")}
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={saving || checking}
-                aria-busy={checking || undefined}
-                onClick={() => void runCheck(input.trim())}
-              >
-                {checking ? t("settings.keys.checking") : t("settings.keys.check")}
-              </Button>
+              {verify && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={saving || checking}
+                  aria-busy={checking || undefined}
+                  onClick={() => void runCheck(input.trim())}
+                >
+                  {checking ? t("settings.keys.checking") : t("settings.keys.check")}
+                </Button>
+              )}
               <Button type="submit" size="sm" disabled={saving} aria-busy={saving || undefined}>
                 {saving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
               </Button>
@@ -218,15 +222,17 @@ export function ApiKeyField({
                     <Check aria-hidden="true" className="size-3.5 text-primary" />
                     {t("setup.badges.keyAdded")}
                   </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={checking}
-                    aria-busy={checking || undefined}
-                    onClick={() => void runCheck()}
-                  >
-                    {checking ? t("settings.keys.checking") : t("settings.keys.check")}
-                  </Button>
+                  {verify && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={checking}
+                      aria-busy={checking || undefined}
+                      onClick={() => void runCheck()}
+                    >
+                      {checking ? t("settings.keys.checking") : t("settings.keys.check")}
+                    </Button>
+                  )}
                 </>
               )}
               <Button

@@ -163,6 +163,7 @@ func (e *DeepgramEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, 
 	q.Set("interim_results", "true") // required by utterance_end_ms
 	q.Set("utterance_end_ms", "1000")
 	q.Set("endpointing", "300")
+	q.Set("mip_opt_out", "true") // meeting audio never joins Deepgram's model-training program
 	deepgramKeyterms(q, opts.ContextTerms)
 
 	conn, resp, err := e.dialer.DialContext(ctx, e.streamURL+"?"+q.Encode(), e.authHeader())
@@ -374,6 +375,7 @@ func (e *DeepgramEngine) TranscribeFile(ctx context.Context, audioPath string, o
 	q.Set("smart_format", "true")
 	q.Set("diarize", "true")
 	q.Set("utterances", "true")
+	q.Set("mip_opt_out", "true")
 	deepgramKeyterms(q, opts.ContextTerms)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.restURL+"/listen?"+q.Encode(), f)

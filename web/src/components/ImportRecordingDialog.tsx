@@ -3,7 +3,6 @@ import { Loader2, Upload } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { ProjectSelectField } from "@/components/Projects"
-import { SegmentedControl } from "@/components/settings/pieces"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,12 +19,21 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toggle } from "@/components/ui/toggle"
 import { ArrowLeftRight } from "lucide-react"
-import { ApiError, getConfig, importRecording, type Meeting, type Setup } from "@/lib/api"
+import { ApiError, getConfig, importRecording, type AppConfig, type CloudSttEngine, type Meeting, type SttEngine } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import type { TFunction } from "i18next"
-import { engineLabel } from "@/lib/labels"
+import { engineHint, engineLabel } from "@/lib/labels"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
-import { visibleEngines } from "@/lib/setup"
+import {
+  CLOUD_ENGINES,
+  engineKeySet,
+  engineOptionName,
+  cloudPrivacy,
+  fileCost,
+  isCloudEngine,
+  toEngine,
+  visibleEngines,
+} from "@/lib/setup"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Radix Select can't hold an item with value ""; stands in for "unset". */
@@ -33,18 +41,18 @@ const UNSET_LANG = "__unset__"
 
 const ACCEPT = ".wav,.mp3,.m4a,.mp4,.ogg,.webm,.flac,.aac"
 
-const SONIOX_RATE_PER_HOUR = 0.1
-
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 const titleFromFile = (name: string) => name.replace(/\.[^.]+$/, "")
 
 const isWav = (file: File) => /\.wav$/i.test(file.name) || file.type === "audio/wav"
 
-/** "about $0.05" from seconds at Soniox's rate. */
-function estimateCost(t: TFunction, seconds: number): string {
-  const dollars = (seconds / 3600) * SONIOX_RATE_PER_HOUR
-  return t("importRecording.costLine", { cost: dollars.toFixed(2) })
+/** "about $0.05" from seconds at the cloud engine's file rate. */
+function estimateCost(t: TFunction, engine: CloudSttEngine, seconds: number): string {
+  return t("importRecording.costLine", {
+    cost: fileCost(engine, seconds),
+    rate: CLOUD_ENGINES[engine].fileRatePerHour.toFixed(2),
+  })
 }
 
 /** "12 min 34 s" style, rounded. */
@@ -80,7 +88,7 @@ interface ImportRecordingDialogProps {
   onImported: (meeting: Meeting) => void
   /** Open a meeting by id (the "saved but not transcribed" case). */
   onOpenMeeting: (id: string) => void
-  /** Jump to a Settings section (the Soniox key link). */
+  /** Jump to a Settings section (the API key link). */
   onOpenSettings?: () => void
 }
 
@@ -91,10 +99,10 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
   const [lang, setLang] = useState("")
   const [translateTo, setTranslateTo] = useState("")
   const [twoWay, setTwoWay] = useState(false)
-  const [engine, setEngine] = useState<"soniox" | "whisper">("soniox")
-  const [sonioxKeySet, setSonioxKeySet] = useState<boolean | null>(null)
-  // Cloud hides Whisper, Self-host hides Soniox.
-  const [setup, setSetup] = useState<Setup>("")
+  const [engine, setEngine] = useState<SttEngine>("whisper")
+  // Which engines the setup shows (Cloud hides Whisper, Self-host the
+  // cloud engines) and which keys are set; null until it loads.
+  const [config, setConfig] = useState<AppConfig | null>(null)
   const [duration, setDuration] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState<number | null>(null)
@@ -115,11 +123,12 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
     getConfig()
       .then((c) => {
         if (cancelled) return
-        setSonioxKeySet(c.soniox_api_key_set)
-        setSetup(c.setup)
+        setConfig(c)
+        // Start from the engine meetings use.
+        setEngine(toEngine(c.engine))
       })
       .catch(() => {
-        if (!cancelled) setSonioxKeySet(null)
+        if (!cancelled) setConfig(null)
       })
     return () => {
       cancelled = true
@@ -163,21 +172,38 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
     }
   }
 
-  const whisperDisabled = file !== null && !isWav(file)
-  const sonioxDisabled = sonioxKeySet === false
-  const shownEngines = visibleEngines(setup)
-  const onlyEngine = shownEngines.length === 1 ? shownEngines[0] : null
-  // Keep the selection usable when a file's format disables it.
-  // Fall back to whichever engine is usable, so the form never sits on
-  // a disabled choice (and never shows Soniox's cost/privacy line while
-  // the file would really be transcribed on this computer). With one
-  // engine shown (Cloud or Self-host), that's the engine.
-  const activeEngine: "soniox" | "whisper" =
-    onlyEngine ??
-    (engine === "whisper" && whisperDisabled ? "soniox" : engine === "soniox" && sonioxDisabled && !whisperDisabled ? "whisper" : engine)
-  // The only engine shown can't take this import (no key, not a WAV).
-  const engineBlocked = onlyEngine !== null && (onlyEngine === "soniox" ? sonioxDisabled : whisperDisabled)
-  const showCost = activeEngine === "soniox" && duration !== null
+  // Before the config loads every engine is shown and none is blocked
+  // (the server still rejects a missing key).
+  const shownEngines = visibleEngines(config?.setup ?? "")
+  const noKey = (e: SttEngine) => isCloudEngine(e) && config !== null && !engineKeySet(config, e)
+  const otherFormatsEngine = shownEngines.find((e) => e !== "whisper" && !noKey(e)) ?? shownEngines.find((e) => e !== "whisper")
+  // Why an engine can't take this import, or undefined.
+  const disabledReason = (e: SttEngine): string | undefined => {
+    if (noKey(e)) return t("importRecording.noKey", { engine: engineLabel(e), provider: engineOptionName(e) })
+    if (e === "whisper" && file !== null && !isWav(file)) {
+      // "Use …" only when there's another engine to use.
+      return otherFormatsEngine
+        ? t("importRecording.whisperFormat", { engine: engineLabel(otherFormatsEngine) })
+        : t("importRecording.whisperWavConvert")
+    }
+    return undefined
+  }
+  // Keep the selection usable when a file's format or a missing key
+  // disables it: fall back to the first usable engine, so the form never
+  // sits on a disabled choice (and never shows a cloud cost/privacy line
+  // while the file would really be transcribed on this computer). When
+  // none is usable, the choice stays and Import is blocked.
+  const usable = shownEngines.filter((e) => !disabledReason(e))
+  const activeEngine: SttEngine = usable.includes(engine) ? engine : (usable[0] ?? (shownEngines.includes(engine) ? engine : shownEngines[0]))
+  const activeReason = disabledReason(activeEngine)
+  const engineBlocked = activeReason !== undefined
+  const missingKey = shownEngines.some(noKey) && (engineBlocked || !shownEngines.some((e) => isCloudEngine(e) && !noKey(e)))
+  const cloudActive = isCloudEngine(activeEngine) ? activeEngine : null
+  // Why the other choices are greyed out (the Select can't say it).
+  const otherReasons = shownEngines
+    .filter((e) => e !== activeEngine)
+    .map(disabledReason)
+    .filter((r): r is string => r !== undefined)
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -355,39 +381,31 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
           </div>
 
           <div className="grid gap-1.5">
-            <span id="import-engine-label" className="text-sm font-medium">
-              {t("startMeeting.transcribeWith")}
-            </span>
-            <SegmentedControl
-              id="import-engine"
-              labelledBy="import-engine-label"
-              describedBy="import-engine-reason"
-              value={activeEngine}
-              onChange={setEngine}
-              options={[
-                {
-                  value: "soniox" as const,
-                  label: engineLabel("soniox"),
-                  disabled: sonioxDisabled,
-                  reason: sonioxDisabled ? t("importRecording.sonioxNoKey") : undefined,
-                },
-                {
-                  value: "whisper" as const,
-                  label: engineLabel("whisper"),
-                  disabled: whisperDisabled,
-                  // "Use Soniox" only when Soniox is there to use.
-                  reason: whisperDisabled
-                    ? onlyEngine === "whisper"
-                      ? t("importRecording.whisperWavConvert")
-                      : t("importRecording.whisperFormat")
-                    : undefined,
-                },
-              ].filter((o) => shownEngines.includes(o.value))}
-            />
+            {shownEngines.length > 1 ? (
+              <>
+                <Label htmlFor="import-engine">{t("startMeeting.transcribeWith")}</Label>
+                <Select value={activeEngine} onValueChange={(v) => setEngine(v as SttEngine)}>
+                  <SelectTrigger id="import-engine" className="w-full" aria-describedby="import-engine-reason">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {shownEngines.map((e) => (
+                      <SelectItem key={e} value={e} disabled={e !== activeEngine && disabledReason(e) !== undefined}>
+                        {engineLabel(e)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : (
+              <p className="text-sm">
+                <span className="font-medium">{t("startMeeting.transcribeWith")}</span> {engineLabel(activeEngine)}
+              </p>
+            )}
             <p id="import-engine-reason" className="text-xs text-muted-foreground">
-              {activeEngine === "soniox" ? t("importRecording.sonioxHintShort") : t("importRecording.freePrivate")}
+              {activeReason ?? (otherReasons.length > 0 ? otherReasons.join(" ") : engineHint(activeEngine))}
             </p>
-            {sonioxDisabled && onOpenSettings && !submitting && (
+            {missingKey && onOpenSettings && !submitting && (
               <div>
                 <Button type="button" size="sm" variant="outline" onClick={onOpenSettings}>
                   {t("importRecording.openTranscriptionSettings")}
@@ -396,10 +414,10 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
             )}
           </div>
 
-          {activeEngine === "soniox" && (
+          {cloudActive && (
             <p className="text-xs text-muted-foreground">
-              {showCost && `${estimateCost(t, duration ?? 0)} `}
-              {t("meetingDetail.sonioxPrivacy")}
+              {duration !== null && `${estimateCost(t, cloudActive, duration)} `}
+              {cloudPrivacy(cloudActive)}
             </p>
           )}
 

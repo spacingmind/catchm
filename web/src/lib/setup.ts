@@ -9,6 +9,7 @@ import i18next, { type ParseKeys, type TFunction } from "i18next"
 
 import type {
   AppConfig,
+  CloudSttEngine,
   Setup,
   SttEngine,
   SummaryProvider,
@@ -24,7 +25,7 @@ export type ModuleId = "transcription" | "translation" | "summaries"
 /** A setup the user can pick ("" is only "not chosen yet"). */
 export type Preset = Exclude<Setup, "">
 
-export type OptionBadge = "speakers" | "translatesItself" | "free" | "freeTier"
+export type OptionBadge = "speakers" | "translatesItself" | "free" | "freeTier" | "freeCredit"
 
 /** Settings sections an option's own setup lives in. */
 export type SetupSection = "transcription" | "translation" | "summaries"
@@ -57,6 +58,15 @@ export const OPTIONS: readonly SetupOption[] = [
     labelKey: "setup.options.soniox",
     descKey: "setup.options.sonioxDesc",
     badges: ["speakers", "translatesItself"],
+    section: "transcription",
+  },
+  {
+    id: "deepgram",
+    module: "transcription",
+    side: "cloud",
+    labelKey: "setup.options.deepgram",
+    descKey: "setup.options.deepgramDesc",
+    badges: ["speakers", "freeCredit"],
     section: "transcription",
   },
   {
@@ -133,6 +143,90 @@ export const OPTIONS: readonly SetupOption[] = [
   },
 ]
 
+/** What the UI needs to know about a bring-your-own-key transcription
+ *  provider beyond its option card. Its key flags follow one naming
+ *  rule (AppConfig `<id>_api_key_set`, PUT `<id>_api_key`), so a new
+ *  provider is an entry here, one in OPTIONS and its i18n strings. */
+export interface CloudEngineInfo {
+  /** Where the user creates an API key. */
+  keyUrl: string
+  /** POST /api/providers/{id}/verify can check its key ("Check key"). */
+  verifiable: boolean
+  /** List price for a file (import, re-transcribe), US$ per hour of
+   *  audio: the cost estimates. */
+  fileRatePerHour: number
+  /** What happens to uploaded audio, when the provider promises more
+   *  than "sent to be transcribed" (meetingDetail.cloudPrivacy). */
+  privacyKey?: ParseKeys
+}
+
+export const CLOUD_ENGINES: Record<CloudSttEngine, CloudEngineInfo> = {
+  soniox: {
+    keyUrl: "https://soniox.com",
+    verifiable: false,
+    fileRatePerHour: 0.1,
+    // engine_soniox_async deletes the file and transcription afterwards.
+    privacyKey: "meetingDetail.sonioxPrivacy",
+  },
+  deepgram: {
+    keyUrl: "https://console.deepgram.com",
+    verifiable: true,
+    fileRatePerHour: 0.26,
+  },
+}
+
+/** Whether `engine` (a config or meeting engine value) is a cloud engine. */
+export function isCloudEngine(engine: string | undefined): engine is CloudSttEngine {
+  return engine != null && Object.hasOwn(CLOUD_ENGINES, engine)
+}
+
+/** A config/meeting engine value as an SttEngine: anything that isn't a
+ *  known cloud engine runs on Whisper (the server's default). */
+export function toEngine(engine: string): SttEngine {
+  return isCloudEngine(engine) ? engine : "whisper"
+}
+
+/** Whether the cloud engine's API key is stored. */
+export function engineKeySet(config: AppConfig, engine: CloudSttEngine): boolean {
+  return config[`${engine}_api_key_set` as const]
+}
+
+/** The PUT /api/config body that stores a cloud engine's key. */
+export function engineKeyPatch(engine: CloudSttEngine, key: string): UpdateConfigRequest {
+  return { [`${engine}_api_key` as const]: key }
+}
+
+/** Whether the engine can be picked without more setup: Whisper always
+ *  (its server is checked separately), a cloud engine once its key is set. */
+export function engineHasKey(config: AppConfig, engine: SttEngine): boolean {
+  return !isCloudEngine(engine) || engineKeySet(config, engine)
+}
+
+/** "about $0.05" worth of dollars for `seconds` of audio sent to a cloud
+ *  engine as a file, at its list price. */
+export function fileCost(engine: CloudSttEngine, seconds: number): string {
+  return ((seconds / 3600) * CLOUD_ENGINES[engine].fileRatePerHour).toFixed(2)
+}
+
+/** What happens to audio sent to a cloud engine as a file, in plain words. */
+export function cloudPrivacy(engine: CloudSttEngine): string {
+  const key = CLOUD_ENGINES[engine].privacyKey ?? "meetingDetail.cloudPrivacy"
+  return i18next.t(key as "meetingDetail.cloudPrivacy", { provider: engineOptionName(engine) })
+}
+
+/**
+ * The cloud engine "Improve with …" uses: the configured engine
+ * when it's a cloud engine with a key, else the first one with a key
+ * that the setup shows; null when there's none.
+ */
+export function refineCloudEngine(config: AppConfig): CloudSttEngine | null {
+  const keyed = visibleEngines(config.setup).filter(
+    (e): e is CloudSttEngine => isCloudEngine(e) && engineKeySet(config, e),
+  )
+  const configured = toEngine(config.engine)
+  return keyed.find((e) => e === configured) ?? keyed[0] ?? null
+}
+
 /** What a preset puts in each module. Custom keeps what's there. Cloud
  *  leaves translation to Soniox (which translates on its own), so a new
  *  user needs one key, not two. */
@@ -176,7 +270,7 @@ export function findOption<M extends ModuleId>(module: M, id: OptionValue[M]): S
 /** The option each module currently uses, normalized from the config. */
 export function currentChoices(config: AppConfig): OptionValue {
   return {
-    transcription: config.engine === "soniox" ? "soniox" : "whisper",
+    transcription: toEngine(config.engine),
     translation: effectiveTranslateProvider(config),
     summaries: config.summary.provider,
   }
@@ -184,7 +278,7 @@ export function currentChoices(config: AppConfig): OptionValue {
 
 /** Whether the option's API key is already stored ("Key added"). */
 export function keyAdded(config: AppConfig, o: SetupOption): boolean {
-  if (o.module === "transcription") return o.id === "soniox" && config.soniox_api_key_set
+  if (o.module === "transcription") return isCloudEngine(o.id) && engineKeySet(config, o.id)
   if (o.module === "translation") {
     if (o.id === "google") return config.translate.google_api_key_set
     return o.id === "llm" && config.llm_api_key_set
@@ -246,9 +340,19 @@ export function visibleEngines(setup: Setup): SttEngine[] {
 }
 
 /** Whether the engine translates on its own (internal/stt
- *  SupportsTranslation): then no translation provider is needed. */
+ *  SupportsTranslation): its option has the "translatesItself" badge.
+ *  Then no translation provider is needed. */
 export function engineTranslates(engine: string): boolean {
-  return engine === "soniox"
+  return OPTIONS.some((o) => o.module === "transcription" && o.id === engine && o.badges.includes("translatesItself"))
+}
+
+/** The engines that translate on their own, by name, as one phrase
+ *  ("Soniox", later "Soniox or Gladia"), for "use … instead" hints. */
+export function translatingEngineNames(): string {
+  const names = OPTIONS.filter((o) => o.module === "transcription" && o.badges.includes("translatesItself")).map((o) =>
+    i18next.t(o.labelKey),
+  )
+  return new Intl.ListFormat(i18next.language || "en", { type: "disjunction" }).format(names)
 }
 
 /**
@@ -267,7 +371,23 @@ export function optionLockedKey(config: AppConfig, module: ModuleId, id: string)
 /** optionLockedKey as display text (undefined when unlocked). */
 export function lockedReason(t: TFunction, config: AppConfig, module: ModuleId, id: string): string | undefined {
   const key = optionLockedKey(config, module, id)
-  return key ? t(key as ParseKeys) : undefined
+  return key ? t(key as ParseKeys, { engine: engineOptionName(config.engine) }) : undefined
+}
+
+/** The engine's provider name from its option card ("Deepgram",
+ *  "Whisper"); the raw value for an engine the catalog doesn't know. */
+export function engineOptionName(engine: string): string {
+  const o = OPTIONS.find((x) => x.module === "transcription" && x.id === engine)
+  return o ? i18next.t(o.labelKey) : engine
+}
+
+/** Translation provider "none" with an engine that doesn't translate:
+ *  meetings aren't translated (plain words, naming the engine). */
+export function needsTranslatorText(engine: string): string {
+  return i18next.t("setup.status.needsTranslator", {
+    engine: engineOptionName(toEngine(engine)),
+    translators: translatingEngineNames(),
+  })
 }
 
 /** The translation choice in effect: "none" whenever the engine
@@ -287,6 +407,6 @@ export function translateNeed(st: TranslateStatus): string {
     case "llm":
       return i18next.t("setup.status.setUpLlm")
     default:
-      return i18next.t("setup.status.needsSoniox")
+      return i18next.t("setup.status.notReadyFallback")
   }
 }

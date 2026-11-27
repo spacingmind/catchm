@@ -30,11 +30,13 @@ import { noAutofill } from "@/lib/inputProps"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
 import {
   effectiveTranslateProvider,
+  engineOptionName,
   engineTranslates,
   isSelfHostVisible,
   keyAdded,
   lockedReason,
   modulePatch,
+  needsTranslatorText,
   optionLockedKey,
   optionsVisible,
   translateNeed,
@@ -346,13 +348,13 @@ export function SettingsTranslation() {
           {!engineTranslates(config.engine) && (
             <p className="flex items-start gap-1.5 text-sm font-medium text-warning">
               <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              {t("setup.status.needsSoniox")}
+              {needsTranslatorText(config.engine)}
             </p>
           )}
         </div>
       )}
       {cloudProvider && engineTranslates(config.engine) && (
-        <p className="py-4 text-sm text-muted-foreground">{t("settings.translation.engineTranslatesNote")}</p>
+        <p className="py-4 text-sm text-muted-foreground">{t("settings.translation.engineTranslatesNote", { engine: engineOptionName(config.engine) })}</p>
       )}
       {cloudProvider && (
         <SettingRow

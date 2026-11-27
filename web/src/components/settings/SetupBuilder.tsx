@@ -20,10 +20,14 @@ import { navigate } from "@/lib/route"
 import {
   MODULES,
   currentChoices,
+  engineKeySet,
+  engineOptionName,
   engineTranslates,
+  isCloudEngine,
   keyAdded,
   lockedReason,
   modulePatch,
+  needsTranslatorText,
   optionLockedKey,
   optionsVisible,
   presetPatch,
@@ -123,10 +127,10 @@ export function SetupBuilder({
   const need = (module: ModuleId): Need => {
     if (module === "transcription") {
       const engine = choices.transcription
-      if (engine === "soniox" && !config.soniox_api_key_set) {
+      if (isCloudEngine(engine) && !engineKeySet(config, engine)) {
         return {
           ready: false,
-          text: t("setup.status.addSonioxKey"),
+          text: t("setup.status.addEngineKey", { provider: engineOptionName(engine) }),
           action: { label: t("settings.transcription.addKey"), run: () => openSection("transcription") },
         }
       }
@@ -136,7 +140,7 @@ export function SetupBuilder({
     }
     if (module === "translation") {
       if (choices.translation === "none") {
-        return engineTranslates(config.engine) ? { ready: true } : { ready: false, text: t("setup.status.needsSoniox") }
+        return engineTranslates(config.engine) ? { ready: true } : { ready: false, text: needsTranslatorText(config.engine) }
       }
       // Status for a provider a save just replaced isn't shown.
       const st = translate.data && translate.data.provider === choices.translation ? translate.data : null

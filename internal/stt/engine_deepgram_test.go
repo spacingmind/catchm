@@ -108,7 +108,7 @@ func TestDeepgramStream(t *testing.T) {
 	if gotAuth != "Token dg-key" {
 		t.Errorf("auth = %q", gotAuth)
 	}
-	for _, want := range []string{"model=nova-3", "language=vi", "encoding=linear16", "sample_rate=16000", "diarize=true", "utterance_end_ms=1000", "keyterm=CatchM", "keyterm=Soniox++Inc"} {
+	for _, want := range []string{"model=nova-3", "language=vi", "encoding=linear16", "sample_rate=16000", "diarize=true", "utterance_end_ms=1000", "mip_opt_out=true", "keyterm=CatchM", "keyterm=Soniox++Inc"} {
 		if !strings.Contains(gotQuery, want) {
 			t.Errorf("query %q missing %s", gotQuery, want)
 		}
@@ -180,7 +180,7 @@ func TestDeepgramTranscribeFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(gotQuery, "detect_language=true") || !strings.Contains(gotQuery, "utterances=true") || gotCT != "audio/mpeg" || gotLen != 7 {
+	if !strings.Contains(gotQuery, "detect_language=true") || !strings.Contains(gotQuery, "utterances=true") || !strings.Contains(gotQuery, "mip_opt_out=true") || gotCT != "audio/mpeg" || gotLen != 7 {
 		t.Fatalf("request: %q %q %d", gotQuery, gotCT, gotLen)
 	}
 	if len(us) != 2 || us[0].Text != "Xin chào mọi người." || us[0].Speaker != "Speaker 1" || us[1].Speaker != "Speaker 2" || us[0].Lang != "vi" {

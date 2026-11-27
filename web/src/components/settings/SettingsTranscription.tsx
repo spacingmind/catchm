@@ -1,35 +1,43 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Disclosure } from "@/components/Disclosure"
 import { StatusMessage } from "@/components/StatusMessage"
+import { ApiKeyField } from "@/components/settings/ApiKeyField"
+import { ChoiceCard } from "@/components/settings/ChoiceCard"
 import {
   descId,
   ExternalLink,
-  labelId,
   SaveStatus,
-  SegmentedControl,
   SettingRow,
   SettingsSection,
 } from "@/components/settings/pieces"
+import { OptionBadges } from "@/components/settings/SetupBuilder"
 import { useConfigSave } from "@/components/settings/useConfigSave"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getConfig, type AppConfig, type SttEngine } from "@/lib/api"
+import { getConfig, verifyProvider, type AppConfig, type CloudSttEngine, type SttEngine } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
 import { engineHint, engineLabel } from "@/lib/labels"
 import { navigate } from "@/lib/route"
-import { isCloudVisible, isSelfHostVisible, visibleEngines } from "@/lib/setup"
+import {
+  CLOUD_ENGINES,
+  engineKeyPatch,
+  engineKeySet,
+  engineOptionName,
+  isCloudEngine,
+  isOptionVisible,
+  isSelfHostVisible,
+  keyAdded,
+  modulePatch,
+  optionsVisible,
+  toEngine,
+} from "@/lib/setup"
 import { isAbsoluteUrl } from "@/lib/url"
 
-// Display order of the engine picker (setup.ts lists cloud first).
-const ENGINE_ORDER: SttEngine[] = ["whisper", "soniox"]
-
 const WHISPER_SERVER_DOCS = "https://github.com/ggml-org/whisper.cpp/tree/master/examples/server"
-const SONIOX_SITE = "https://soniox.com"
 
-const KEY_ERROR_ID = "soniox-key-error"
 const WHISPER_URL_ERROR_ID = "stt-whisper-url-error"
 const SONIOX_URL_ERROR_ID = "stt-soniox-url-error"
 
@@ -37,19 +45,9 @@ export function SettingsTranscription() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [keyInput, setKeyInput] = useState("")
-  const [keyEditing, setKeyEditing] = useState(false)
-  const [keySaving, setKeySaving] = useState(false)
-  const [keyError, setKeyError] = useState<string | null>(null)
   const [whisperUrl, setWhisperUrl] = useState("")
   const [sonioxUrl, setSonioxUrl] = useState("")
   const [urlErrors, setUrlErrors] = useState<{ whisper?: string; soniox?: string }>({})
-
-  const keyInputRef = useRef<HTMLInputElement | null>(null)
-  // Add/Replace button; focus returns here when the key editor closes so
-  // it isn't dropped on <body> with the unmounted form.
-  const keyButtonRef = useRef<HTMLButtonElement | null>(null)
-  const restoreKeyFocus = useRef(false)
 
   const load = useCallback(() => {
     getConfig()
@@ -68,51 +66,12 @@ export function SettingsTranscription() {
     load()
   }
 
-  useEffect(() => {
-    if (!keyEditing && restoreKeyFocus.current) {
-      restoreKeyFocus.current = false
-      keyButtonRef.current?.focus()
-    }
-  }, [keyEditing])
-
   const { save, put } = useConfigSave(config, setConfig)
 
+  // Same rules as Settings → Setup: an engine from the other side makes
+  // the setup Custom, and one that translates locks translation to its own.
   const setEngine = (engine: SttEngine) => {
-    void put({ engine })
-  }
-
-  const startReplaceKey = () => {
-    setKeyInput("")
-    setKeyError(null)
-    setKeyEditing(true)
-  }
-
-  const closeKeyEditor = () => {
-    restoreKeyFocus.current = true
-    setKeyEditing(false)
-    setKeyInput("")
-    setKeyError(null)
-  }
-
-  const saveKey = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (keySaving) return
-    const key = keyInput.trim()
-    if (!key) {
-      setKeyError(t("settings.transcription.enterKey"))
-      keyInputRef.current?.focus()
-      return
-    }
-    setKeySaving(true)
-    setKeyError(null)
-    const ok = await put({ soniox_api_key: key })
-    setKeySaving(false)
-    if (ok) {
-      closeKeyEditor()
-    } else {
-      setKeyError(t("settings.transcription.keySaveError"))
-      keyInputRef.current?.focus()
-    }
+    if (config && engine !== toEngine(config.engine)) void put(modulePatch(config, "transcription", engine))
   }
 
   const commitWhisperUrl = () => {
@@ -164,15 +123,38 @@ export function SettingsTranscription() {
     )
   }
 
-  const keySet = config.soniox_api_key_set
-  const engine: SttEngine = config.engine === "soniox" ? "soniox" : "whisper"
-  // The setup hides the other side: no Whisper under Cloud, no Soniox
-  // under Self-host. A single engine is shown, not picked.
-  const shown = visibleEngines(config.setup)
-  const engines = ENGINE_ORDER.filter((e) => shown.includes(e))
-  const showWhisper = isSelfHostVisible(config.setup)
-  const showSoniox = isCloudVisible(config.setup)
+  const setup = config.setup
+  const engine = toEngine(config.engine)
+  // The setup hides the other side: no Whisper under Cloud, no cloud
+  // engines under Self-host. A single engine is shown, not picked.
+  const options = optionsVisible(setup, "transcription")
+  const showWhisper = isSelfHostVisible(setup)
+  const showSonioxUrl = isOptionVisible(setup, "transcription", "soniox")
   const advancedWhisper = showWhisper && engine !== "whisper"
+  // Keys for the cloud engines that aren't the chosen one still matter:
+  // import and "Improve with …" can use them.
+  const otherKeyEngines = options.map((o) => o.id).filter((e): e is CloudSttEngine => isCloudEngine(e) && e !== engine)
+
+  const keyRow = (e: CloudSttEngine) => {
+    const provider = engineOptionName(e)
+    const info = CLOUD_ENGINES[e]
+    return (
+      <ApiKeyField
+        key={e}
+        id={`${e}-key`}
+        label={t("settings.transcription.keyLabel", { provider })}
+        description={
+          <>
+            {t("settings.transcription.keyDesc", { engine: engineLabel(e) })}{" "}
+            <ExternalLink href={info.keyUrl}>{t("settings.transcription.getKeyLink", { provider })}</ExternalLink>
+          </>
+        }
+        keySet={engineKeySet(config, e)}
+        onSave={(key) => put(engineKeyPatch(e, key))}
+        verify={info.verifiable ? (key) => verifyProvider(e, key) : undefined}
+      />
+    )
+  }
 
   // "On this computer" doesn't work until the user runs a Whisper
   // server, so while it's the engine its address sits in the main
@@ -222,25 +204,37 @@ export function SettingsTranscription() {
         title={t("settings.nav.transcription")}
         description={t("settings.transcription.descSaved")}
       >
-        <SettingRow
-          label={t("settings.transcription.engineLabel")}
-          id="stt-engine"
-          description={
-            <>
-              {t("settings.transcription.engineDescPrefix")} {engineHint(engine)}
-            </>
-          }
-          control={
-            engines.length > 1 ? (
-              <SegmentedControl
-                id="stt-engine"
-                labelledBy={labelId("stt-engine")}
-                describedBy={descId("stt-engine")}
-                value={engine}
-                onChange={setEngine}
-                options={engines.map((e) => ({ value: e, label: engineLabel(e) }))}
-              />
-            ) : (
+        {options.length > 1 ? (
+          <fieldset className="border-b border-border pb-4">
+            <legend className="text-sm font-medium">{t("settings.transcription.engineLabel")}</legend>
+            <p className="mt-0.5 text-sm text-muted-foreground">{t("settings.transcription.engineDescPrefix")}</p>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              {options.map((o) => (
+                <ChoiceCard
+                  key={o.id}
+                  name="stt-engine"
+                  value={o.id}
+                  checked={engine === o.id}
+                  onChange={(v) => setEngine(v as SttEngine)}
+                  title={t(o.labelKey)}
+                  description={t(o.descKey)}
+                  badges={
+                    o.badges.length > 0 || keyAdded(config, o) ? <OptionBadges config={config} option={o} /> : undefined
+                  }
+                />
+              ))}
+            </div>
+          </fieldset>
+        ) : (
+          <SettingRow
+            label={t("settings.transcription.engineLabel")}
+            id="stt-engine"
+            description={
+              <>
+                {t("settings.transcription.engineDescPrefix")} {engineHint(engine)}
+              </>
+            }
+            control={
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">{engineLabel(engine)}</span>
                 <Button
@@ -252,87 +246,27 @@ export function SettingsTranscription() {
                   {t("settings.transcription.changeSetup")}
                 </Button>
               </div>
-            )
-          }
-        />
-        {showWhisper && engine === "whisper" && whisperRow}
-        {showSoniox && (
-          <SettingRow
-            label={t("settings.transcription.keyLabel")}
-            htmlFor={keyEditing ? "soniox-key" : undefined}
-            id="soniox-key"
-            description={
-              <>
-                {t("settings.transcription.keyDesc", { engine: engineLabel("soniox") })}{" "}
-                <ExternalLink href={SONIOX_SITE}>{t("settings.transcription.getKeyLink")}</ExternalLink>
-              </>
-            }
-            control={
-              keyEditing ? (
-                <form noValidate onSubmit={(e) => void saveKey(e)} className="grid w-72 justify-items-end gap-1.5">
-                  <Input
-                    ref={keyInputRef}
-                    id="soniox-key"
-                    name="soniox_api_key"
-                    type="password"
-                    {...noAutofill}
-                    value={keyInput}
-                    onChange={(e) => setKeyInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape" && !keySaving) closeKeyEditor()
-                    }}
-                    placeholder={t("settings.transcription.keyPlaceholder")}
-                    // readOnly, not disabled, so focus can return here on failure.
-                    readOnly={keySaving}
-                    aria-invalid={keyError ? true : undefined}
-                    aria-describedby={keyError ? `${descId("soniox-key")} ${KEY_ERROR_ID}` : descId("soniox-key")}
-                    // The user just asked to add/replace the key: move focus into the field.
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" disabled={keySaving} onClick={closeKeyEditor}>
-                      {t("common.cancel")}
-                    </Button>
-                    <Button type="submit" size="sm" disabled={keySaving} aria-busy={keySaving || undefined}>
-                      {keySaving ? t("settings.pieces.saving") : t("settings.transcription.saveKey")}
-                    </Button>
-                  </div>
-                  <StatusMessage id={KEY_ERROR_ID} tone="error">
-                    {keyError}
-                  </StatusMessage>
-                </form>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {keySet ? (
-                    <>
-                      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-                        {t("settings.transcription.keySet")}
-                      </span>
-                      <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
-                        {t("settings.transcription.replaceKey")}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button ref={keyButtonRef} size="sm" variant="outline" onClick={startReplaceKey}>
-                      {t("settings.transcription.addKey")}
-                    </Button>
-                  )}
-                </div>
-              )
             }
           />
+        )}
+        {showWhisper && engine === "whisper" && whisperRow}
+        {isCloudEngine(engine) && keyRow(engine)}
+        {otherKeyEngines.length > 0 && (
+          <Disclosure label={t("settings.transcription.otherKeysLabel")} className="py-2">
+            <p className="text-sm text-muted-foreground">{t("settings.transcription.otherKeysDesc")}</p>
+            {otherKeyEngines.map(keyRow)}
+          </Disclosure>
         )}
         <div className="flex items-center justify-end">
           <SaveStatus state={save.state} error={save.error} />
         </div>
       </SettingsSection>
 
-      {(advancedWhisper || showSoniox) && (
+      {(advancedWhisper || showSonioxUrl) && (
         <SettingsSection title={t("settings.transcription.advancedTitle")} description={t("settings.transcription.advancedDesc")}>
           <Disclosure
             label={
-              advancedWhisper && showSoniox
+              advancedWhisper && showSonioxUrl
                 ? t("settings.transcription.urlsLabel")
                 : advancedWhisper
                   ? t("settings.transcription.whisperUrlLabel")
@@ -341,7 +275,7 @@ export function SettingsTranscription() {
           >
             <div className="grid gap-2">
               {advancedWhisper && whisperRow}
-              {showSoniox && (
+              {showSonioxUrl && (
                 <SettingRow
                   label={t("settings.transcription.sonioxUrlLabel")}
                   htmlFor="stt-soniox-url"

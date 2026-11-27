@@ -58,7 +58,7 @@ export interface Meeting {
   summary?: string
   notes?: string[]
   refined?: boolean
-  /** Which engine re-transcribed the meeting ("soniox" | "whisper"); empty for engine "none". */
+  /** Which engine re-transcribed the meeting (an SttEngine); empty for engine "none". */
   refined_with?: string
   /** True when the meeting was created from an uploaded recording. */
   imported?: boolean
@@ -75,7 +75,13 @@ export interface Device {
   IsDefault: boolean
 }
 
-export type SttEngine = "whisper" | "soniox"
+/** Bring-your-own-key transcription providers (internal/server
+ *  cloudEngines). Each has `<id>_api_key_set` in AppConfig and a
+ *  write-only `<id>_api_key` in UpdateConfigRequest; the UI's catalog
+ *  of them is lib/setup.ts CLOUD_ENGINES. */
+export type CloudSttEngine = "soniox" | "deepgram"
+
+export type SttEngine = "whisper" | CloudSttEngine
 
 /** UI text language preference ("system" follows the OS language).
  *  Not to be confused with the STT Lang below. */
@@ -180,12 +186,9 @@ export interface SttEngineStatus {
   reason?: string
 }
 
-/** GET /api/stt/status response. */
-export interface SttStatus {
-  default_engine: SttEngine
-  whisper: SttEngineStatus
-  soniox: SttEngineStatus
-}
+/** GET /api/stt/status response: the configured engine, plus one
+ *  readiness entry per engine (Whisper and every cloud engine). */
+export type SttStatus = { default_engine: SttEngine } & Record<SttEngine, SttEngineStatus>
 
 /** Body for POST /api/translate/pull. */
 export interface PullTranslateModelRequest {
@@ -291,16 +294,21 @@ export type Setup = "" | "cloud" | "selfhost" | "custom"
  *  translator, only the transcription engine's own translation (Soniox). */
 export type TranslateProvider = "ollama" | "google" | "llm" | "none"
 
+/** `<engine>_api_key_set`: true when that cloud engine's API key is
+ *  stored; the key itself is never sent. */
+type CloudKeySetFlags = { [E in CloudSttEngine as `${E}_api_key_set`]: boolean }
+
+/** `<engine>_api_key`: write-only; omitted/empty preserves the stored key. */
+type CloudKeyFields = { [E in CloudSttEngine as `${E}_api_key`]?: string }
+
 /** Sanitized config shape shared by GET and PUT /api/config responses. */
-export interface AppConfig {
+export interface AppConfig extends CloudKeySetFlags {
   setup: Setup
   engine: string
   lang: string
   ui_language: UILanguage
   whisper_url: string
   soniox: { url: string }
-  /** True when a Soniox API key is stored; the key itself is never sent. */
-  soniox_api_key_set: boolean
   translate: {
     provider: TranslateProvider
     /** True when a Google Cloud Translation key is stored; never the key. */
@@ -320,11 +328,11 @@ export interface AppConfig {
  * setIfNonEmpty per field, so only included fields change and omitted or
  * blank ones are left alone. Every field is optional; send just what a
  * page changed, never a full snapshot (a stale snapshot would silently
- * overwrite newer values saved elsewhere). soniox_api_key is write-only
- * and never present in responses; omitting/emptying it preserves the
- * stored key.
+ * overwrite newer values saved elsewhere). The `<engine>_api_key` fields
+ * are write-only and never present in responses; omitting/emptying one
+ * preserves the stored key.
  */
-export interface UpdateConfigRequest {
+export interface UpdateConfigRequest extends CloudKeyFields {
   /** "" is ignored (partial update); the chooser sends a real setup. */
   setup?: Exclude<Setup, "">
   engine?: string
@@ -332,8 +340,6 @@ export interface UpdateConfigRequest {
   ui_language?: UILanguage
   whisper_url?: string
   soniox?: { url: string }
-  /** Never present in responses. Omitted/empty preserves the stored key. */
-  soniox_api_key?: string
   translate?: {
     provider?: TranslateProvider
     /** Write-only; omitted/empty preserves the stored key. */
@@ -775,7 +781,7 @@ export function endMeeting(id: string): Promise<{ status: string }> {
  * transcription, then the summary). Throws RefineError when the summary
  * step failed (the body has a kind), else a plain ApiError.
  */
-export type RefineEngine = "auto" | "soniox" | "whisper" | "none"
+export type RefineEngine = "auto" | "none" | SttEngine
 
 /** Refine's answer: the meeting, plus — in summarize "if_ready" mode —
  *  why the summary wasn't rewritten, when it wasn't. */
@@ -1001,8 +1007,9 @@ export function getTranslateStatus(): Promise<TranslateStatus> {
   return apiFetch("/api/translate/status")
 }
 
-/** A provider whose key POST /api/providers/{name}/verify can check. */
-export type VerifiableProvider = "google" | "llm"
+/** A provider whose key POST /api/providers/{name}/verify can check
+ *  (cloud engines only where CLOUD_ENGINES says `verifiable`). */
+export type VerifiableProvider = "google" | "llm" | CloudSttEngine
 
 /** POST /api/providers/{name}/verify answer: ok, or the provider's own
  *  error message (English, as the provider sent it). */

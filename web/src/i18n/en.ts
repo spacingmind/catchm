@@ -43,10 +43,12 @@ export const en = {
     engine: {
       whisper: "On this computer",
       soniox: "Cloud (Soniox)",
+      deepgram: "Cloud (Deepgram)",
     },
     engineHint: {
       whisper: "Free and private. Needs the free Whisper server running on this computer.",
       soniox: "More accurate and tells speakers apart. Needs a paid Soniox API key.",
+      deepgram: "Fast and tells speakers apart. Needs a paid Deepgram API key.",
     },
   },
   settings: {
@@ -135,14 +137,15 @@ export const en = {
       whisperSetupLink: "How to set up the server",
       whisperUrlDesc: "Where CatchM finds the whisper.cpp server on this computer.",
       whisperUrlError: "Enter a full address that starts with http:// or https://, like http://127.0.0.1:8080.",
-      keyLabel: "Soniox API key",
-      keyDesc: "Only needed for “{{engine}}”. The key stays on this computer.",
-      getKeyLink: "Get a key from Soniox",
+      keyLabel: "{{provider}} API key",
+      keyDesc: "Needed for “{{engine}}”. The key stays on this computer.",
+      getKeyLink: "Get a key from {{provider}}",
+      otherKeysLabel: "API keys for other providers",
+      otherKeysDesc: "Used when you import a recording or improve a transcript with one of them.",
       keyPlaceholder: "New API key…",
       enterKey: "Enter an API key first.",
       keySaveError: "Couldn’t save the key. Try again, or restart CatchM if it keeps failing.",
       saveKey: "Save key",
-      keySet: "Key set",
       replaceKey: "Replace key",
       addKey: "Add key",
       changeSetup: "Change setup",
@@ -159,7 +162,7 @@ export const en = {
       builtInExplain:
         "Translation comes from your transcription provider: Soniox translates as it transcribes, so there’s nothing to set up here.",
       engineTranslatesNote:
-        "Soniox translates on its own during meetings. This provider is used with other transcription and when a meeting is translated again.",
+        "{{engine}} translates on its own during meetings. This provider is used with other transcription and when a meeting is translated again.",
       readyDesc: "Ready to translate.",
       statusCheckErrorCloud: "Couldn’t check translation: {{error}}. Try again with “Check again”.",
       googleDesc:
@@ -409,7 +412,7 @@ export const en = {
     },
   },
   setup: {
-    lockedByEngineTranslation: "Soniox translates on its own, so its translation is always used.",
+    lockedByEngineTranslation: "{{engine}} translates on its own, so its translation is always used.",
     pageDesc:
       "Choose where each part of CatchM runs. Cloud providers need an API key; self-hosted parts run on this computer.",
     presetLabel: "Start from",
@@ -431,6 +434,9 @@ export const en = {
     options: {
       soniox: "Soniox",
       sonioxDesc: "Accurate, tells speakers apart and translates as it goes. Paid API key, from $0.10 per hour.",
+      deepgram: "Deepgram",
+      deepgramDesc:
+        "Deepgram Nova-3: fast and tells speakers apart. Paid API key, about $0.29 per hour live; new accounts get $200 free credit.",
       whisper: "Whisper",
       whisperDesc: "Runs on this computer with the free whisper.cpp server. Nothing leaves this computer.",
       builtIn: "Built into transcription",
@@ -451,13 +457,15 @@ export const en = {
       translatesItself: "Translates itself",
       free: "Free",
       freeTier: "Free tier",
+      freeCredit: "Free credit",
       keyAdded: "Key added",
     },
     status: {
-      addSonioxKey: "Add your Soniox API key.",
+      addEngineKey: "Add your {{provider}} API key.",
       addGoogleKey: "Add your Google Translate API key.",
       setUpLlm: "Choose your AI provider and add its API key.",
-      needsSoniox: "Only Soniox translates on its own. With Whisper, meetings aren’t translated.",
+      needsTranslator:
+        "{{engine}} doesn’t translate on its own, so meetings aren’t translated. Choose a translation provider, or use {{translators}}.",
       notReadyFallback: "Not set up yet.",
       allow: "Allow",
     },
@@ -626,7 +634,7 @@ export const en = {
     openTranslationSettings: "Open translation settings",
     translateNotReadyCloud: "Translation isn’t ready. {{reason}}",
     translateNeedsProvider:
-      "This engine can’t translate on its own. Use Soniox, or choose a translation provider in Settings → Setup.",
+      "{{engine}} can’t translate on its own. Use {{translators}}, or choose a translation provider in Settings → Setup.",
     openSetup: "Open setup",
     startAnyway: "Start anyway",
     starting: "Starting…",
@@ -765,12 +773,10 @@ export const en = {
     uploading: "Uploading… {{progress}}%",
     durationMin: "{{minutes}} min",
     durationHourMin: "{{hours}} h {{minutes}} min",
-    sonioxNoKey: "$t(labels.engine.soniox) needs a Soniox API key. Add one in Settings → Transcription.",
-    whisperFormat: "$t(labels.engine.whisper) only reads .wav files. Use $t(labels.engine.soniox) for other formats.",
-    freePrivate: "Free and private.",
+    noKey: "{{engine}} needs a {{provider}} API key. Add one in Settings → Transcription.",
+    whisperFormat: "$t(labels.engine.whisper) only reads .wav files. Use {{engine}} for other formats.",
     whisperWavConvert: "$t(labels.engine.whisper) only reads .wav files. Convert the recording to WAV first.",
-    sonioxHintShort: "More accurate and tells speakers apart.",
-    costLine: "Estimated cost: about ${{cost}} at $0.10 per hour.",
+    costLine: "Estimated cost: about ${{cost}} at ${{rate}} per hour.",
     openTranscriptionSettings: "Open Settings → Transcription",
     uploadProgress: "Upload progress",
     importing: "Importing…",
@@ -805,7 +811,7 @@ export const en = {
     noLivePipeline: "This meeting isn’t recording right now.",
     summaryRequired: "Create a summary first.",
     fileTooLarge: "The recording is larger than the 1 GiB import limit.",
-    whisperWavOnly: "$t(labels.engine.whisper) only reads .wav files. Use $t(labels.engine.soniox) for other formats.",
+    whisperWavOnly: "$t(labels.engine.whisper) only reads .wav files. Use a cloud engine for other formats.",
     fileRequired: "Choose an audio file first.",
     invalidCredentials: "Wrong email or password.",
     emailTaken: "An account with this email already exists.",
@@ -821,7 +827,7 @@ export const en = {
   },
   statusRow: {
     sourceShortcuts: "Shortcuts: {{mod}}1 {{mic}}, {{mod}}2 {{system}}, {{mod}}3 {{both}}",
-    hintSoniox: "Check your internet connection and the Soniox API key in Settings → Transcription.",
+    hintCloud: "Check your internet connection and the {{provider}} API key in Settings → Transcription.",
     hintWhisper:
       "The Whisper server on this computer isn’t responding. Set it up, or switch to the cloud engine, in Settings → Transcription.",
     hintGeneric: "Check the transcription settings in Settings → Transcription.",
@@ -901,7 +907,8 @@ export const en = {
   },
   meetingDetail: {
     sonioxPrivacy: "The audio is uploaded to Soniox, processed, and deleted right after.",
-    sonioxCost: "about ${{cost}}",
+    cloudPrivacy: "The audio is sent to {{provider}} to be transcribed.",
+    costAbout: "about ${{cost}}",
     summaryHelp:
       "CatchM listens to the whole recording again for a more accurate transcript, then the AI writes the summary, decisions and action items. It takes a few minutes, so keep this page open.",
     refineNotReady: "Summaries aren’t set up yet. {{reason}} Fix this in Settings → Summaries, then try again.",
@@ -944,10 +951,10 @@ export const en = {
     exportCopied: "Copied to the clipboard.",
     exportSaved: "Saved to {{path}}.",
     exportFailed: "Couldn’t export the meeting: {{error}}",
-    improveButton: "Improve with Soniox",
+    improveButton: "Improve with {{provider}}",
     improveDesc: "Adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.",
-    improved: "Transcript improved with Soniox.",
-    improvedSkipped: "Transcript improved with Soniox. The summary wasn’t rewritten: {{reason}}",
+    improved: "Transcript improved with {{provider}}.",
+    improvedSkipped: "Transcript improved with {{provider}}. The summary wasn’t rewritten: {{reason}}",
     creatingNewSummary: "Creating a new summary. This takes a few minutes, so keep this page open.",
     tabOverview: "Overview",
     tabMindmap: "Mind map",
@@ -990,10 +997,10 @@ export const en = {
       "No summary was created. CatchM Cloud needs your OK before it gets the transcript. To keep everything on this computer, switch to “$t(labels.engine.whisper)” in Settings → Summaries.",
     consentDeclinedCloud:
       "No summary was created. CatchM Cloud needs your OK before it gets the transcript. You can also use your own AI provider in Settings → Summaries.",
-    improveConfirmTitle: "Improve this transcript with Soniox?",
+    improveConfirmTitle: "Improve this transcript with {{provider}}?",
     improveConfirmBody:
       "CatchM listens to the recording again and adds who said what (speaker names) and a more accurate transcript, then rewrites the summary.",
-    estimatedCost: "Estimated cost: {{cost}} ($0.10 per hour).",
+    estimatedCost: "Estimated cost: {{cost}} (${{rate}} per hour).",
     improving: "Improving…",
     deleteConfirmTitle: "Delete meeting?",
     deleteConfirmBody:

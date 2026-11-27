@@ -28,10 +28,12 @@ export const vi: Messages = {
     engine: {
       whisper: "Trên máy này",
       soniox: "Đám mây (Soniox)",
+      deepgram: "Đám mây (Deepgram)",
     },
     engineHint: {
       whisper: "Miễn phí và riêng tư. Cần máy chủ Whisper miễn phí chạy trên máy này.",
       soniox: "Chính xác hơn và phân biệt được người nói. Cần API key Soniox trả phí.",
+      deepgram: "Nhanh và phân biệt được người nói. Cần API key Deepgram trả phí.",
     },
   },
   settings: {
@@ -120,14 +122,15 @@ export const vi: Messages = {
       whisperSetupLink: "Cách thiết lập máy chủ",
       whisperUrlDesc: "Nơi CatchM tìm máy chủ whisper.cpp trên máy này.",
       whisperUrlError: "Nhập địa chỉ đầy đủ bắt đầu bằng http:// hoặc https://, ví dụ http://127.0.0.1:8080.",
-      keyLabel: "API key Soniox",
-      keyDesc: "Chỉ cần cho “{{engine}}”. Key được lưu trên máy này.",
-      getKeyLink: "Lấy key từ Soniox",
+      keyLabel: "API key {{provider}}",
+      keyDesc: "Cần cho “{{engine}}”. Key được lưu trên máy này.",
+      getKeyLink: "Lấy key từ {{provider}}",
+      otherKeysLabel: "API key của các dịch vụ khác",
+      otherKeysDesc: "Dùng khi bạn nhập bản ghi hoặc cải thiện bản chép lời bằng một trong các dịch vụ này.",
       keyPlaceholder: "API key mới…",
       enterKey: "Hãy nhập API key trước.",
       keySaveError: "Không lưu được key. Hãy thử lại, hoặc khởi động lại CatchM nếu vẫn lỗi.",
       saveKey: "Lưu key",
-      keySet: "Đã có key",
       replaceKey: "Thay key",
       addKey: "Thêm key",
       changeSetup: "Đổi thiết lập",
@@ -144,7 +147,7 @@ export const vi: Messages = {
       builtInExplain:
         "Bản dịch đến từ dịch vụ chép lời: Soniox dịch ngay khi chép lời, nên ở đây không cần thiết lập gì.",
       engineTranslatesNote:
-        "Trong cuộc họp, Soniox tự dịch. Dịch vụ này được dùng với các công cụ chép lời khác và khi dịch lại một cuộc họp.",
+        "Trong cuộc họp, {{engine}} tự dịch. Dịch vụ này được dùng với các công cụ chép lời khác và khi dịch lại một cuộc họp.",
       readyDesc: "Sẵn sàng để dịch.",
       statusCheckErrorCloud: "Không kiểm tra được tính năng dịch: {{error}}. Hãy thử lại bằng “Kiểm tra lại”.",
       googleDesc:
@@ -394,7 +397,7 @@ export const vi: Messages = {
     },
   },
   setup: {
-    lockedByEngineTranslation: "Soniox tự dịch, nên luôn dùng bản dịch của Soniox.",
+    lockedByEngineTranslation: "{{engine}} tự dịch, nên luôn dùng bản dịch của {{engine}}.",
     pageDesc:
       "Chọn nơi chạy từng phần của CatchM. Dịch vụ đám mây cần API key; phần tự vận hành chạy ngay trên máy này.",
     presetLabel: "Bắt đầu từ",
@@ -416,6 +419,9 @@ export const vi: Messages = {
     options: {
       soniox: "Soniox",
       sonioxDesc: "Chính xác, phân biệt được người nói và dịch ngay khi chép lời. Cần API key trả phí, từ $0.10 mỗi giờ.",
+      deepgram: "Deepgram",
+      deepgramDesc:
+        "Deepgram Nova-3: nhanh và phân biệt được người nói. Cần API key trả phí, khoảng $0.29 mỗi giờ khi chép lời trực tiếp; tài khoản mới được tặng $200 dùng thử.",
       whisper: "Whisper",
       whisperDesc: "Chạy trên máy này với máy chủ whisper.cpp miễn phí. Không có gì rời khỏi máy này.",
       builtIn: "Có sẵn trong chép lời",
@@ -436,13 +442,15 @@ export const vi: Messages = {
       translatesItself: "Tự dịch",
       free: "Miễn phí",
       freeTier: "Có gói miễn phí",
+      freeCredit: "Tặng tiền dùng thử",
       keyAdded: "Đã có key",
     },
     status: {
-      addSonioxKey: "Thêm API key Soniox của bạn.",
+      addEngineKey: "Thêm API key {{provider}} của bạn.",
       addGoogleKey: "Thêm API key Google Translate của bạn.",
       setUpLlm: "Chọn dịch vụ AI của bạn và thêm API key.",
-      needsSoniox: "Chỉ Soniox tự dịch được. Với Whisper, cuộc họp sẽ không được dịch.",
+      needsTranslator:
+        "{{engine}} không tự dịch được, nên cuộc họp sẽ không được dịch. Hãy chọn một dịch vụ dịch, hoặc dùng {{translators}}.",
       notReadyFallback: "Chưa thiết lập.",
       allow: "Cho phép",
     },
@@ -611,14 +619,15 @@ export const vi: Messages = {
     openTranslationSettings: "Mở cài đặt Dịch",
     translateNotReadyCloud: "Chưa dịch được. {{reason}}",
     translateNeedsProvider:
-      "Công cụ chép lời này không tự dịch được. Hãy dùng Soniox, hoặc chọn một dịch vụ dịch trong Cài đặt → Thiết lập.",
+      "{{engine}} không tự dịch được. Hãy dùng {{translators}}, hoặc chọn một dịch vụ dịch trong Cài đặt → Thiết lập.",
     openSetup: "Mở Thiết lập",
     startAnyway: "Vẫn bắt đầu",
     starting: "Đang bắt đầu…",
   },
   meetingDetail: {
     sonioxPrivacy: "Âm thanh được tải lên Soniox để xử lý và bị xóa ngay sau đó.",
-    sonioxCost: "khoảng ${{cost}}",
+    cloudPrivacy: "Âm thanh được gửi đến {{provider}} để chép lời.",
+    costAbout: "khoảng ${{cost}}",
     summaryHelp:
       "CatchM nghe lại toàn bộ bản ghi để có bản chép lời chính xác hơn, sau đó AI viết tóm tắt, quyết định và việc cần làm. Việc này mất vài phút, hãy giữ mở trang này.",
     refineNotReady: "Tóm tắt chưa được thiết lập. {{reason}} Hãy sửa trong Cài đặt → Tóm tắt, rồi thử lại.",
@@ -661,10 +670,10 @@ export const vi: Messages = {
     exportCopied: "Đã sao chép vào bộ nhớ tạm.",
     exportSaved: "Đã lưu vào {{path}}.",
     exportFailed: "Không xuất được cuộc họp: {{error}}",
-    improveButton: "Cải thiện bằng Soniox",
+    improveButton: "Cải thiện bằng {{provider}}",
     improveDesc: "Bổ sung ai nói gì (tên người nói) và bản chép lời chính xác hơn, rồi viết lại tóm tắt.",
-    improved: "Đã cải thiện bản chép lời bằng Soniox.",
-    improvedSkipped: "Đã cải thiện bản chép lời bằng Soniox. Tóm tắt không được viết lại: {{reason}}",
+    improved: "Đã cải thiện bản chép lời bằng {{provider}}.",
+    improvedSkipped: "Đã cải thiện bản chép lời bằng {{provider}}. Tóm tắt không được viết lại: {{reason}}",
     creatingNewSummary: "Đang tạo tóm tắt mới. Việc này mất vài phút, hãy giữ mở trang này.",
     tabOverview: "Tổng quan",
     tabMindmap: "Sơ đồ tư duy",
@@ -707,10 +716,10 @@ export const vi: Messages = {
       "Chưa tạo tóm tắt nào. CatchM Cloud cần bạn đồng ý trước khi nhận bản chép lời. Để giữ mọi thứ trên máy này, hãy chuyển sang “$t(labels.engine.whisper)” trong Cài đặt → Tóm tắt.",
     consentDeclinedCloud:
       "Chưa tạo tóm tắt nào. CatchM Cloud cần bạn đồng ý trước khi nhận bản chép lời. Bạn cũng có thể dùng dịch vụ AI của riêng mình trong Cài đặt → Tóm tắt.",
-    improveConfirmTitle: "Cải thiện bản chép lời này bằng Soniox?",
+    improveConfirmTitle: "Cải thiện bản chép lời này bằng {{provider}}?",
     improveConfirmBody:
       "CatchM nghe lại bản ghi và bổ sung ai nói gì (tên người nói) cùng bản chép lời chính xác hơn, rồi viết lại tóm tắt.",
-    estimatedCost: "Chi phí ước tính: {{cost}} ($0.10 mỗi giờ).",
+    estimatedCost: "Chi phí ước tính: {{cost}} (${{rate}} mỗi giờ).",
     improving: "Đang cải thiện…",
     deleteConfirmTitle: "Xóa cuộc họp?",
     deleteConfirmBody:
@@ -853,12 +862,10 @@ export const vi: Messages = {
     uploading: "Đang tải lên… {{progress}}%",
     durationMin: "{{minutes}} phút",
     durationHourMin: "{{hours}} giờ {{minutes}} phút",
-    sonioxNoKey: "$t(labels.engine.soniox) cần API key Soniox. Hãy thêm trong Cài đặt → Chép lời.",
-    whisperFormat: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy dùng $t(labels.engine.soniox) cho định dạng khác.",
-    freePrivate: "Miễn phí và riêng tư.",
+    noKey: "{{engine}} cần API key {{provider}}. Hãy thêm trong Cài đặt → Chép lời.",
+    whisperFormat: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy dùng {{engine}} cho định dạng khác.",
     whisperWavConvert: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy chuyển bản ghi sang WAV trước.",
-    sonioxHintShort: "Chính xác hơn và phân biệt được người nói.",
-    costLine: "Chi phí ước tính: khoảng ${{cost}} với giá $0.10 mỗi giờ.",
+    costLine: "Chi phí ước tính: khoảng ${{cost}} với giá ${{rate}} mỗi giờ.",
     openTranscriptionSettings: "Mở Cài đặt → Chép lời",
     uploadProgress: "Tiến trình tải lên",
     importing: "Đang nhập…",
@@ -893,7 +900,7 @@ export const vi: Messages = {
     noLivePipeline: "Cuộc họp này hiện không ghi âm.",
     summaryRequired: "Hãy tạo tóm tắt trước.",
     fileTooLarge: "Bản ghi lớn hơn giới hạn nhập 1 GiB.",
-    whisperWavOnly: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy dùng $t(labels.engine.soniox) cho định dạng khác.",
+    whisperWavOnly: "“$t(labels.engine.whisper)” chỉ đọc được tệp .wav. Hãy dùng một công cụ chép lời đám mây cho định dạng khác.",
     fileRequired: "Hãy chọn một tệp âm thanh trước.",
     invalidCredentials: "Email hoặc mật khẩu không đúng.",
     emailTaken: "Đã có tài khoản dùng email này.",
@@ -909,7 +916,7 @@ export const vi: Messages = {
   },
   statusRow: {
     sourceShortcuts: "Phím tắt: {{mod}}1 {{mic}}, {{mod}}2 {{system}}, {{mod}}3 {{both}}",
-    hintSoniox: "Kiểm tra kết nối internet và API key Soniox trong Cài đặt → Chép lời.",
+    hintCloud: "Kiểm tra kết nối internet và API key {{provider}} trong Cài đặt → Chép lời.",
     hintWhisper:
       "Máy chủ Whisper trên máy này không phản hồi. Hãy thiết lập máy chủ, hoặc chuyển sang chép lời trên đám mây, trong Cài đặt → Chép lời.",
     hintGeneric: "Kiểm tra cài đặt chép lời trong Cài đặt → Chép lời.",
