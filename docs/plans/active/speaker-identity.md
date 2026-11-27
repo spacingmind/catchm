@@ -1,6 +1,6 @@
 # Plan: speaker identity — who said it, who owns it
 
-- Status: approved 2026-11-27; phase 1 in progress
+- Status: approved 2026-11-27; phases 1–2 done, phase 3 next
 - Created: 2026-11-27
 - Branch: `feat/speaker-identity`
 - Comes before P2 (knowledge graph) of
@@ -226,3 +226,39 @@ last word:
     Settings → Recording.
   - Not yet shown in the UI. Phase 2's speakers API resolves the
     labels ("me" → the profile name).
+- **Phase 2** (names and guests), done:
+  - `meeting.SpeakerKey`: engine labels reduce to their number ("Speaker
+    2", "spk_2", "S2" → "2"); unlabelled lines become "me"/"others" from
+    their source. `SpeakerNamer` gives names: confirmed, then the
+    profile name for "me", then "Speaker N". The TS mirror is
+    `lib/speakers.ts`.
+  - The store owns the profile-name hook (`Store.SetMe`), so the
+    summary, export, MCP and server name speakers the same way.
+  - Frontmatter `speakers` and `guests`:
+    - `PATCH /api/meetings/{id}` with `speakers` (merged, "" removes)
+      and `guests` (replaced);
+    - `GET /api/meetings/{id}/speakers` (stats, confirmed names, `me`,
+      guests);
+    - `POST /api/guests/parse` for the paste preview.
+  - `meeting.ParseGuests` handles Google Calendar (commas, a name line
+    followed by an email line), Outlook (semicolons, "Last, First"),
+    bare emails (the name is guessed from the address) and plain names.
+    Calendar noise ("Organizer", "optional") is dropped.
+  - The summary input uses confirmed names, and the LLM prompt gets an
+    "Invited:" line with guest names (never emails). The CatchM Cloud
+    request is unchanged: it gets named transcript lines but no guest
+    line yet.
+  - Export: confirmed name, then the analysis's guess, then a localized
+    label ("Người nói 3", "Tôi").
+  - MCP: `get_meeting` lists speakers and guests, and `read_transcript`
+    uses names. New write tools: `set_speaker_names` and
+    `set_meeting_guests` (it accepts pasted text).
+  - Re-transcription passes guest names as context terms.
+  - UI:
+    - the speaker label over each run of lines opens a naming popover,
+      with guests, the user and the summary's people as suggestions;
+    - a Guests section on Overview with a "Paste guests" dialog: read
+      the list, review it, then add it;
+    - the live view shows "Speaker N" / "Me" labels.
+  - Not yet: the "Unnamed speakers" nudge and the "Re-transcribe with a
+    speaker-aware engine" hint (they belong with phase 3's suggestions).

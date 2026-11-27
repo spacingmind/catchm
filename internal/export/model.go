@@ -120,13 +120,20 @@ const (
 	enDateLayout = "Jan 2, 2006 3:04 PM"
 )
 
+// viWording is how unnamed speakers read in a Vietnamese export.
+var viWording = meeting.SpeakerWording{Me: "Tôi", Others: "Người khác", Speaker: "Người nói %s"}
+
 // Build assembles a Document from a meeting, its people, and its
-// transcript in the requested language.
-func Build(m *meeting.Meeting, people []summarize.Person, us []meeting.Utterance, lang Lang) Document {
+// transcript in the requested language. namer holds the user's
+// confirmed speaker names; the analysis's guesses (people) fill in the
+// rest.
+func Build(m *meeting.Meeting, namer meeting.SpeakerNamer, people []summarize.Person, us []meeting.Utterance, lang Lang) Document {
 	lang = norm(lang)
 	l := enLabels
+	namer.Wording = meeting.EnglishWording
 	if lang == Vi {
 		l = viLabels
+		namer.Wording = viWording
 	}
 
 	layout := enDateLayout
@@ -177,10 +184,12 @@ func Build(m *meeting.Meeting, people []summarize.Person, us []meeting.Utterance
 		}
 	}
 
-	speakerNames := map[string]string{}
+	// The analysis names speakers by the label the summary saw ("Speaker
+	// 2"); confirmed names win over it.
+	guessed := map[string]string{}
 	for _, p := range people {
 		if p.Speaker != "" && p.Name != "" {
-			speakerNames[p.Speaker] = p.Name
+			guessed[meeting.SpeakerKey(meeting.Utterance{Speaker: p.Speaker})] = p.Name
 		}
 	}
 	var groups []Group
@@ -193,8 +202,9 @@ func Build(m *meeting.Meeting, people []summarize.Person, us []meeting.Utterance
 		if len(groups) == 0 {
 			base = u.At
 		}
-		display := u.Speaker
-		if name, ok := speakerNames[u.Speaker]; ok {
+		key := meeting.SpeakerKey(u)
+		display := namer.Label(key)
+		if name, ok := guessed[key]; ok && namer.Names[key] == "" {
 			display = name
 		}
 		if len(groups) == 0 || groups[len(groups)-1].Speaker != display {

@@ -19,7 +19,8 @@ import (
 
 // Options picks what the server offers.
 type Options struct {
-	// AllowWrites adds add_note, rename_meeting and set_meeting_tags.
+	// AllowWrites adds add_note, rename_meeting, set_meeting_tags,
+	// set_speaker_names and set_meeting_guests.
 	AllowWrites bool
 	Version     string
 }
@@ -50,6 +51,8 @@ func New(surface *tools.Surface, opts Options) *mcp.Server {
 		mcp.AddTool(s, &mcp.Tool{Name: "add_note", Description: "Append a note to a meeting.", Annotations: write}, h.addNote)
 		mcp.AddTool(s, &mcp.Tool{Name: "rename_meeting", Description: "Change a meeting's title.", Annotations: &mcp.ToolAnnotations{DestructiveHint: &notDestructive, IdempotentHint: true}}, h.renameMeeting)
 		mcp.AddTool(s, &mcp.Tool{Name: "set_meeting_tags", Description: "Replace a meeting's tags (keeps its project).", Annotations: &mcp.ToolAnnotations{IdempotentHint: true}}, h.setTags)
+		mcp.AddTool(s, &mcp.Tool{Name: "set_speaker_names", Description: "Name a meeting's speakers by key (as get_meeting lists them: \"1\", \"2\", \"me\", \"others\"). An empty name removes one.", Annotations: &mcp.ToolAnnotations{DestructiveHint: &notDestructive, IdempotentHint: true}}, h.setSpeakerNames)
+		mcp.AddTool(s, &mcp.Tool{Name: "set_meeting_guests", Description: "Replace a meeting's guest list. Give guests, or text pasted from a calendar invite (\"Name <email>\", one per line or comma-separated).", Annotations: &mcp.ToolAnnotations{IdempotentHint: true}}, h.setGuests)
 	}
 	return s
 }
@@ -152,6 +155,8 @@ type IDIn struct {
 type MeetingDetail struct {
 	MeetingBrief
 	Participants []string             `json:"participants,omitempty"`
+	Guests       []meeting.Guest      `json:"guests,omitempty"`
+	Speakers     []SpeakerOut         `json:"speakers,omitempty"`
 	Summary      string               `json:"summary,omitempty"`
 	Decisions    []meeting.Decision   `json:"decisions,omitempty"`
 	ActionItems  []meeting.ActionItem `json:"action_items,omitempty"`
@@ -163,10 +168,36 @@ func (h *handlers) getMeeting(_ context.Context, _ *mcp.CallToolRequest, in IDIn
 	if err != nil {
 		return nil, MeetingDetail{}, notFound(in.ID, err)
 	}
-	return nil, MeetingDetail{
-		MeetingBrief: brief(m), Participants: m.Participants, Summary: strings.TrimSpace(m.Summary),
+	out := MeetingDetail{
+		MeetingBrief: brief(m), Participants: m.Participants, Guests: m.Guests, Summary: strings.TrimSpace(m.Summary),
 		Decisions: m.Decisions, ActionItems: m.ActionItems, Notes: m.Notes,
-	}, nil
+	}
+	if us, _, err := h.bestTranscript(in.ID); err == nil {
+		namer := h.surface.Namer(m)
+		for _, st := range meeting.SpeakerStats(us) {
+			out.Speakers = append(out.Speakers, SpeakerOut{Key: st.Key, Name: namer.Label(st.Key), Named: m.Speakers[st.Key] != "", Lines: st.Lines})
+		}
+	}
+	return nil, out, nil
+}
+
+// SpeakerOut is one speaker of a meeting: its key (for
+// set_speaker_names), the name shown, and whether the user confirmed it.
+type SpeakerOut struct {
+	Key   string `json:"key"`
+	Name  string `json:"name"`
+	Named bool   `json:"named"`
+	Lines int    `json:"lines"`
+}
+
+// bestTranscript is the refined transcript when there is one, else live.
+func (h *handlers) bestTranscript(id string) ([]meeting.Utterance, string, error) {
+	us, err := h.surface.ReadBatchTranscript(id)
+	if err == nil && len(us) > 0 {
+		return us, "refined", nil
+	}
+	us, _, err = h.surface.ReadLiveTranscript(id, -1)
+	return us, "live", err
 }
 
 func notFound(id string, err error) error {
@@ -224,8 +255,9 @@ func (h *handlers) readTranscript(_ context.Context, _ *mcp.CallToolRequest, in 
 		return nil, Transcript{}, err
 	}
 	out := Transcript{Source: source, Lines: []TranscriptLine{}}
+	namer := h.surface.Namer(m)
 	for _, u := range us {
-		out.Lines = append(out.Lines, TranscriptLine{At: offset(m.StartedAt, u.At), Speaker: u.Speaker, Text: u.Text, Translated: u.Translated})
+		out.Lines = append(out.Lines, TranscriptLine{At: offset(m.StartedAt, u.At), Speaker: namer.Name(u), Text: u.Text, Translated: u.Translated})
 	}
 	return nil, out, nil
 }
@@ -335,6 +367,35 @@ func (h *handlers) renameMeeting(_ context.Context, _ *mcp.CallToolRequest, in R
 type TagsIn struct {
 	ID   string   `json:"id" jsonschema:"the meeting id"`
 	Tags []string `json:"tags" jsonschema:"the meeting's new tags (replaces the current ones; the project is kept)"`
+}
+
+type SpeakerNamesIn struct {
+	ID    string            `json:"id" jsonschema:"the meeting id"`
+	Names map[string]string `json:"names" jsonschema:"speaker key → name; an empty name removes it"`
+}
+
+func (h *handlers) setSpeakerNames(_ context.Context, _ *mcp.CallToolRequest, in SpeakerNamesIn) (*mcp.CallToolResult, Done, error) {
+	if len(in.Names) == 0 {
+		return nil, Done{}, fmt.Errorf("names is required")
+	}
+	if err := h.surface.SetSpeakerNames(in.ID, in.Names); err != nil {
+		return nil, Done{}, notFound(in.ID, err)
+	}
+	return nil, Done{OK: true}, nil
+}
+
+type GuestsIn struct {
+	ID     string          `json:"id" jsonschema:"the meeting id"`
+	Guests []meeting.Guest `json:"guests,omitempty" jsonschema:"the guests, each with a name, an email or both"`
+	Text   string          `json:"text,omitempty" jsonschema:"or: a guest list pasted from a calendar"`
+}
+
+func (h *handlers) setGuests(_ context.Context, _ *mcp.CallToolRequest, in GuestsIn) (*mcp.CallToolResult, Done, error) {
+	guests := append(in.Guests, meeting.ParseGuests(in.Text)...)
+	if err := h.surface.SetGuests(in.ID, guests); err != nil {
+		return nil, Done{}, notFound(in.ID, err)
+	}
+	return nil, Done{OK: true}, nil
 }
 
 func (h *handlers) setTags(_ context.Context, _ *mcp.CallToolRequest, in TagsIn) (*mcp.CallToolResult, Done, error) {

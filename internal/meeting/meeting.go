@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -71,6 +72,14 @@ type Meeting struct {
 	Refined       bool              `yaml:"refined,omitempty" json:"refined,omitempty"`
 	RefinedWith   string            `yaml:"refined_with,omitempty" json:"refined_with,omitempty"`
 	Imported      bool              `yaml:"imported,omitempty" json:"imported,omitempty"`
+	// Speakers holds confirmed names by speaker key (SpeakerKey): engine
+	// labels ("1", "2") or "me"/"others". Set by the user, never by a
+	// summary.
+	Speakers map[string]string `yaml:"speakers,omitempty" json:"speakers,omitempty"`
+	// Guests is the invite list the user pasted from their calendar.
+	// Unlike Participants (rewritten by each summary), only the user
+	// changes it.
+	Guests []Guest `yaml:"guests,omitempty" json:"guests,omitempty"`
 }
 
 // SchemaVersion is the current frontmatter schema version.
@@ -91,6 +100,7 @@ var ErrActionItemIndex = errors.New("action item index out of range")
 // or a test temp dir).
 type Store struct {
 	root string
+	me   atomic.Pointer[func() string] // see SetMe
 }
 
 // NewStore returns a Store rooted at dir, creating it if needed.

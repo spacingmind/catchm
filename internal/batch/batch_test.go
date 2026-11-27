@@ -196,6 +196,7 @@ func TestRefinePassesFullTranslationModeAndContext(t *testing.T) {
 	}
 	if err := s.UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
 		mm.Participants = []string{"alex", "sam"}
+		mm.Guests = []meeting.Guest{{Name: "Sam"}, {Name: "Kim Lee", Email: "kim@acme.com"}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -213,7 +214,7 @@ func TestRefinePassesFullTranslationModeAndContext(t *testing.T) {
 	}
 	want := stt.Options{
 		Lang: "en", TranslateTo: "vi", TwoWay: true, LanguageB: "vi",
-		Title: "Bilingual 1:1", ContextTerms: []string{"alex", "sam"},
+		Title: "Bilingual 1:1", ContextTerms: []string{"alex", "sam", "Kim Lee"}, // guest names, never emails
 	}
 	got := engine.gotOpts
 	if got.Lang != want.Lang || got.TranslateTo != want.TranslateTo || got.TwoWay != want.TwoWay ||

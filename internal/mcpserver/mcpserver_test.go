@@ -95,7 +95,7 @@ func TestReadOnlyByDefault(t *testing.T) {
 		t.Fatalf("tools = %s", got)
 	}
 	cw := connect(t, New(surface, Options{AllowWrites: true}))
-	if n := len(toolNames(t, cw)); n != 9 {
+	if n := len(toolNames(t, cw)); n != 11 {
 		t.Fatalf("with writes: %d tools", n)
 	}
 }

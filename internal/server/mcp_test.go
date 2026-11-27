@@ -96,7 +96,7 @@ func TestMCPEndpointsAndHTTP(t *testing.T) {
 		t.Fatalf("read-only tools: %d, %v", n, err)
 	}
 	decode(t, do(t, s, "PUT", "/api/mcp", `{"allow_writes":true}`), &st)
-	if n, err := listTools(st.HTTP.Token); err != nil || n != 9 {
+	if n, err := listTools(st.HTTP.Token); err != nil || n != 11 {
 		t.Fatalf("with writes: %d, %v", n, err)
 	}
 

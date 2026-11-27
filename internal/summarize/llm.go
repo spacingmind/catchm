@@ -159,6 +159,9 @@ func languageLine(lang string) string {
 func extractUser(in Input, part, parts int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Meeting title: %s\n%s\n\n", in.Title, languageLine(in.Language))
+	if len(in.Guests) > 0 {
+		fmt.Fprintf(&b, "Invited: %s. Only use these names for a speaker or an owner when the transcript supports it.\n\n", strings.Join(in.Guests, ", "))
+	}
 	if parts > 1 {
 		fmt.Fprintf(&b, "This is part %d of %d of the transcript; extract only what this part says.\n\n", part, parts)
 	}

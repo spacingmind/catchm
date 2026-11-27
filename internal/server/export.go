@@ -64,7 +64,7 @@ func (s *Server) Export(id, format, lang string) (ExportFile, error) {
 		}
 	}
 
-	d := export.Build(m, people, us, export.Lang(lang))
+	d := export.Build(m, s.surface.Namer(m), people, us, export.Lang(lang))
 	switch format {
 	case "txt":
 		f.Body = []byte(d.Text())

@@ -66,6 +66,9 @@ export interface Meeting {
   refined_with?: string
   /** True when the meeting was created from an uploaded recording. */
   imported?: boolean
+  /** Confirmed speaker names by key (lib/speakers.ts). */
+  speakers?: Record<string, string>
+  guests?: Guest[]
 }
 
 /**
@@ -143,6 +146,16 @@ export interface StartMeetingResponse extends Meeting {
 export interface UpdateMeetingRequest {
   title?: string
   tags?: string[]
+  /** Merged into the confirmed names; "" removes one. */
+  speakers?: Record<string, string>
+  /** Replaces the guest list. */
+  guests?: Guest[]
+}
+
+/** internal/meeting.Guest: someone invited, pasted from a calendar. */
+export interface Guest {
+  name?: string
+  email?: string
 }
 
 /** Response body for GET /api/meetings/{id}/transcript. */
@@ -743,6 +756,15 @@ export function updateMeeting(id: string, body: UpdateMeetingRequest): Promise<M
     method: "PATCH",
     body: JSON.stringify(body),
   })
+}
+
+/** POST /api/guests/parse — reads a pasted guest list for review. */
+export async function parseGuests(text: string): Promise<Guest[]> {
+  const res = await apiFetch<{ guests: Guest[] }>(`/api/guests/parse`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  })
+  return res.guests ?? []
 }
 
 /** DELETE /api/meetings/{id} — resolves on 204. */

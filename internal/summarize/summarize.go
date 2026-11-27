@@ -32,8 +32,12 @@ type Input struct {
 	// Language is a hint (e.g. "vi"); empty when unknown.
 	Language string
 	// Transcript is one "[seq] Speaker: text" line per utterance (see
-	// FormatTranscript), so the model can cite seqs as evidence.
+	// FormatTranscript), so the model can cite seqs as evidence. Speakers
+	// read as their confirmed names when the user gave them.
 	Transcript string
+	// Guests are the invited people's names (never emails), candidates
+	// for unnamed speakers and owners.
+	Guests []string
 }
 
 // Extraction is the frontmatter's four-field core (and the CatchM Cloud
@@ -212,7 +216,7 @@ func loadSourceFrom(store *meeting.Store, id, want string) (source, error) {
 		}
 	}
 	return source{
-		in:         Input{Title: m.Title, Language: lang, Transcript: FormatTranscript(us)},
+		in:         Input{Title: m.Title, Language: lang, Transcript: formatNamed(us, store.Namer(m)), Guests: meeting.GuestNames(m.Guests)},
 		seqs:       seqs,
 		transcript: kind,
 	}, nil
@@ -222,6 +226,11 @@ func loadSourceFrom(store *meeting.Store, id, want string) (source, error) {
 // "[seq] Speaker: text" line each ("[seq] text" without a speaker),
 // skipping empty ones.
 func FormatTranscript(us []meeting.Utterance) string {
+	return formatNamed(us, (&meeting.Meeting{}).Namer(""))
+}
+
+// formatNamed is FormatTranscript with speakers named by namer.
+func formatNamed(us []meeting.Utterance, namer meeting.SpeakerNamer) string {
 	var b strings.Builder
 	for _, u := range us {
 		text := strings.TrimSpace(u.Text)
@@ -229,8 +238,8 @@ func FormatTranscript(us []meeting.Utterance) string {
 			continue
 		}
 		fmt.Fprintf(&b, "[%d] ", u.Seq)
-		if u.Speaker != "" {
-			b.WriteString(u.Speaker)
+		if name := namer.Name(u); name != "" {
+			b.WriteString(name)
 			b.WriteString(": ")
 		}
 		b.WriteString(text)

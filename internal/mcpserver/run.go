@@ -42,7 +42,9 @@ func RunStdio(ctx context.Context, version string) error {
 	if err != nil {
 		return err
 	}
-	return New(tools.New(store), Options{AllowWrites: cfg.MCP.AllowWrites, Version: version}).Run(ctx, &mcp.StdioTransport{})
+	surface := tools.New(store)
+	surface.SetMe(func() string { return cfg.Profile.Name })
+	return New(surface, Options{AllowWrites: cfg.MCP.AllowWrites, Version: version}).Run(ctx, &mcp.StdioTransport{})
 }
 
 // NewToken returns a random bearer token for the HTTP transport.

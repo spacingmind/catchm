@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spacingmind/catchm/internal/levels"
@@ -60,7 +61,7 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 		TwoWay:       m.TwoWay,
 		LanguageB:    languageB,
 		Title:        m.Title,
-		ContextTerms: m.Participants,
+		ContextTerms: contextTerms(m),
 	})
 	if err != nil {
 		return err
@@ -106,4 +107,21 @@ func checkRefinable(store *meeting.Store, m *meeting.Meeting) error {
 	}
 	_, err := store.AudioPath(m.ID)
 	return err
+}
+
+// contextTerms are the names the engine should spell right: the
+// summary's participants and the guests the user pasted (names only).
+func contextTerms(m *meeting.Meeting) []string {
+	terms := append([]string(nil), m.Participants...)
+	seen := map[string]bool{}
+	for _, t := range terms {
+		seen[strings.ToLower(t)] = true
+	}
+	for _, n := range meeting.GuestNames(m.Guests) {
+		if !seen[strings.ToLower(n)] {
+			seen[strings.ToLower(n)] = true
+			terms = append(terms, n)
+		}
+	}
+	return terms
 }

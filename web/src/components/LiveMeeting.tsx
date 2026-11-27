@@ -18,6 +18,7 @@ import type { Section as SettingsSection } from "@/components/settings/Settings"
 import { addNote, endMeeting, getTranscript, type AudioSource, type Meeting, type Utterance } from "@/lib/api"
 import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
 import { readStartedDevice, writeStartedDevice } from "@/lib/recordPrefs"
+import { speakerKey, speakerLabel } from "@/lib/speakers"
 
 /** How often the live transcript is polled for new utterances. */
 const POLL_INTERVAL_MS = 1500
@@ -39,7 +40,7 @@ function groupBySpeaker(utterances: Utterance[]): Utterance[][] {
   const groups: Utterance[][] = []
   for (const u of utterances) {
     const last = groups[groups.length - 1]
-    if (last && last[0].speaker === u.speaker) {
+    if (last && speakerKey(last[0]) === speakerKey(u)) {
       last.push(u)
     } else {
       groups.push([u])
@@ -85,11 +86,14 @@ const UtteranceRow = memo(function UtteranceRow({
 const SpeakerGroup = memo(
   function SpeakerGroup({
     group,
+    label,
     viewMode,
     fontSize,
     last,
   }: {
     group: Utterance[]
+    /** The speaker's name; "" when the engine gave none. */
+    label: string
     viewMode: TranscriptViewMode
     fontSize: number
     /** The newest group is laid out eagerly so stick-to-bottom scrolls
@@ -98,7 +102,7 @@ const SpeakerGroup = memo(
   }) {
     return (
       <div className={last ? undefined : "[contain-intrinsic-size:auto_4rem] [content-visibility:auto]"}>
-        {group[0].speaker && <p className="text-[13px] font-medium text-muted-foreground">{group[0].speaker}</p>}
+        {label && <p className="text-[13px] font-medium text-muted-foreground">{label}</p>}
         <div className="grid gap-2">
           {group.map((u) => (
             <UtteranceRow key={u.seq} u={u} viewMode={viewMode} fontSize={fontSize} />
@@ -110,6 +114,7 @@ const SpeakerGroup = memo(
   (a, b) =>
     a.group[0] === b.group[0] &&
     a.group.length === b.group.length &&
+    a.label === b.label &&
     a.viewMode === b.viewMode &&
     a.fontSize === b.fontSize &&
     a.last === b.last,
@@ -422,6 +427,7 @@ export function LiveMeeting({
                 <SpeakerGroup
                   key={group[0].seq}
                   group={group}
+                  label={speakerLabel(speakerKey(group[0]), { names: meeting.speakers }, t)}
                   viewMode={viewMode}
                   fontSize={fontSize}
                   last={i === groups.length - 1}

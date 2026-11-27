@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -97,6 +98,14 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		pipelines:      map[string]*pipeline.Pipeline{},
 		newCloudClient: nil,
 	}
+	surface.SetMe(func() string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.cfg == nil {
+			return ""
+		}
+		return s.cfg.Profile.Name
+	})
 	s.mcpHTTP = mcpserver.NewHTTPServer(surface, "")
 	if cfg != nil {
 		s.mcpHTTP.Apply(cfg.MCP)
@@ -131,6 +140,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/projects", s.handleListProjects)
 	s.mux.HandleFunc("POST /api/projects/rename", s.handleRenameProject)
 	s.mux.HandleFunc("PATCH /api/meetings/{id}/action-items/{index}", s.handleSetActionItemStatus)
+	s.mux.HandleFunc("GET /api/meetings/{id}/speakers", s.handleMeetingSpeakers)
+	s.mux.HandleFunc("POST /api/guests/parse", s.handleParseGuests)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handlePutConfig)
 	s.mux.HandleFunc("GET /api/translate/status", s.handleTranslateStatus)
@@ -773,13 +784,17 @@ func (s *Server) handleUpdateMeeting(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title *string   `json:"title"`
 		Tags  *[]string `json:"tags"`
+		// Speakers merges confirmed names (an empty name removes one);
+		// Guests replaces the guest list.
+		Speakers map[string]string `json:"speakers"`
+		Guests   *[]meeting.Guest  `json:"guests"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	if req.Title == nil && req.Tags == nil {
-		httpError(w, http.StatusBadRequest, "title or tags is required")
+	if req.Title == nil && req.Tags == nil && req.Speakers == nil && req.Guests == nil {
+		httpError(w, http.StatusBadRequest, "title, tags, speakers or guests is required")
 		return
 	}
 	if req.Title != nil && *req.Title == "" {
@@ -799,8 +814,92 @@ func (s *Server) handleUpdateMeeting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.Speakers != nil {
+		if err := s.surface.SetSpeakerNames(id, req.Speakers); err != nil {
+			respondInputErr(w, err)
+			return
+		}
+	}
+	if req.Guests != nil {
+		if err := s.surface.SetGuests(id, *req.Guests); err != nil {
+			respondInputErr(w, err)
+			return
+		}
+	}
 	m, err := s.surface.GetMeeting(id)
 	respond(w, m, err)
+}
+
+// respondInputErr answers a store error, or a 400 for a value the store
+// refused (too long, too many).
+func respondInputErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, meeting.ErrNotFound) {
+		respondErr(w, err)
+		return
+	}
+	httpError(w, http.StatusBadRequest, err.Error())
+}
+
+// handleMeetingSpeakers lists a transcript's speakers (?source= as for
+// the transcript: best by default) with their confirmed names, plus the
+// user's own name and the meeting's guests: what naming needs.
+func (s *Server) handleMeetingSpeakers(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	m, err := s.surface.GetMeeting(id)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	var us []meeting.Utterance
+	source := r.URL.Query().Get("source")
+	if source != "live" {
+		if us, err = s.surface.ReadBatchTranscript(id); err != nil {
+			respondErr(w, err)
+			return
+		}
+	}
+	if source == "live" || (source != "v2" && len(us) == 0) {
+		if us, _, err = s.surface.ReadLiveTranscript(id, -1); err != nil {
+			respondErr(w, err)
+			return
+		}
+	}
+	type speaker struct {
+		meeting.SpeakerStat
+		Name string `json:"name,omitempty"` // confirmed only
+	}
+	out := []speaker{}
+	for _, st := range meeting.SpeakerStats(us) {
+		out = append(out, speaker{SpeakerStat: st, Name: m.Speakers[st.Key]})
+	}
+	guests := m.Guests
+	if guests == nil {
+		guests = []meeting.Guest{}
+	}
+	me := ""
+	s.mu.Lock()
+	if s.cfg != nil {
+		me = s.cfg.Profile.Name
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"speakers": out, "me": me, "guests": guests})
+}
+
+// handleParseGuests reads a pasted guest list for the UI to review
+// before saving it with PATCH /api/meetings/{id}.
+func (s *Server) handleParseGuests(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	guests := meeting.ParseGuests(req.Text)
+	if guests == nil {
+		guests = []meeting.Guest{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"guests": guests})
 }
 
 func (s *Server) handleDeleteMeeting(w http.ResponseWriter, r *http.Request) {
