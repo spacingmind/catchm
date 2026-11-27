@@ -360,7 +360,9 @@ function App() {
               ? // Live pins the transcript to the window: main is the
                 // viewport-tall column and LiveMeeting fills whatever
                 // the update banner/notice above it leave over.
-                "flex h-svh min-w-0 flex-1 flex-col bg-background outline-none"
+                // overflow-y-auto: below the transcript's minimum height
+                // the page scrolls rather than squeezing it.
+                "flex h-svh min-w-0 flex-1 flex-col overflow-y-auto bg-background outline-none"
               : "min-w-0 flex-1 bg-background outline-none"
         }
       >

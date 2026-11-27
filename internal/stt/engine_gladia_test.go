@@ -50,7 +50,7 @@ func TestGladiaStream(t *testing.T) {
 				if mt == websocket.BinaryMessage && first {
 					first = false
 					send(`{"type":"transcript","data":{"id":"u1","is_final":false,"utterance":{"text":"Xin"}}}`)
-					send(`{"type":"transcript","data":{"id":"u1","is_final":true,"utterance":{"text":" Xin chào mọi người. ","language":"vi"}}}`)
+					send(`{"type":"transcript","data":{"id":"u1","is_final":true,"utterance":{"text":" Xin chào mọi người. ","language":"vi","start":1.25,"end":2.5}}}`)
 					send(`{"type":"speech_end","data":{}}`)
 				}
 				if mt == websocket.TextMessage && strings.Contains(string(data), "stop_recording") {
@@ -98,6 +98,9 @@ loop:
 	}
 	if len(got) != 2 || got[0].Text != "Xin chào mọi người." || got[1].Text != "Tạm biệt." || got[0].Speaker != "" {
 		t.Fatalf("results = %+v", got)
+	}
+	if got[0].Start != 1250*time.Millisecond || got[0].End != 2500*time.Millisecond || got[1].Timed() {
+		t.Errorf("timing = %v-%v, second timed %v", got[0].Start, got[0].End, got[1].Timed())
 	}
 	if st, _ := e.EngineStatus(); st != EngineStreaming {
 		t.Errorf("status after a clean end = %q", st)

@@ -195,7 +195,26 @@ type Config struct {
 	Summary      SummaryConfig   `yaml:"summary"`
 	LLM          LLMConfig       `yaml:"llm"`
 	MCP          MCPConfig       `yaml:"mcp"`
+	Profile      ProfileConfig   `yaml:"profile"`
 }
+
+// ProfileConfig is who the user is in their own meetings: the
+// microphone's speaker in a call (docs/plans/active/speaker-identity.md).
+type ProfileConfig struct {
+	Name string `yaml:"name,omitempty"`
+	// Emails find the user in a pasted guest list; Aliases are what
+	// people call them ("Long", "anh Long"), so a line like "Long will
+	// send it" is theirs. Neither leaves this computer except aliases,
+	// which go to the summarizer with the name.
+	Emails  []string `yaml:"emails,omitempty"`
+	Aliases []string `yaml:"aliases,omitempty"`
+}
+
+// Limits on the profile.
+const (
+	MaxProfileName    = 80
+	MaxProfileEntries = 10
+)
 
 // MCPConfig controls the local MCP server (docs/plans/completed/local-mcp.md).
 // Off by default: `catchm mcp` (stdio) refuses to start, and the local

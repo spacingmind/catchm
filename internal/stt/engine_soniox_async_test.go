@@ -150,9 +150,9 @@ func writeAudio(t *testing.T) string {
 func TestSonioxAsyncFullFlow(t *testing.T) {
 	f := newFakeSoniox(t)
 	f.tokens = []sonioxAsyncToken{
-		{sonioxToken: sonioxToken{Text: "Hello", Speaker: "1", TranslationStatus: "original", Language: "en"}, StartMS: 0, EndMS: 400},
-		{sonioxToken: sonioxToken{Text: " world", Speaker: "1", TranslationStatus: "original", Language: "en"}, StartMS: 450, EndMS: 800},
-		{sonioxToken: sonioxToken{Text: "xin chao", TranslationStatus: "translation", Language: "vi"}, StartMS: 0, EndMS: 0},
+		{sonioxToken: sonioxToken{Text: "Hello", Speaker: "1", TranslationStatus: "original", Language: "en", StartMS: 0, EndMS: 400}},
+		{sonioxToken: sonioxToken{Text: " world", Speaker: "1", TranslationStatus: "original", Language: "en", StartMS: 450, EndMS: 800}},
+		{sonioxToken: sonioxToken{Text: "xin chao", TranslationStatus: "translation", Language: "vi", StartMS: 0, EndMS: 0}},
 	}
 	f.pendingPolls = 1 // first poll: processing, second: completed
 	e := newTestAsyncEngine(f, t)
@@ -264,13 +264,13 @@ func TestSonioxAsyncTwoWay(t *testing.T) {
 func TestSonioxAsyncGrouping(t *testing.T) {
 	tokens := []sonioxAsyncToken{
 		// utterance 1: speaker 1, ends with "."
-		{sonioxToken: sonioxToken{Text: "Hi there.", Speaker: "spk_1", TranslationStatus: "original", Language: "en"}, StartMS: 0, EndMS: 500},
-		{sonioxToken: sonioxToken{Text: " hello", TranslationStatus: "translation", Language: "es"}, StartMS: 0, EndMS: 0},
+		{sonioxToken: sonioxToken{Text: "Hi there.", Speaker: "spk_1", TranslationStatus: "original", Language: "en", StartMS: 0, EndMS: 500}},
+		{sonioxToken: sonioxToken{Text: " hello", TranslationStatus: "translation", Language: "es", StartMS: 0, EndMS: 0}},
 		// utterance 2: new sentence, same speaker, big gap
-		{sonioxToken: sonioxToken{Text: "Later", Speaker: "spk_1", TranslationStatus: "original", Language: "en"}, StartMS: 4000, EndMS: 4300},
+		{sonioxToken: sonioxToken{Text: "Later", Speaker: "spk_1", TranslationStatus: "original", Language: "en", StartMS: 4000, EndMS: 4300}},
 		// utterance 3: speaker change
-		{sonioxToken: sonioxToken{Text: "Bien", Speaker: "2", TranslationStatus: "original", Language: "es"}, StartMS: 4400, EndMS: 4900},
-		{sonioxToken: sonioxToken{Text: " ok", Speaker: "2", TranslationStatus: "original", Language: "es"}, StartMS: 4901, EndMS: 5100},
+		{sonioxToken: sonioxToken{Text: "Bien", Speaker: "2", TranslationStatus: "original", Language: "es", StartMS: 4400, EndMS: 4900}},
+		{sonioxToken: sonioxToken{Text: " ok", Speaker: "2", TranslationStatus: "original", Language: "es", StartMS: 4901, EndMS: 5100}},
 	}
 	us := groupTokens(tokens)
 	if len(us) != 3 {

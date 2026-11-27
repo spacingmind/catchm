@@ -41,7 +41,7 @@ func fixtureDoc(t *testing.T, lang Lang) Document {
 		{At: start.Add(time.Hour + 5*time.Minute), Speaker: "Speaker 2", Text: "Bắt đầu nhé."},
 	}
 	people := []summarize.Person{{Name: "An", Speaker: "Speaker 1"}}
-	return Build(m, people, us, lang)
+	return Build(m, m.Namer(""), people, us, lang)
 }
 
 func TestRenderContainsExpectedContent(t *testing.T) {
@@ -94,7 +94,7 @@ func TestRenderContainsExpectedContent(t *testing.T) {
 func TestEmptyMeetingHasNoSections(t *testing.T) {
 	m := &meeting.Meeting{Title: "Empty", StartedAt: time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)}
 	for _, lang := range []Lang{En, Vi} {
-		d := Build(m, nil, nil, lang)
+		d := Build(m, m.Namer(""), nil, nil, lang)
 		for _, out := range []struct{ name, body string }{{"Text", d.Text()}, {"Markdown", d.Markdown()}} {
 			doc, err := d.Docx()
 			if err != nil {
@@ -107,7 +107,7 @@ func TestEmptyMeetingHasNoSections(t *testing.T) {
 				}
 			}
 		}
-		docXML := Build(m, nil, nil, En).documentXML()
+		docXML := Build(m, m.Namer(""), nil, nil, En).documentXML()
 		for _, heading := range []string{"Summary", "Decisions", "Action items", "Notes", "Transcript"} {
 			if strings.Contains(docXML, ">"+heading+"<") {
 				t.Fatalf("docx: unexpected section %q; got:\n%s", heading, docXML)
@@ -241,5 +241,26 @@ func TestOffsetAndDurationStrings(t *testing.T) {
 		if got := durationString(c.d); got != c.want {
 			t.Fatalf("durationString(%v) = %q, want %q", c.d, got, c.want)
 		}
+	}
+}
+
+// Confirmed names beat the analysis's guesses; unnamed speakers read in
+// the export's language.
+func TestExportSpeakerNames(t *testing.T) {
+	start := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
+	m := &meeting.Meeting{Title: "Sync", StartedAt: start, Speakers: map[string]string{"1": "An Nguyen"}}
+	us := []meeting.Utterance{
+		{At: start, Speaker: "1", Text: "a"},
+		{At: start.Add(time.Second), Speaker: "2", Text: "b"},
+		{At: start.Add(2 * time.Second), Speaker: "3", Text: "c"},
+		{At: start.Add(3 * time.Second), Source: "mic", Text: "d"},
+	}
+	people := []summarize.Person{{Name: "Guess One", Speaker: "Speaker 1"}, {Name: "Bao", Speaker: "Speaker 2"}}
+	var got []string
+	for _, g := range Build(m, m.Namer("Minh"), people, us, Vi).Groups {
+		got = append(got, g.Speaker)
+	}
+	if want := "An Nguyen,Bao,Người nói 3,Minh"; strings.Join(got, ",") != want {
+		t.Errorf("speakers = %v, want %s", got, want)
 	}
 }

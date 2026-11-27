@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -161,7 +162,7 @@ func TestConfigSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *got != *want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("round trip mismatch:\ngot  %+v\nwant %+v", got, want)
 	}
 }

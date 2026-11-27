@@ -1314,3 +1314,31 @@ func TestConfigEndpointSetupAndTranslateProvider(t *testing.T) {
 		}
 	}
 }
+
+// The user's name (the microphone's speaker) is set, trimmed, kept by
+// other updates, and can be cleared.
+func TestConfigProfileName(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+	var got struct {
+		Profile struct {
+			Name string `json:"name"`
+		} `json:"profile"`
+	}
+	if w := do(t, s, "PUT", "/api/config", `{"profile":{"name":"  An   Nguyen "}}`); w.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", w.Code, w.Body.String())
+	}
+	do(t, s, "PUT", "/api/config", `{"engine":"soniox"}`)
+	decode(t, do(t, s, "GET", "/api/config", ""), &got)
+	if got.Profile.Name != "An Nguyen" {
+		t.Errorf("name = %q", got.Profile.Name)
+	}
+	if w := do(t, s, "PUT", "/api/config", `{"profile":{"name":"`+strings.Repeat("a", 81)+`"}}`); w.Code != http.StatusBadRequest {
+		t.Errorf("long name: %d", w.Code)
+	}
+	do(t, s, "PUT", "/api/config", `{"profile":{"name":""}}`)
+	decode(t, do(t, s, "GET", "/api/config", ""), &got)
+	if got.Profile.Name != "" {
+		t.Errorf("cleared name = %q", got.Profile.Name)
+	}
+}

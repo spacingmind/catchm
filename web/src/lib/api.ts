@@ -16,6 +16,10 @@ export interface Utterance {
   text: string
   translated?: string
   lang?: string
+  /** End of the utterance (RFC3339), when the engine placed it in the audio. */
+  end?: string
+  /** The input that carried it, in meetings that recorded both. */
+  source?: "mic" | "system"
   extra?: unknown
 }
 
@@ -62,6 +66,11 @@ export interface Meeting {
   refined_with?: string
   /** True when the meeting was created from an uploaded recording. */
   imported?: boolean
+  /** Confirmed speaker names by key (lib/speakers.ts). */
+  speakers?: Record<string, string>
+  guests?: Guest[]
+  /** The speaker key the user said is them. */
+  me?: string
 }
 
 /**
@@ -139,6 +148,18 @@ export interface StartMeetingResponse extends Meeting {
 export interface UpdateMeetingRequest {
   title?: string
   tags?: string[]
+  /** Merged into the confirmed names; "" removes one. */
+  speakers?: Record<string, string>
+  /** Replaces the guest list. */
+  guests?: Guest[]
+  /** The speaker key that is the user; "" forgets it. */
+  me?: string
+}
+
+/** internal/meeting.Guest: someone invited, pasted from a calendar. */
+export interface Guest {
+  name?: string
+  email?: string
 }
 
 /** Response body for GET /api/meetings/{id}/transcript. */
@@ -330,6 +351,9 @@ export interface AppConfig extends CloudKeySetFlags {
   /** True when the shared LLM's API key is stored; never the key. */
   llm_api_key_set: boolean
   summary: SummaryConfig
+  /** Who the user is: their name, the emails that find them in a guest
+   *  list, and what people call them. */
+  profile: { name: string; emails: string[]; aliases: string[] }
 }
 
 /**
@@ -379,6 +403,8 @@ export interface UpdateConfigRequest extends CloudKeyFields {
     ollama_model?: string
     cloud_consent?: boolean
   }
+  /** "" clears the name; lists replace the stored ones. */
+  profile?: { name?: string; emails?: string[]; aliases?: string[] }
 }
 
 /** Stable codes the Go server attaches to user-reachable errors
@@ -735,6 +761,15 @@ export function updateMeeting(id: string, body: UpdateMeetingRequest): Promise<M
     method: "PATCH",
     body: JSON.stringify(body),
   })
+}
+
+/** POST /api/guests/parse — reads a pasted guest list for review. */
+export async function parseGuests(text: string): Promise<Guest[]> {
+  const res = await apiFetch<{ guests: Guest[] }>(`/api/guests/parse`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  })
+  return res.guests ?? []
 }
 
 /** DELETE /api/meetings/{id} — resolves on 204. */

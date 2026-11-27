@@ -58,6 +58,7 @@ func (e *WhisperEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <
 	resultCh := make(chan Result)
 	go func() {
 		defer close(resultCh)
+		var offset time.Duration // audio sent so far: places each chunk's result
 		for {
 			select {
 			case <-ctx.Done():
@@ -66,10 +67,13 @@ func (e *WhisperEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <
 				if !ok {
 					return
 				}
+				start := offset
+				offset += audio.Duration(len(chunk))
 				res, err := e.transcribe(ctx, chunk, opts.Lang)
 				if err != nil {
 					continue // drop failed chunks; the stream keeps going
 				}
+				res.Start, res.End = start, offset
 				select {
 				case resultCh <- res:
 				case <-ctx.Done():

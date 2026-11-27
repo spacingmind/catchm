@@ -149,7 +149,7 @@ func TestLoadInputPrefersBatchTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in.Transcript != "[1] S1: refined line\n" {
+	if in.Transcript != "[1] Speaker 1: refined line\n" { // engine labels read as "Speaker N"
 		t.Fatalf("batch input transcript = %q", in.Transcript)
 	}
 
@@ -453,9 +453,18 @@ func TestCloudSummarize(t *testing.T) {
 	defer srv.Close()
 
 	c := &Cloud{BaseURL: srv.URL, Token: "tok", Consent: true}
-	ex, err := c.Summarize(context.Background(), testInput())
+	in := testInput()
+	in.Guests = []string{"Bao Tran", "x@y.co", strings.Repeat("a", cloudMaxGuestChars+1)}
+	in.Me, in.MeAliases = "Minh", []string{"anh Minh"}
+	ex, err := c.Summarize(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(got.Guests) != 1 || got.Guests[0] != "Bao Tran" {
+		t.Errorf("guests sent = %v", got.Guests)
+	}
+	if got.Me == nil || got.Me.Name != "Minh" || len(got.Me.Aliases) != 1 {
+		t.Errorf("me sent = %+v", got.Me)
 	}
 	if ex.Summary != "Synced on Q3." || got.Title != "Q3 Roadmap Sync" || got.Language != "en" || !strings.Contains(got.Transcript, "freeze") {
 		t.Fatalf("extraction = %+v, request = %+v", ex, got)
@@ -706,5 +715,44 @@ func TestCloud413RechunksToMaxChars(t *testing.T) {
 	var se *Error
 	if !errors.As(err, &se) || se.Kind != KindFailed {
 		t.Fatalf("bare 413: err = %#v", err)
+	}
+}
+
+// The summary sees confirmed speaker names and the guests' names, never
+// their emails.
+func TestLoadInputNamesAndGuests(t *testing.T) {
+	s := newTestStore(t)
+	s.SetSelf(func() meeting.Self { return meeting.Self{Name: "Minh", Aliases: []string{"minh", "anh Minh"}} })
+	m, err := s.Start("Sync", time.Now(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []meeting.Utterance{{Speaker: "1", Text: "hi"}, {Speaker: "2", Text: "yo"}, {Source: "mic", Text: "me here"}} {
+		if _, err := s.Append(m.ID, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetSpeakerNames(m.ID, map[string]string{"2": "Bao Tran"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGuests(m.ID, []meeting.Guest{{Name: "Bao Tran", Email: "bao@acme.com"}, {Email: "carol@acme.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	in, err := LoadInput(s, m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "[1] Speaker 1: hi\n[2] Bao Tran: yo\n[3] Minh: me here\n"; in.Transcript != want {
+		t.Errorf("transcript = %q", in.Transcript)
+	}
+	if len(in.Guests) != 1 || in.Guests[0] != "Bao Tran" {
+		t.Errorf("guests = %v", in.Guests)
+	}
+	prompt := extractUser(in, 1, 1)
+	if !strings.Contains(prompt, "Recorded by: Minh (also called anh Minh).") {
+		t.Errorf("no recorder line in %q", prompt)
+	}
+	if !strings.Contains(prompt, "Invited: Bao Tran.") || strings.Contains(prompt, "@") {
+		t.Errorf("prompt = %q", prompt)
 	}
 }

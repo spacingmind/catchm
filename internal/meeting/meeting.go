@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,8 +26,12 @@ type Utterance struct {
 	Lang       string    `json:"lang,omitempty"`
 	// End is when the utterance stopped, for engines that report it
 	// (Soniox async); nil when unknown. Same clock as At.
-	End   *time.Time  `json:"end,omitempty"`
-	Extra interface{} `json:"extra,omitempty"`
+	End *time.Time `json:"end,omitempty"`
+	// Source is the input that carried the utterance in a meeting that
+	// recorded both: "mic" (the user) or "system" (the other side of the
+	// call). Empty when unknown or unclear.
+	Source string      `json:"source,omitempty"`
+	Extra  interface{} `json:"extra,omitempty"`
 }
 
 // ActionItem is a task extracted from a meeting.
@@ -67,6 +72,17 @@ type Meeting struct {
 	Refined       bool              `yaml:"refined,omitempty" json:"refined,omitempty"`
 	RefinedWith   string            `yaml:"refined_with,omitempty" json:"refined_with,omitempty"`
 	Imported      bool              `yaml:"imported,omitempty" json:"imported,omitempty"`
+	// Speakers holds confirmed names by speaker key (SpeakerKey): engine
+	// labels ("1", "2") or "me"/"others". Set by the user, never by a
+	// summary.
+	Speakers map[string]string `yaml:"speakers,omitempty" json:"speakers,omitempty"`
+	// Guests is the invite list the user pasted from their calendar.
+	// Unlike Participants (rewritten by each summary), only the user
+	// changes it.
+	Guests []Guest `yaml:"guests,omitempty" json:"guests,omitempty"`
+	// Me is the speaker key the user said is them; it reads as their
+	// profile name.
+	Me string `yaml:"me,omitempty" json:"me,omitempty"`
 }
 
 // SchemaVersion is the current frontmatter schema version.
@@ -87,6 +103,7 @@ var ErrActionItemIndex = errors.New("action item index out of range")
 // or a test temp dir).
 type Store struct {
 	root string
+	self atomic.Pointer[func() Self] // see SetSelf
 }
 
 // NewStore returns a Store rooted at dir, creating it if needed.

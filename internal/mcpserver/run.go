@@ -42,7 +42,9 @@ func RunStdio(ctx context.Context, version string) error {
 	if err != nil {
 		return err
 	}
-	return New(tools.New(store), Options{AllowWrites: cfg.MCP.AllowWrites, Version: version}).Run(ctx, &mcp.StdioTransport{})
+	surface := tools.New(store)
+	surface.SetSelf(func() meeting.Self { return selfOf(cfg.Profile) })
+	return New(surface, Options{AllowWrites: cfg.MCP.AllowWrites, Version: version}).Run(ctx, &mcp.StdioTransport{})
 }
 
 // NewToken returns a random bearer token for the HTTP transport.
@@ -142,4 +144,9 @@ func requireToken(token string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// selfOf is the user's profile as the meeting store sees it.
+func selfOf(p config.ProfileConfig) meeting.Self {
+	return meeting.Self{Name: p.Name, Emails: p.Emails, Aliases: p.Aliases}
 }

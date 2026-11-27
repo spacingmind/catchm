@@ -10,7 +10,9 @@ import { FlowsTab } from "@/components/insights/FlowsTab"
 import { MindMapTab } from "@/components/insights/MindMapTab"
 import { useFindFlows } from "@/components/insights/useFindFlows"
 import { CloudConsentDialog } from "@/components/settings/SettingsSummaries"
+import { GuestsSection } from "@/components/GuestsSection"
 import { MeetingOrganize } from "@/components/MeetingOrganize"
+import { SpeakerNamePopover } from "@/components/SpeakerNamePopover"
 import { StatusMessage } from "@/components/StatusMessage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -61,6 +63,7 @@ import {
 } from "@/lib/api"
 import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
+import { autoMeKey, isMe, SPEAKER_ME, speakerKey, speakerLabel, type SpeakerNaming } from "@/lib/speakers"
 import { copyText } from "@/lib/clipboard"
 import { hasWindowControls, saveExport } from "@/lib/wailsRuntime"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
@@ -185,12 +188,14 @@ interface EvidenceJump {
   focus: boolean
 }
 
-function groupBySpeaker(us: Utterance[]): { speaker?: string; items: Utterance[] }[] {
-  const groups: { speaker?: string; items: Utterance[] }[] = []
+/** Runs of lines by the same speaker (by key: "Speaker 1" and "1" are one). */
+function groupBySpeaker(us: Utterance[]): { key: string; items: Utterance[] }[] {
+  const groups: { key: string; items: Utterance[] }[] = []
   for (const u of us) {
+    const key = speakerKey(u)
     const last = groups[groups.length - 1]
-    if (last && last.speaker === u.speaker) last.items.push(u)
-    else groups.push({ speaker: u.speaker, items: [u] })
+    if (last && last.key === key) last.items.push(u)
+    else groups.push({ key, items: [u] })
   }
   return groups
 }
@@ -277,6 +282,23 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // reloads it instead of jumping to the wrong lines.
   const [transcriptFor, setTranscriptFor] = useState<TranscriptSource | null>(null)
   const groups = useMemo(() => (transcript ? groupBySpeaker(transcript) : []), [transcript])
+  // The user's profile: their name for their own speaker, and their
+  // emails to spot them in the guest list.
+  const [profileName, setProfileName] = useState("")
+  const [profileEmails, setProfileEmails] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    getConfig()
+      .then((c) => {
+        if (cancelled) return
+        setProfileName(c.profile?.name ?? "")
+        setProfileEmails(c.profile?.emails ?? [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // analysis.json and its mind map (docs/plans/active/meeting-insights.md):
   // undefined while loading, null when the meeting has none yet (404).
@@ -667,6 +689,26 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   }
 
   const refined = Boolean(meeting.refined)
+  const naming: SpeakerNaming = {
+    names: meeting.speakers,
+    me: profileName,
+    meKey: meeting.me,
+    autoMe: meeting.me ? "" : autoMeKey(transcript ?? [], meeting.speakers),
+  }
+  // Names offered when naming a speaker: guests first, then the user,
+  // then the people the summary found; each once.
+  const nameSuggestions = [
+    ...new Map(
+      [
+        ...(meeting.guests ?? []).filter((g) => !g.email || !profileEmails.includes(g.email)).map((g) => g.name ?? ""),
+        ...(analysis?.analysis?.people ?? []).map((p) => p.name),
+        ...(meeting.participants ?? []),
+      ]
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .map((n) => [n.toLowerCase(), n] as const),
+    ).values(),
+  ]
   // Offered for an ended meeting transcribed locally (or not at all)
   // that hasn't already had a cloud pass, when a cloud engine the setup
   // shows has its key (refineCloudEngine).
@@ -1050,6 +1092,16 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
             )}
           </Section>
 
+          <Section title={t("meetingDetail.sectionGuests")}>
+            <GuestsSection
+              guests={meeting.guests ?? []}
+              selfEmails={profileEmails}
+              onChange={async (guests) => {
+                setMeeting(await updateMeeting(meeting.id, { guests }))
+              }}
+            />
+          </Section>
+
           <Section title={t("meetingDetail.sectionNotes")}>
             {meeting.notes && meeting.notes.length > 0 ? (
               <ul className="grid gap-1 text-base">
@@ -1128,8 +1180,24 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 // content-visibility skips layout/paint for off-screen
                 // speaker turns — long transcripts, no virtualization dep.
                 <div key={gi} className="[contain-intrinsic-size:auto_6rem] [content-visibility:auto]">
-                  {g.speaker && (
-                    <p className="mb-1 break-words text-xs font-medium text-muted-foreground">{g.speaker}</p>
+                  {g.key && (
+                    <SpeakerNamePopover
+                      label={speakerLabel(g.key, naming, t)}
+                      named={Boolean(meeting.speakers?.[g.key])}
+                      current={meeting.speakers?.[g.key] ?? ""}
+                      suggestions={nameSuggestions}
+                      me={
+                        g.key === SPEAKER_ME ? "mic" : g.key === meeting.me ? "yes" : isMe(g.key, naming) ? "auto" : "no"
+                      }
+                      onSave={async (name) => {
+                        // A typed name means this isn't the user after all.
+                        const me = g.key === meeting.me ? { me: "" } : {}
+                        setMeeting(await updateMeeting(meeting.id, { speakers: { [g.key]: name }, ...me }))
+                      }}
+                      onSetMe={async (yes) => {
+                        setMeeting(await updateMeeting(meeting.id, { me: yes ? g.key : "" }))
+                      }}
+                    />
                   )}
                   <div className="grid gap-2">
                     {g.items.map((u) => (

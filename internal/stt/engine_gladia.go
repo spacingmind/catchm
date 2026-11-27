@@ -118,8 +118,10 @@ type gladiaLiveMessage struct {
 		ID        string `json:"id"`
 		IsFinal   bool   `json:"is_final"`
 		Utterance struct {
-			Text     string `json:"text"`
-			Language string `json:"language"`
+			Text     string  `json:"text"`
+			Language string  `json:"language"`
+			Start    float64 `json:"start"`
+			End      float64 `json:"end"`
 		} `json:"utterance"`
 	} `json:"data"`
 }
@@ -202,8 +204,10 @@ func (e *GladiaEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 				if !msg.Data.IsFinal || text == "" {
 					continue
 				}
+				r := Result{Text: text, Final: true}
+				r.Start, r.End = secondsSpan(msg.Data.Utterance.Start, msg.Data.Utterance.End)
 				select {
-				case resultCh <- Result{Text: text, Final: true}:
+				case resultCh <- r:
 				case <-ctx.Done():
 					return
 				}

@@ -145,8 +145,6 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 // no timestamps (confirmed by the token-format docs).
 type sonioxAsyncToken struct {
 	sonioxToken
-	StartMS int64 `json:"start_ms"`
-	EndMS   int64 `json:"end_ms"`
 }
 
 type sonioxAsyncTranscript struct {

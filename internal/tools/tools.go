@@ -30,6 +30,27 @@ type Surface struct {
 	store *meeting.Store
 }
 
+// SetSelf tells the store where the user's profile comes from, for
+// naming the user's speaker.
+func (s *Surface) SetSelf(f func() meeting.Self) { s.store.SetSelf(f) }
+
+// SetMeSpeaker records which speaker is the user ("" forgets it).
+func (s *Surface) SetMeSpeaker(id, key string) error { return s.store.SetMeSpeaker(id, key) }
+
+// Namer names a meeting's speakers: confirmed names, else the user's
+// own name for "me", else generic labels.
+func (s *Surface) Namer(m *meeting.Meeting) meeting.SpeakerNamer { return s.store.Namer(m) }
+
+// SetSpeakerNames merges confirmed speaker names (a blank one removes it).
+func (s *Surface) SetSpeakerNames(id string, names map[string]string) error {
+	return s.store.SetSpeakerNames(id, names)
+}
+
+// SetGuests replaces a meeting's guest list.
+func (s *Surface) SetGuests(id string, guests []meeting.Guest) error {
+	return s.store.SetGuests(id, guests)
+}
+
 // New returns a Surface backed by store.
 func New(store *meeting.Store) *Surface {
 	return &Surface{store: store}

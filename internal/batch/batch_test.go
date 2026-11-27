@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spacingmind/catchm/internal/capture"
+	"github.com/spacingmind/catchm/internal/levels"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
 )
@@ -194,6 +196,7 @@ func TestRefinePassesFullTranslationModeAndContext(t *testing.T) {
 	}
 	if err := s.UpdateDoc(m.ID, func(mm *meeting.Meeting) error {
 		mm.Participants = []string{"alex", "sam"}
+		mm.Guests = []meeting.Guest{{Name: "Sam"}, {Name: "Kim Lee", Email: "kim@acme.com"}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -211,7 +214,7 @@ func TestRefinePassesFullTranslationModeAndContext(t *testing.T) {
 	}
 	want := stt.Options{
 		Lang: "en", TranslateTo: "vi", TwoWay: true, LanguageB: "vi",
-		Title: "Bilingual 1:1", ContextTerms: []string{"alex", "sam"},
+		Title: "Bilingual 1:1", ContextTerms: []string{"alex", "sam", "Kim Lee"}, // guest names, never emails
 	}
 	got := engine.gotOpts
 	if got.Lang != want.Lang || got.TranslateTo != want.TranslateTo || got.TwoWay != want.TwoWay ||
@@ -251,5 +254,57 @@ func TestRefineDiscoversAudioByExtension(t *testing.T) {
 	}
 	if !strings.HasSuffix(engine.gotPath, "audio.mp3") {
 		t.Fatalf("audio path = %q", engine.gotPath)
+	}
+}
+
+// A re-transcribed live recording gets its sources from the loudness
+// timeline the live pipeline left next to audio.wav.
+func TestRefineAttributesSourcesFromTimeline(t *testing.T) {
+	s := newTestStore(t)
+	start := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	m, err := s.Start("Call", start, meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.End(m.ID, start.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(s.Root(), m.ID)
+	if err := os.WriteFile(filepath.Join(dir, "audio.wav"), []byte("fake wav bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := levels.Create(filepath.Join(dir, levels.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ { // 0–1 s the user, 1–2 s the call
+		lv := capture.TickLevels{Mic: 0.2, System: 0.01}
+		if i >= 50 {
+			lv = capture.TickLevels{Mic: 0.02, System: 0.3}
+		}
+		rec.Observe(uint64(i), lv)
+	}
+	if err := rec.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	at := func(d time.Duration) *time.Time { v := time.Time{}.Add(d); return &v }
+	engine := fakeBatchEngine{us: []meeting.Utterance{
+		{Text: "mine", At: *at(100 * time.Millisecond), End: at(900 * time.Millisecond)},
+		{Text: "theirs", At: *at(1100 * time.Millisecond), End: at(1900 * time.Millisecond)},
+		{Text: "no end", At: *at(1200 * time.Millisecond)},
+	}}
+	if err := Refine(context.Background(), s, m.ID, engine, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadBatchTranscript(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Source != levels.Mic || got[1].Source != levels.System || got[2].Source != "" {
+		t.Fatalf("sources = %+v", got)
+	}
+	if !got[0].At.Equal(start.Add(100*time.Millisecond)) || !got[1].End.Equal(start.Add(1900*time.Millisecond)) {
+		t.Errorf("times = %v, %v", got[0].At, got[1].End)
 	}
 }

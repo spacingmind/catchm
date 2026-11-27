@@ -7,8 +7,11 @@ package batch
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/spacingmind/catchm/internal/levels"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/translate"
@@ -58,19 +61,25 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 		TwoWay:       m.TwoWay,
 		LanguageB:    languageB,
 		Title:        m.Title,
-		ContextTerms: m.Participants,
+		ContextTerms: contextTerms(m),
 	})
 	if err != nil {
 		return err
 	}
+	// The live recording's loudness timeline tells mic from computer
+	// audio; imported audio and older meetings have none.
+	timeline, _ := levels.Read(filepath.Join(filepath.Dir(audioPath), levels.File))
 	for i := range us {
 		// TranscribeFile returns utterances with At relative to the zero
 		// time.Time value; shift them into the meeting's absolute
 		// wall-clock time before persisting.
-		us[i].At = m.StartedAt.Add(us[i].At.Sub(time.Time{}))
+		start := us[i].At.Sub(time.Time{})
+		us[i].At = m.StartedAt.Add(start)
 		if us[i].End != nil {
-			end := m.StartedAt.Add(us[i].End.Sub(time.Time{}))
-			us[i].End = &end
+			end := us[i].End.Sub(time.Time{})
+			us[i].Source = levels.Attribute(timeline, start, end)
+			endAt := m.StartedAt.Add(end)
+			us[i].End = &endAt
 		}
 		if translator != nil && m.TranslateTo != "" && us[i].Translated == "" {
 			if t, err := translator.Translate(ctx, us[i].Text, m.TranslateTo); err == nil {
@@ -98,4 +107,21 @@ func checkRefinable(store *meeting.Store, m *meeting.Meeting) error {
 	}
 	_, err := store.AudioPath(m.ID)
 	return err
+}
+
+// contextTerms are the names the engine should spell right: the
+// summary's participants and the guests the user pasted (names only).
+func contextTerms(m *meeting.Meeting) []string {
+	terms := append([]string(nil), m.Participants...)
+	seen := map[string]bool{}
+	for _, t := range terms {
+		seen[strings.ToLower(t)] = true
+	}
+	for _, n := range meeting.GuestNames(m.Guests) {
+		if !seen[strings.ToLower(n)] {
+			seen[strings.ToLower(n)] = true
+			terms = append(terms, n)
+		}
+	}
+	return terms
 }

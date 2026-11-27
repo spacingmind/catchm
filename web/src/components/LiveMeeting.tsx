@@ -18,6 +18,7 @@ import type { Section as SettingsSection } from "@/components/settings/Settings"
 import { addNote, endMeeting, getTranscript, type AudioSource, type Meeting, type Utterance } from "@/lib/api"
 import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
 import { readStartedDevice, writeStartedDevice } from "@/lib/recordPrefs"
+import { autoMeKey, speakerKey, speakerLabel } from "@/lib/speakers"
 
 /** How often the live transcript is polled for new utterances. */
 const POLL_INTERVAL_MS = 1500
@@ -39,7 +40,7 @@ function groupBySpeaker(utterances: Utterance[]): Utterance[][] {
   const groups: Utterance[][] = []
   for (const u of utterances) {
     const last = groups[groups.length - 1]
-    if (last && last[0].speaker === u.speaker) {
+    if (last && speakerKey(last[0]) === speakerKey(u)) {
       last.push(u)
     } else {
       groups.push([u])
@@ -85,11 +86,14 @@ const UtteranceRow = memo(function UtteranceRow({
 const SpeakerGroup = memo(
   function SpeakerGroup({
     group,
+    label,
     viewMode,
     fontSize,
     last,
   }: {
     group: Utterance[]
+    /** The speaker's name; "" when the engine gave none. */
+    label: string
     viewMode: TranscriptViewMode
     fontSize: number
     /** The newest group is laid out eagerly so stick-to-bottom scrolls
@@ -98,7 +102,7 @@ const SpeakerGroup = memo(
   }) {
     return (
       <div className={last ? undefined : "[contain-intrinsic-size:auto_4rem] [content-visibility:auto]"}>
-        {group[0].speaker && <p className="text-[13px] font-medium text-muted-foreground">{group[0].speaker}</p>}
+        {label && <p className="text-[13px] font-medium text-muted-foreground">{label}</p>}
         <div className="grid gap-2">
           {group.map((u) => (
             <UtteranceRow key={u.seq} u={u} viewMode={viewMode} fontSize={fontSize} />
@@ -110,6 +114,7 @@ const SpeakerGroup = memo(
   (a, b) =>
     a.group[0] === b.group[0] &&
     a.group.length === b.group.length &&
+    a.label === b.label &&
     a.viewMode === b.viewMode &&
     a.fontSize === b.fontSize &&
     a.last === b.last,
@@ -222,6 +227,12 @@ export function LiveMeeting({
   useEffect(() => () => window.clearTimeout(noteTimerRef.current), [])
 
   const groups = useMemo(() => groupBySpeaker(utterances), [utterances])
+  // The microphone's guess at which speaker is the user, while they
+  // haven't said (recomputed per line: a scan of the transcript).
+  const autoMe = useMemo(
+    () => (meeting.me ? "" : autoMeKey(utterances, meeting.speakers)),
+    [utterances, meeting.me, meeting.speakers],
+  )
   // A callback ref on the sentinel below the last row: it re-attaches
   // to the new ScrollArea after a compact-mode round-trip.
   const { ref: bottomRef, hasNew, scrollToBottom } = useStickToBottom(utterances.length)
@@ -312,6 +323,9 @@ export function LiveMeeting({
   ]
 
   return (
+    // min-h-0 keeps the transcript's height definite (it scrolls inside);
+    // in a short window its min-h-64 overflows the column and main
+    // scrolls instead.
     <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6 py-8">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
@@ -412,7 +426,9 @@ export function LiveMeeting({
         </div>
       </div>
 
-      <div className="relative mb-4 min-h-0 flex-1">
+      {/* min-h: a short window scrolls the page instead of squeezing
+          the transcript down to a line or two. */}
+      <div className="relative mb-4 min-h-64 flex-1">
         <ScrollArea className="h-full rounded-xl border border-border bg-card">
           <div role="log" aria-label={t("liveMeeting.transcriptLog")} className="grid gap-3 p-4">
             {groups.length === 0 ? (
@@ -422,6 +438,7 @@ export function LiveMeeting({
                 <SpeakerGroup
                   key={group[0].seq}
                   group={group}
+                  label={speakerLabel(speakerKey(group[0]), { names: meeting.speakers, meKey: meeting.me, autoMe }, t)}
                   viewMode={viewMode}
                   fontSize={fontSize}
                   last={i === groups.length - 1}
@@ -457,7 +474,7 @@ export function LiveMeeting({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder={t("liveMeeting.notePlaceholder")}
-          rows={3}
+          rows={2}
           aria-invalid={noteState === "error" || undefined}
           aria-describedby="live-note-status"
         />

@@ -110,7 +110,7 @@ func (in *mixerInput) feed(p stt.PCM) {
 // takeWindow pulls up to n samples, zero-padding any shortfall, and
 // records levels over the samples actually consumed (padding excluded,
 // so a silent system input reports ~0, not "zeros counted as signal").
-func (in *mixerInput) takeWindow(n int) []int16 {
+func (in *mixerInput) takeWindow(n int) ([]int16, float64) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	take := n
@@ -122,7 +122,13 @@ func (in *mixerInput) takeWindow(n int) []int16 {
 	window := make([]int16, n)
 	copy(window, in.buf[:take])
 	in.buf = in.buf[take:]
-	return window
+	// The tick's level counts the padding too (unlike in.rms, a meter
+	// reading): it describes the 20 ms the stream carries.
+	tick := lv.RMS
+	if take > 0 && take < n {
+		tick = lv.RMS * math.Sqrt(float64(take)/float64(n))
+	}
+	return window, tick
 }
 
 // levelOf computes RMS and peak over samples (0–1 of full scale).
@@ -142,6 +148,29 @@ func levelOf(samples []int16) Levels {
 	return Levels{RMS: math.Sqrt(sumSq / float64(len(samples))), Peak: peak}
 }
 
+// TickLevels is one delivered tick's input loudness (RMS, 0–1 of full
+// scale). An input that isn't wired reports -1, so "silent" and "absent"
+// stay apart.
+type TickLevels struct {
+	Mic, System float64
+}
+
+// TickObserver receives every tick the mixer delivers downstream, with
+// its index in the output stream (tick i covers audio from i×20 ms).
+// It runs on the tick loop: it must be quick and must not block.
+type TickObserver func(index uint64, lv TickLevels)
+
+// SetTickObserver installs f (nil removes it). Ticks delivered before it
+// was installed keep their places: indexes count from the stream's first
+// tick, not from the call.
+func (m *Mixer) SetTickObserver(f TickObserver) {
+	if f == nil {
+		m.observer.Store(nil)
+		return
+	}
+	m.observer.Store(&f)
+}
+
 // Mixer implements Source over 1–2 inputs. Inputs can be swapped
 // mid-stream via SetInputs: the output channel and tick loop keep
 // running, so the STT session and audio.wav see one continuous stream
@@ -156,6 +185,8 @@ type Mixer struct {
 	wg    sync.WaitGroup
 
 	droppedTicks atomic.Uint64
+	sentTicks    atomic.Uint64                // ticks delivered on out: the stream position
+	observer     atomic.Pointer[TickObserver] // see SetTickObserver
 
 	mu     sync.Mutex // guards inputs/sources/pumps swap and closed flag
 	closed bool
@@ -304,7 +335,8 @@ func (m *Mixer) run() {
 		default:
 		}
 
-		mixed = m.mixTick(mixed[:0])
+		var lv TickLevels
+		mixed, lv = m.mixTick(mixed[:0])
 
 		buf := make([]byte, TickSamples*2)
 		for i, s := range mixed {
@@ -312,6 +344,10 @@ func (m *Mixer) run() {
 		}
 		select {
 		case m.out <- stt.PCM(buf):
+			idx := m.sentTicks.Add(1) - 1
+			if f := m.observer.Load(); f != nil {
+				(*f)(idx, lv)
+			}
 		case <-m.done:
 			return
 		default:
@@ -326,7 +362,7 @@ func (m *Mixer) run() {
 // mixTick sums each active input's window (zero-padded) with int16
 // saturation; inactive inputs contribute zeros. Inputs are read under
 // mu so a SetInputs swap is atomic with respect to a tick.
-func (m *Mixer) mixTick(dst []int16) []int16 {
+func (m *Mixer) mixTick(dst []int16) ([]int16, TickLevels) {
 	if cap(dst) < TickSamples {
 		dst = make([]int16, 0, TickSamples)
 	}
@@ -335,16 +371,22 @@ func (m *Mixer) mixTick(dst []int16) []int16 {
 	m.mu.Lock()
 	inputs := []*mixerInput{m.mic, m.system}
 	m.mu.Unlock()
-	for _, in := range inputs {
+	lv := TickLevels{Mic: -1, System: -1}
+	for k, in := range inputs {
 		if in == nil || !in.active {
 			continue
 		}
-		w := in.takeWindow(TickSamples)
+		w, rms := in.takeWindow(TickSamples)
+		if k == 0 {
+			lv.Mic = rms
+		} else {
+			lv.System = rms
+		}
 		for i := 0; i < TickSamples; i++ {
 			dst[i] = saturateAdd(dst[i], w[i])
 		}
 	}
-	return dst
+	return dst, lv
 }
 
 func saturateAdd(a, b int16) int16 {

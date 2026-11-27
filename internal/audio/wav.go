@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 const (
@@ -16,6 +17,11 @@ const (
 	BitsPerSample = 16
 	headerLen     = 44
 )
+
+// Duration is how long n bytes of this format play.
+func Duration(n int) time.Duration {
+	return time.Duration(n) * time.Second / time.Duration(SampleRate*Channels*BitsPerSample/8)
+}
 
 func writeHeader(w io.Writer, dataLen uint32) error {
 	byteRate := uint32(SampleRate * Channels * BitsPerSample / 8)
