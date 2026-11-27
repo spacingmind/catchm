@@ -18,6 +18,7 @@ import (
 	"github.com/spacingmind/catchm/internal/capture"
 	"github.com/spacingmind/catchm/internal/cloudsync"
 	"github.com/spacingmind/catchm/internal/config"
+	"github.com/spacingmind/catchm/internal/mcpserver"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/pipeline"
 	"github.com/spacingmind/catchm/internal/stt"
@@ -55,6 +56,8 @@ type Server struct {
 	syncNow func() (*cloudsync.SyncResult, error)
 	// newCloudClient is a seam for tests to swap in a fake backend.
 	newCloudClient func() *cloudsync.Client
+	// mcpHTTP is the local MCP HTTP transport (docs/plans/active/local-mcp.md).
+	mcpHTTP *mcpserver.HTTPServer
 }
 
 // New builds a Server over the tool surface. cfg may be nil, in which case
@@ -93,6 +96,10 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		pipelines:      map[string]*pipeline.Pipeline{},
 		newCloudClient: nil,
 	}
+	s.mcpHTTP = mcpserver.NewHTTPServer(surface, "")
+	if cfg != nil {
+		s.mcpHTTP.Apply(cfg.MCP)
+	}
 	s.startSonioxCleanup()
 	s.routes()
 	return s
@@ -130,6 +137,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
 	s.mux.HandleFunc("GET /api/stt/status", s.handleSttStatus)
 	s.mux.HandleFunc("POST /api/providers/{name}/verify", s.handleVerifyProvider)
+	s.mux.HandleFunc("GET /api/mcp", s.handleGetMCP)
+	s.mux.HandleFunc("PUT /api/mcp", s.handlePutMCP)
+	s.mux.HandleFunc("POST /api/mcp/token", s.handleMCPToken)
 	s.mux.HandleFunc("GET /api/system", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, sysinfo.ReadMachine())
 	})

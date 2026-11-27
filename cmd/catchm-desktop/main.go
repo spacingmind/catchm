@@ -25,6 +25,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/spacingmind/catchm/internal/config"
+	"github.com/spacingmind/catchm/internal/mcpserver"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/server"
 	"github.com/spacingmind/catchm/internal/tools"
@@ -72,6 +73,16 @@ var (
 var windowVisible atomic.Bool
 
 func main() {
+	// `catchm-desktop mcp`: the stdio MCP server an MCP client launches
+	// (docs/plans/active/local-mcp.md). No window, no tray, no
+	// single-instance lock — it only reads/writes the meeting folder.
+	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
+		if err := mcpserver.RunStdio(context.Background(), version); err != nil {
+			fmt.Fprintln(os.Stderr, "catchm mcp:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}

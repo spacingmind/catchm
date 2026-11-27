@@ -187,6 +187,36 @@ type Config struct {
 	Cloud        CloudConfig     `yaml:"cloud"`
 	Summary      SummaryConfig   `yaml:"summary"`
 	LLM          LLMConfig       `yaml:"llm"`
+	MCP          MCPConfig       `yaml:"mcp"`
+}
+
+// MCPConfig controls the local MCP server (docs/plans/active/local-mcp.md).
+// Off by default: `catchm mcp` (stdio) refuses to start, and the local
+// HTTP listener stays closed.
+type MCPConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	AllowWrites bool          `yaml:"allow_writes"` // adds add_note, rename_meeting, set_meeting_tags
+	HTTP        MCPHTTPConfig `yaml:"http"`
+}
+
+// MCPHTTPConfig is the optional Streamable HTTP transport on
+// 127.0.0.1:Port, guarded by a bearer Token.
+type MCPHTTPConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"`
+	Token   string `yaml:"token"` // secret, but shown to the local settings UI to set up clients
+}
+
+// DefaultMCPPort is the local MCP HTTP port when none is set.
+const DefaultMCPPort = 4655
+
+// HomeDir is CatchM's data folder: $CATCHM_HOME, or ~/.catchm.
+func HomeDir() (string, error) {
+	path, err := Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(path), nil
 }
 
 const (
