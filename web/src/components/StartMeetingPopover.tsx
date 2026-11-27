@@ -42,7 +42,7 @@ import {
 } from "@/lib/recordPrefs"
 import { engineHint, engineLabel, sourceHint, sourceLabel } from "@/lib/labels"
 import { activeLocale } from "@/i18n"
-import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { languageLabel, sortedLanguageCodes } from "@/lib/languages"
 import {
   engineHasKey,
   engineOptionName,
@@ -53,33 +53,7 @@ import {
   visibleEngines,
 } from "@/lib/setup"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
-
-/** Last-used start-flow values (non-secret UI prefs only). */
-const LAST_KEY = "catchm.prefs.startflow"
-
-interface StartPrefs {
-  lang?: string
-  translateTo?: string
-  twoWay?: boolean
-  engine?: SttEngine
-}
-
-function readLast(): StartPrefs {
-  try {
-    const raw = window.localStorage.getItem(LAST_KEY)
-    return raw ? (JSON.parse(raw) as StartPrefs) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeLast(p: StartPrefs) {
-  try {
-    window.localStorage.setItem(LAST_KEY, JSON.stringify(p))
-  } catch {
-    // Storage unavailable — prefs just won't persist.
-  }
-}
+import { readStartPrefs, writeStartPrefs, type StartPrefs } from "@/lib/startPrefs"
 
 /** Backend requires a non-empty title; generate from date/time. */
 function defaultTitle(): string {
@@ -106,7 +80,7 @@ interface StartMeetingPopoverProps {
 
 export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onOpenSettings }: StartMeetingPopoverProps) {
   const { t } = useTranslation()
-  const [last] = useState<StartPrefs>(readLast)
+  const [last] = useState<StartPrefs>(readStartPrefs)
   const [title, setTitle] = useState("")
   const [source, setSource] = useState<AudioSource>("mic")
   const [systemAvailable, setSystemAvailable] = useState(false)
@@ -330,7 +304,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
       writeLastProject(project)
       setProjectChoice({ name: project, isNew: false })
       void refreshProjects()
-      writeLast({ lang: lang.trim(), translateTo: translateTo.trim(), twoWay, engine: activeEngine })
+      writeStartPrefs({ lang: lang.trim(), translateTo: translateTo.trim(), twoWay, engine: activeEngine })
       writeStartedDevice(meeting.id, deviceForStart)
       onStarted(meeting)
       onOpenChange(false)
@@ -467,9 +441,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     </SelectTrigger>
                     <SelectContent>
                       {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.detectAuto")}</SelectItem>}
-                      {LANGUAGES.map((l) => (
-                        <SelectItem key={l.code} value={l.code}>
-                          {languageLabel(l.code)}
+                      {sortedLanguageCodes().map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {languageLabel(code)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -489,9 +463,9 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
                     </SelectTrigger>
                     <SelectContent>
                       {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.noTranslation")}</SelectItem>}
-                      {LANGUAGES.map((l) => (
-                        <SelectItem key={l.code} value={l.code}>
-                          {languageLabel(l.code)}
+                      {sortedLanguageCodes().map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {languageLabel(code)}
                         </SelectItem>
                       ))}
                     </SelectContent>

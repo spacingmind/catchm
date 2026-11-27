@@ -23,7 +23,7 @@ import { ApiError, getConfig, importRecording, type AppConfig, type CloudSttEngi
 import { noAutofill } from "@/lib/inputProps"
 import type { TFunction } from "i18next"
 import { engineHint, engineLabel } from "@/lib/labels"
-import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { languageLabel, sortedLanguageCodes } from "@/lib/languages"
 import {
   CLOUD_ENGINES,
   engineKeySet,
@@ -347,9 +347,9 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                 </SelectTrigger>
                 <SelectContent>
                   {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.detectAuto")}</SelectItem>}
-                  {LANGUAGES.map((l) => (
-                    <SelectItem key={l.code} value={l.code}>
-                      {languageLabel(l.code)}
+                  {sortedLanguageCodes().map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {languageLabel(code)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -367,9 +367,9 @@ export function ImportRecordingDialog({ open, onOpenChange, onImported, onOpenMe
                 </SelectTrigger>
                 <SelectContent>
                   {!twoWay && <SelectItem value={UNSET_LANG}>{t("startMeeting.noTranslation")}</SelectItem>}
-                  {LANGUAGES.map((l) => (
-                    <SelectItem key={l.code} value={l.code}>
-                      {languageLabel(l.code)}
+                  {sortedLanguageCodes().map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {languageLabel(code)}
                     </SelectItem>
                   ))}
                 </SelectContent>

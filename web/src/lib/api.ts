@@ -1031,6 +1031,36 @@ export function verifyProvider(name: VerifiableProvider, apiKey?: string): Promi
   })
 }
 
+/** Why GET /api/system judges self-hosting slow or not recommended
+ *  (internal/sysinfo/selfhost.go), most serious first. gpu_unknown is
+ *  advisory only: the verdict doesn't count it. */
+export type SelfHostReason =
+  | "ram_low"
+  | "ram_minimum"
+  | "ram_unknown"
+  | "disk_low"
+  | "disk_tight"
+  | "cpu_few"
+  | "gpu_unknown"
+
+/** GET /api/system: this computer, and whether it can run Whisper +
+ *  Ollama well. Sizes in GiB, omitted when they can't be read. */
+export interface MachineCheck {
+  total_ram_gb?: number
+  free_disk_gb?: number
+  cpu_cores: number
+  os: string
+  arch: string
+  apple_silicon: boolean
+  selfhost: "good" | "slow" | "insufficient"
+  selfhost_reasons: SelfHostReason[]
+}
+
+/** GET /api/system — the machine check behind the Self-host setup. */
+export function getMachineCheck(): Promise<MachineCheck> {
+  return apiFetch("/api/system")
+}
+
 /** GET /api/stt/status — whether each transcription engine is ready. */
 export function getSttStatus(): Promise<SttStatus> {
   return apiFetch("/api/stt/status")

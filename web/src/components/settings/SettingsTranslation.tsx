@@ -27,7 +27,7 @@ import {
   type TranslateTarget,
 } from "@/lib/api"
 import { noAutofill } from "@/lib/inputProps"
-import { LANGUAGES, languageLabel } from "@/lib/languages"
+import { languageLabel, sortedLanguageCodes } from "@/lib/languages"
 import {
   effectiveTranslateProvider,
   engineOptionName,
@@ -666,9 +666,9 @@ export function SettingsTranslation() {
                       <SelectValue placeholder={t("settings.translation.choosePlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
-                      {LANGUAGES.map((l) => (
-                        <SelectItem key={l.code} value={l.code}>
-                          {languageLabel(l.code)}
+                      {sortedLanguageCodes().map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {languageLabel(code)}
                         </SelectItem>
                       ))}
                     </SelectContent>

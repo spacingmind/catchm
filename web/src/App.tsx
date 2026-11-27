@@ -23,7 +23,7 @@ const MeetingDetail = lazy(() => import("@/components/MeetingDetail").then((m) =
 const ActionItems = lazy(() => import("@/components/ActionItems").then((m) => ({ default: m.ActionItems })))
 const Settings = lazy(() => import("@/components/settings/Settings").then((m) => ({ default: m.Settings })))
 // Shown once, on first run.
-const SetupChooser = lazy(() => import("@/components/SetupChooser").then((m) => ({ default: m.SetupChooser })))
+const Onboarding = lazy(() => import("@/components/onboarding/Onboarding").then((m) => ({ default: m.Onboarding })))
 
 /** How often the live state is re-derived from the server. */
 const LIVE_POLL_MS = 3000
@@ -301,7 +301,7 @@ function App() {
   const showLive = view === "live" && current !== null && !current.ended_at
   const showCompactShell = liveCompact && showLive
 
-  // First run (setup not chosen yet): the setup chooser takes the place
+  // First run (setup not chosen yet): onboarding takes the place
   // of every view but Live and Settings (where Setup is the same choice).
   // Held back until the config answers, so the list doesn't flash first;
   // a failed load just shows the app.
@@ -383,7 +383,7 @@ function App() {
         )}
         {!showCompactShell && firstRun && appConfig.config && (
           <Suspense fallback={null}>
-            <SetupChooser config={appConfig.config} onDone={() => navigate(MEETINGS)} />
+            <Onboarding config={appConfig.config} onDone={() => navigate(MEETINGS)} />
           </Suspense>
         )}
         {showView("list") && (
@@ -445,7 +445,9 @@ function App() {
 
       {!showCompactShell && (
         <>
-        <StartMeetingPopover open={startOpen} onOpenChange={setStartOpen} onStarted={handleStarted} anchor={startBtnRef} onOpenSettings={openSettings} />
+        {/* Keyed on first run, so the popover re-reads the start-flow
+            defaults onboarding just saved (it reads them once, on mount). */}
+        <StartMeetingPopover key={appConfig.config?.setup === "" ? "first-run" : "set-up"} open={startOpen} onOpenChange={setStartOpen} onStarted={handleStarted} anchor={startBtnRef} onOpenSettings={openSettings} />
         <ImportRecordingDialog
           open={importOpen}
           onOpenChange={setImportOpen}

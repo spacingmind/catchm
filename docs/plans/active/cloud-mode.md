@@ -100,18 +100,30 @@ Rules for existing installs and for keeping secrets out of the UI:
 
 ## UI
 
-### First run: setup chooser
+### First run: onboarding wizard (owner, 2026-11-27)
 
-This replaces the start of Get started. There are three large `ChoiceCard`s:
+CatchM targets global users, so nothing defaults to or favours
+Vietnamese; language lists sort by name in the UI language. Shown while
+`setup` is `""`:
 
-- **Cloud (recommended):** "Paste an API key, nothing to install".
-- **Self-host:** "Runs on this computer: Whisper + Ollama".
-- **Custom:** "Pick each part".
+1. **Languages:**
+   - app language (`ui_language`);
+   - meeting language (`lang`, plus the start-meeting default);
+   - translate or not, into which language, and optionally both ways
+     (start-meeting defaults).
+2. **Setup:** Cloud (BYOK, recommended), Self-host, or Custom.
+3. **Depends on the setup chosen:**
+   - **Cloud:** pick a transcription provider and paste its key (Check
+     key), or "Add a key later". Translation choice shows when the
+     engine doesn't translate.
+   - **Self-host:** a machine check from `GET /api/system`. The verdict
+     (good / slow / insufficient) comes from RAM, free disk, CPU cores
+     and Apple Silicon. A warning names the reasons, offers "Use Cloud
+     (BYOK) instead", and lists what to install (Whisper, Ollama).
+     Self-host stays allowed.
+   - **Custom:** the builder.
 
-Picking Cloud or Self-host fills every module from the preset. Custom
-opens the builder. After that choice, Get started lists only the steps that
-the chosen providers need, for example "Add your Soniox key" and "Add your
-Google Translate key".
+Finish applies the preset or module patches and lands on Get started.
 
 ### Builder
 
