@@ -44,7 +44,7 @@ import {
 import { engineHint, engineLabel, sourceHint, sourceLabel } from "@/lib/labels"
 import { activeLocale } from "@/i18n"
 import { LANGUAGES, languageLabel } from "@/lib/languages"
-import { engineTranslates, visibleEngines } from "@/lib/setup"
+import { engineTranslates, translateNeed, visibleEngines } from "@/lib/setup"
 import { choiceProject, readLastProject, refreshProjects, useProjects, writeLastProject, type ProjectChoice } from "@/lib/projects"
 
 /** Last-used start-flow values (non-secret UI prefs only). */
@@ -163,7 +163,7 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
         setConfigEngine(c.engine === "soniox" ? "soniox" : "whisper")
         setSonioxKeySet(c.soniox_api_key_set)
         setSetup(c.setup)
-        setTranslateProvider(c.translate.provider === "none" ? "none" : "ollama")
+        setTranslateProvider(c.translate.provider)
       })
       .catch(() => undefined)
     getSttStatus()
@@ -210,12 +210,13 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
   // A text translator only runs when translation is requested and the
   // engine can't translate itself (Soniox does, one-way and two-way; see
   // internal/pipeline Start and internal/stt SupportsTranslation). With
-  // provider "none" there's no translator at all.
+  // provider "none" there's no translator at all; any other provider
+  // (Ollama, Google, the LLM) reports its own readiness.
   const needsTranslator = (twoWay || translateTo !== "") && !engineTranslates(activeEngine)
-  const needsOllama = needsTranslator && translateProvider === "ollama"
+  const checkTranslator = needsTranslator && translateProvider !== "none"
   const needsProvider = needsTranslator && translateProvider === "none"
   useEffect(() => {
-    if (!open || !needsOllama) return
+    if (!open || !checkTranslator) return
     let cancelled = false
     getTranslateStatus()
       .then((st) => {
@@ -227,11 +228,13 @@ export function StartMeetingPopover({ open, onOpenChange, onStarted, anchor, onO
     return () => {
       cancelled = true
     }
-  }, [open, needsOllama])
+  }, [open, checkTranslator])
   const translateWarning = needsProvider
     ? t("startMeeting.translateNeedsProvider")
-    : needsOllama && translateStatus && (!translateStatus.ollama_reachable || !translateStatus.live_model.installed)
-      ? t("startMeeting.translateNotReady")
+    : checkTranslator && translateStatus?.provider === translateProvider && !translateStatus.ready
+      ? translateStatus.provider === "ollama"
+        ? t("startMeeting.translateNotReady")
+        : t("startMeeting.translateNotReadyCloud", { reason: translateNeed(translateStatus) })
       : null
 
   const openSettings = (section: SettingsSection) => {

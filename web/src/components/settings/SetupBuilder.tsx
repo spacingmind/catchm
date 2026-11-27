@@ -20,6 +20,7 @@ import { navigate } from "@/lib/route"
 import {
   currentChoices,
   engineTranslates,
+  keyAdded,
   MODULES,
   modulePatch,
   optionsVisible,
@@ -27,6 +28,7 @@ import {
   type ModuleId,
   type Preset,
   type SetupOption,
+  translateNeed,
 } from "@/lib/setup"
 
 const MODULE_ICONS: Record<ModuleId, LucideIcon> = {
@@ -83,11 +85,12 @@ export function SetupBuilder({
   const [consentOpen, setConsentOpen] = useState(false)
 
   const stt = useStatusCheck(getSttStatus)
-  const translate = useStatusCheck(getTranslateStatus, { enabled: choices.translation === "ollama" })
+  const translateChecked = choices.translation !== "none"
+  const translate = useStatusCheck(getTranslateStatus, { enabled: translateChecked })
   const summary = useStatusCheck(getSummaryStatus)
   const refreshAll = () => {
     stt.refresh()
-    if (choices.translation === "ollama") translate.refresh()
+    if (translateChecked) translate.refresh()
     summary.refresh()
   }
 
@@ -133,14 +136,11 @@ export function SetupBuilder({
       if (choices.translation === "none") {
         return engineTranslates(config.engine) ? { ready: true } : { ready: false, text: t("setup.status.needsSoniox") }
       }
-      const st = translate.data
+      // Status for a provider a save just replaced isn't shown.
+      const st = translate.data && translate.data.provider === choices.translation ? translate.data : null
       if (!st) return { ready: null }
-      if (st.ollama_reachable && st.live_model.installed) return { ready: true }
-      return {
-        ready: false,
-        text: st.ollama_reachable ? t("getStarted.modelMissing") : t("getStarted.needsOllama"),
-        action: setUp("translation"),
-      }
+      if (st.ready) return { ready: true }
+      return { ready: false, text: translateNeed(st), action: setUp("translation") }
     }
     // Status for a provider a save just replaced isn't shown.
     const st = summary.data && summary.data.provider === choices.summaries ? summary.data : null
@@ -155,10 +155,6 @@ export function SetupBuilder({
     }
     return { ready: false, text, action: setUp("summaries") }
   }
-
-  const keyAdded = (o: SetupOption) =>
-    (o.module === "transcription" && o.id === "soniox" && config.soniox_api_key_set) ||
-    (o.module === "summaries" && o.id === "openai" && config.summary_openai_api_key_set)
 
   return (
     <div>
@@ -207,22 +203,7 @@ export function SetupBuilder({
                   onChange={(id) => choose(module, id)}
                   title={t(o.labelKey)}
                   description={t(o.descKey)}
-                  badges={
-                    o.badges.length > 0 || keyAdded(o) ? (
-                      <>
-                        {o.badges.map((b) => (
-                          <Badge key={b} variant="secondary">
-                            {t(`setup.badges.${b}`)}
-                          </Badge>
-                        ))}
-                        {keyAdded(o) && (
-                          <Badge variant="secondary" className={READY_BADGE}>
-                            {t("setup.badges.keyAdded")}
-                          </Badge>
-                        )}
-                      </>
-                    ) : undefined
-                  }
+                  badges={hasBadges(config, o) ? <OptionBadges config={config} option={o} /> : undefined}
                 />
               ))}
             </div>
@@ -249,6 +230,31 @@ export function SetupBuilder({
         }}
       />
     </div>
+  )
+}
+
+function hasBadges(config: AppConfig, o: SetupOption): boolean {
+  return o.badges.length > 0 || keyAdded(config, o)
+}
+
+/** An option card's badges: its facts ("Speakers", "Free tier"…) and
+ *  "Key added" once its key is stored. Pass to ChoiceCard's `badges`
+ *  only when the option has any (see SetupOption.badges, keyAdded). */
+export function OptionBadges({ config, option }: { config: AppConfig; option: SetupOption }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      {option.badges.map((b) => (
+        <Badge key={b} variant="secondary">
+          {t(`setup.badges.${b}`)}
+        </Badge>
+      ))}
+      {keyAdded(config, option) && (
+        <Badge variant="secondary" className={READY_BADGE}>
+          {t("setup.badges.keyAdded")}
+        </Badge>
+      )}
+    </>
   )
 }
 

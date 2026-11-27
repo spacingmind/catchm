@@ -5,9 +5,17 @@
  * presets that fill every module at once. Every screen that hides one
  * side under a setup asks here, so a new provider is one entry below.
  */
-import type { ParseKeys } from "i18next"
+import i18next, { type ParseKeys } from "i18next"
 
-import type { AppConfig, Setup, SttEngine, SummaryProvider, TranslateProvider, UpdateConfigRequest } from "@/lib/api"
+import type {
+  AppConfig,
+  Setup,
+  SttEngine,
+  SummaryProvider,
+  TranslateProvider,
+  TranslateStatus,
+  UpdateConfigRequest,
+} from "@/lib/api"
 
 export type Side = "cloud" | "selfhost"
 
@@ -70,6 +78,24 @@ export const OPTIONS: readonly SetupOption[] = [
     section: "translation",
   },
   {
+    id: "google",
+    module: "translation",
+    side: "cloud",
+    labelKey: "setup.options.google",
+    descKey: "setup.options.googleDesc",
+    badges: ["freeTier"],
+    section: "translation",
+  },
+  {
+    id: "llm",
+    module: "translation",
+    side: "cloud",
+    labelKey: "setup.options.llm",
+    descKey: "setup.options.llmTranslateDesc",
+    badges: [],
+    section: "translation",
+  },
+  {
     id: "ollama",
     module: "translation",
     side: "selfhost",
@@ -91,9 +117,9 @@ export const OPTIONS: readonly SetupOption[] = [
     id: "openai",
     module: "summaries",
     side: "cloud",
-    labelKey: "setup.options.cloudflare",
-    descKey: "setup.options.cloudflareDesc",
-    badges: ["freeTier"],
+    labelKey: "setup.options.llm",
+    descKey: "setup.options.llmSummaryDesc",
+    badges: [],
     section: "summaries",
   },
   {
@@ -107,7 +133,9 @@ export const OPTIONS: readonly SetupOption[] = [
   },
 ]
 
-/** What a preset puts in each module. Custom keeps what's there. */
+/** What a preset puts in each module. Custom keeps what's there. Cloud
+ *  leaves translation to Soniox (which translates on its own), so a new
+ *  user needs one key, not two. */
 export const PRESETS: Record<Exclude<Preset, "custom">, OptionValue> = {
   cloud: { transcription: "soniox", translation: "none", summaries: "catchm-cloud" },
   selfhost: { transcription: "whisper", translation: "ollama", summaries: "ollama" },
@@ -126,7 +154,8 @@ export function isSelfHostVisible(setup: Setup): boolean {
   return sideVisible(setup, "selfhost")
 }
 
-/** Whether cloud providers (Soniox, CatchM Cloud, Cloudflare) may appear. */
+/** Whether cloud providers (Soniox, Google, your AI provider, CatchM
+ *  Cloud) may appear. */
 export function isCloudVisible(setup: Setup): boolean {
   return sideVisible(setup, "cloud")
 }
@@ -148,9 +177,19 @@ export function findOption<M extends ModuleId>(module: M, id: OptionValue[M]): S
 export function currentChoices(config: AppConfig): OptionValue {
   return {
     transcription: config.engine === "soniox" ? "soniox" : "whisper",
-    translation: config.translate.provider === "none" ? "none" : "ollama",
+    translation: config.translate.provider,
     summaries: config.summary.provider,
   }
+}
+
+/** Whether the option's API key is already stored ("Key added"). */
+export function keyAdded(config: AppConfig, o: SetupOption): boolean {
+  if (o.module === "transcription") return o.id === "soniox" && config.soniox_api_key_set
+  if (o.module === "translation") {
+    if (o.id === "google") return config.translate.google_api_key_set
+    return o.id === "llm" && config.llm_api_key_set
+  }
+  return o.id === "openai" && config.llm_api_key_set
 }
 
 /** The PUT /api/config body that sets one module's option. */
@@ -205,4 +244,19 @@ export function visibleEngines(setup: Setup): SttEngine[] {
  *  SupportsTranslation): then no translation provider is needed. */
 export function engineTranslates(engine: string): boolean {
   return engine === "soniox"
+}
+
+/** What a translation provider that isn't ready still needs, in plain
+ *  words (the server's reason is English-only). */
+export function translateNeed(st: TranslateStatus): string {
+  switch (st.provider) {
+    case "ollama":
+      return i18next.t(st.ollama_reachable ? "getStarted.modelMissing" : "getStarted.needsOllama")
+    case "google":
+      return i18next.t("setup.status.addGoogleKey")
+    case "llm":
+      return i18next.t("setup.status.setUpLlm")
+    default:
+      return i18next.t("setup.status.needsSoniox")
+  }
 }

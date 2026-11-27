@@ -146,12 +146,27 @@ export interface TranslateModelStatus {
   installed: boolean
 }
 
-/** Response body for GET /api/translate/status. */
-export interface TranslateStatus {
+/** GET /api/translate/status for Ollama: whether it runs and has the
+ *  models (ready = the live model is downloaded). */
+export interface OllamaTranslateStatus {
+  provider: "ollama"
+  ready: boolean
   ollama_reachable: boolean
   live_model: TranslateModelStatus
   batch_model: TranslateModelStatus
 }
+
+/** GET /api/translate/status for Google, the LLM and "none": nothing is
+ *  probed; ready says whether text translation works, reason (English,
+ *  only when not ready) what's missing. */
+export interface CloudTranslateStatus {
+  provider: Exclude<TranslateProvider, "ollama">
+  ready: boolean
+  reason?: string
+}
+
+/** Response body for GET /api/translate/status; narrow on provider. */
+export type TranslateStatus = OllamaTranslateStatus | CloudTranslateStatus
 
 export type TranslateTarget = "live" | "batch"
 
@@ -200,13 +215,35 @@ export interface TestTranslateResponse {
  *  OpenAI-compatible server. */
 export type SummaryProvider = "ollama" | "catchm-cloud" | "openai"
 
-/** The summary block of GET/PUT /api/config responses. The OpenAI API
- *  key is never included; see AppConfig.summary_openai_api_key_set. */
+/** The summary block of GET/PUT /api/config responses. Provider
+ *  "openai" uses the shared llm block (AppConfig.llm). */
 export interface SummaryConfig {
   provider: SummaryProvider
   ollama_model: string
-  openai: { base_url: string; model: string }
   cloud_consent: boolean
+}
+
+/** llm.preset: an OpenAI-compatible service with known server and
+ *  default models (Go config.LLMPresets), or "custom" (base_url as
+ *  given). "" until one is chosen. */
+export type LlmPreset = "openai" | "gemini" | "openrouter" | "anthropic" | "groq" | "deepseek" | "cloudflare" | "custom"
+
+/** The shared OpenAI-compatible LLM (translate.provider "llm" uses the
+ *  fast model, summary.provider "openai" the strong one). The key is
+ *  never included; see AppConfig.llm_api_key_set. */
+export interface LlmConfig {
+  preset: LlmPreset | ""
+  /** Custom preset only. */
+  base_url: string
+  /** Cloudflare preset only. */
+  account_id: string
+  /** "" = the preset's default (see resolved). */
+  fast_model: string
+  strong_model: string
+  /** After the preset's defaults: what the server will actually call.
+   *  base_url is "" while it can't be named yet (custom without a URL,
+   *  Cloudflare without an account ID). */
+  resolved: { base_url: string; fast_model: string; strong_model: string }
 }
 
 /** GET /api/summary/status response (always 200). ready/reason describe
@@ -227,6 +264,7 @@ export interface SummaryStatus {
     /** RFC3339 timestamp string. */
     reset_at?: string
   }
+  /** The shared LLM (summary provider "openai") has a server, model and key. */
   openai?: { configured: boolean }
   /** Host facts for model recommendations, in GiB rounded to one
    *  decimal. free_disk_gb is the volume holding Ollama's models. Each
@@ -248,9 +286,10 @@ export type SummaryErrorKind =
  *  load as "custom". */
 export type Setup = "" | "cloud" | "selfhost" | "custom"
 
-/** translate.provider: Ollama on this computer, or "none" — no text
+/** translate.provider: Ollama on this computer, Google Cloud
+ *  Translation, the shared LLM (AppConfig.llm), or "none" — no text
  *  translator, only the transcription engine's own translation (Soniox). */
-export type TranslateProvider = "ollama" | "none"
+export type TranslateProvider = "ollama" | "google" | "llm" | "none"
 
 /** Sanitized config shape shared by GET and PUT /api/config responses. */
 export interface AppConfig {
@@ -264,13 +303,16 @@ export interface AppConfig {
   soniox_api_key_set: boolean
   translate: {
     provider: TranslateProvider
+    /** True when a Google Cloud Translation key is stored; never the key. */
+    google_api_key_set: boolean
     host: string
     live_model: string
     batch_model: string
   }
+  llm: LlmConfig
+  /** True when the shared LLM's API key is stored; never the key. */
+  llm_api_key_set: boolean
   summary: SummaryConfig
-  /** True when an OpenAI-compatible API key is stored; the key itself is never sent. */
-  summary_openai_api_key_set: boolean
 }
 
 /**
@@ -294,21 +336,32 @@ export interface UpdateConfigRequest {
   soniox_api_key?: string
   translate?: {
     provider?: TranslateProvider
+    /** Write-only; omitted/empty preserves the stored key. */
+    google_api_key?: string
     host?: string
     live_model?: string
     batch_model?: string
   }
   /**
-   * Partial like the rest: omitted/empty strings keep the stored value.
-   * openai.api_key is write-only; omitted/empty preserves the stored key,
-   * except that changing openai.base_url without a new key clears it (a
-   * key is never sent to a server it wasn't entered for).
-   * cloud_consent: false revokes consent.
+   * Unlike the rest, the llm strings are settable to "": a model back to
+   * the preset's default, a custom URL cleared. Omitted = as-is.
+   * api_key is write-only; omitted/empty preserves the stored key, except
+   * that moving the LLM to another server (preset, base_url or
+   * account_id) without a new key drops it (a key is never sent to a
+   * server it wasn't entered for).
    */
+  llm?: {
+    preset?: LlmPreset
+    base_url?: string
+    account_id?: string
+    fast_model?: string
+    strong_model?: string
+    api_key?: string
+  }
+  /** Partial like the rest. cloud_consent: false revokes consent. */
   summary?: {
     provider?: SummaryProvider
     ollama_model?: string
-    openai?: { base_url?: string; model?: string; api_key?: string }
     cloud_consent?: boolean
   }
 }
@@ -946,6 +999,29 @@ export async function updateConfig(body: UpdateConfigRequest): Promise<AppConfig
 /** GET /api/translate/status */
 export function getTranslateStatus(): Promise<TranslateStatus> {
   return apiFetch("/api/translate/status")
+}
+
+/** A provider whose key POST /api/providers/{name}/verify can check. */
+export type VerifiableProvider = "google" | "llm"
+
+/** POST /api/providers/{name}/verify answer: ok, or the provider's own
+ *  error message (English, as the provider sent it). */
+export interface VerifyResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * POST /api/providers/{name}/verify — checks `apiKey` (a key typed but
+ * not saved yet) or, when omitted, the stored key, with the provider's
+ * cheapest real call. Throws ApiError (400) when there's nothing to
+ * check (no key, or the LLM has no provider/model yet).
+ */
+export function verifyProvider(name: VerifiableProvider, apiKey?: string): Promise<VerifyResult> {
+  return apiFetch(`/api/providers/${name}/verify`, {
+    method: "POST",
+    body: JSON.stringify(apiKey ? { api_key: apiKey } : {}),
+  })
 }
 
 /** GET /api/stt/status — whether each transcription engine is ready. */

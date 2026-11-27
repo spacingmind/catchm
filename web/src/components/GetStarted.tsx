@@ -10,7 +10,7 @@ import { useAppConfig } from "@/hooks/useAppConfig"
 import { useAnnounceChange, useStatusCheck } from "@/hooks/useStatusCheck"
 import { getSttStatus, getSummaryStatus, getTranslateStatus } from "@/lib/api"
 import { navigate } from "@/lib/route"
-import { engineTranslates } from "@/lib/setup"
+import { engineTranslates, translateNeed } from "@/lib/setup"
 
 /**
  * "Hide" on the card. The value is whether the required item
@@ -90,10 +90,13 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
   const sttEngine = stt.data ? stt.data[stt.data.default_engine] : undefined
   const sttReady = stt.data ? (sttEngine?.ready ?? false) : null
   const summaryReady = summary.data ? summary.data.ready : null
+  // A status for a provider a save just replaced doesn't count.
+  const translateStatus =
+    translate.data && translate.data.provider === config?.translate.provider ? translate.data : null
   const translateReady = builtInTranslation
     ? engineTranslates(config.engine)
-    : translate.data
-      ? translate.data.ollama_reachable && translate.data.live_model.installed
+    : translateStatus
+      ? translateStatus.ready
       : null
 
   // Hidden while transcription wasn't ready, and now it is: from here on
@@ -130,11 +133,9 @@ export function GetStarted({ onHide }: { onHide?: () => void }) {
       state: itemState(translateReady, translate.error),
       reason:
         translateReady === false
-          ? builtInTranslation
+          ? builtInTranslation || !translateStatus
             ? t("setup.status.needsSoniox")
-            : translate.data?.ollama_reachable
-              ? t("getStarted.modelMissing")
-              : t("getStarted.needsOllama")
+            : translateNeed(translateStatus)
           : undefined,
       // Built-in translation is fixed by the engine choice, in Setup.
       section: builtInTranslation ? "setup" : "translation",

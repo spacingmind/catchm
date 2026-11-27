@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import i18next from "i18next"
 import { useTranslation } from "react-i18next"
-import { AudioLines, CheckSquare, Cloud, Copy, Download, FileCode, FileText, FileType, GitBranch, HardDrive, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
+import { AudioLines, CheckSquare, Cloud, Copy, Download, FileCode, FileText, FileType, GitBranch, HardDrive, KeyRound, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { EvidenceBar, SourceLink } from "@/components/insights/Evidence"
@@ -706,9 +706,9 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   const offerCloud =
     (!usingCloud || cloudNeedsLogin || !cloud?.consent) && isOptionVisible(setup, "summaries", "catchm-cloud")
   // The card offers only what the setup shows: Ollama on this computer,
-  // or (under Cloud, in its place) the user's own Cloudflare account.
+  // or (under Cloud, in its place) the user's own AI provider.
   const offerLocal = isOptionVisible(setup, "summaries", "ollama")
-  const offerCloudflare = !offerLocal && isOptionVisible(setup, "summaries", "openai")
+  const offerLlm = !offerLocal && isOptionVisible(setup, "summaries", "openai")
 
   // Evidence for Overview's "Source" links, when the Transcript tab shows
   // the lines the analysis cites.
@@ -890,22 +890,22 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                         </Button>
                       </li>
                     )}
-                    {offerCloudflare && (
+                    {offerLlm && (
                       <li className="grid content-between justify-items-start gap-3 rounded-lg border border-border p-3">
                         <div>
                           <h3 className="flex items-center gap-2 text-sm font-medium">
-                            <Cloud aria-hidden="true" className="size-4" />
-                            {t("setup.options.cloudflare")}
+                            <KeyRound aria-hidden="true" className="size-4" />
+                            {t("setup.options.llm")}
                           </h3>
-                          <p id="summary-setup-cloudflare-desc" className="mt-1 text-sm text-muted-foreground">
-                            {t("setup.options.cloudflareDesc")}
+                          <p id="summary-setup-llm-desc" className="mt-1 text-sm text-muted-foreground">
+                            {t("setup.options.llmSummaryDesc")}
                           </p>
                         </div>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => navigate({ name: "settings", section: "summaries" })}
-                          aria-describedby="summary-setup-cloudflare-desc"
+                          aria-describedby="summary-setup-llm-desc"
                         >
                           {t("getStarted.setUp")}
                         </Button>
