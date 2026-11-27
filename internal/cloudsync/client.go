@@ -46,6 +46,46 @@ var (
 	ErrBlobTooLarge = errors.New("cloudsync: blob too large")
 )
 
+// ChallengeError: the credentials were right, but the server wants one
+// more proof before it issues a session — "email_code" (the account's
+// email isn't verified yet; a code was just sent) or "totp" (two-factor
+// is on). Reason is the server's error code, e.g. "invalid_code" when a
+// code was sent and was wrong. docs/plans/active/cloud-auth-hardening.md.
+type ChallengeError struct {
+	Challenge string
+	Reason    string
+}
+
+func (e *ChallengeError) Error() string {
+	if e.Reason != "" {
+		return "cloudsync: " + e.Challenge + " required (" + e.Reason + ")"
+	}
+	return "cloudsync: " + e.Challenge + " required"
+}
+
+// challengeFrom reads a 401/403 body for a challenge.
+func challengeFrom(raw []byte) *ChallengeError {
+	var body struct {
+		Error     string `json:"error"`
+		Challenge string `json:"challenge"`
+	}
+	if json.Unmarshal(raw, &body) != nil || body.Challenge == "" {
+		return nil
+	}
+	reason := body.Error
+	if reason == "verification_required" {
+		reason = ""
+	}
+	return &ChallengeError{Challenge: body.Challenge, Reason: reason}
+}
+
+// Device identifies this installation to the server, for the
+// new-device alert and the signed-in devices list.
+type Device struct {
+	ID   string `json:"device_id"`
+	Name string `json:"device_name"`
+}
+
 // BlobMeta is one entry of GET /blobs, and the body of PUT /blobs/:id's
 // 409 conflict response.
 type BlobMeta struct {
@@ -74,6 +114,7 @@ type ResetPasswordRequest struct {
 // strings to the server; the caller encodes bytes (base64) before
 // building this struct.
 type SignupRequest struct {
+	Device
 	Email             string `json:"email"`
 	AuthHash          string `json:"auth_hash"`
 	AuthSalt          string `json:"auth_salt"`
@@ -120,8 +161,10 @@ func (c *Client) AuthParams(email string) (salt, kdfParams string, err error) {
 	return out.AuthSalt, out.KDFParams, nil
 }
 
-// Signup creates an account and returns the session token and its
-// expiry (epoch milliseconds).
+// Signup creates an account. A hardened server (202) creates it
+// unverified and emails a code — no session; the caller logs in with the
+// code next. An older server returns a session at once (sessionToken
+// set). The server answers a duplicate email exactly like a new one.
 func (c *Client) Signup(req SignupRequest) (sessionToken string, expiresAt int64, err error) {
 	var out struct {
 		SessionToken string `json:"session_token"`
@@ -131,6 +174,41 @@ func (c *Client) Signup(req SignupRequest) (sessionToken string, expiresAt int64
 		return "", 0, err
 	}
 	return out.SessionToken, out.ExpiresAt, nil
+}
+
+// LoginRequest is the POST /login body. EmailCode / TOTPCode answer a
+// ChallengeError from a previous attempt.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	AuthHash string `json:"auth_hash"`
+	Device
+	EmailCode string `json:"email_code,omitempty"`
+	TOTPCode  string `json:"totp_code,omitempty"`
+}
+
+// LoginWith authenticates and returns a fresh session token plus the
+// stored wrapped master key and its params. A *ChallengeError means the
+// password was right but a code is needed.
+func (c *Client) LoginWith(req LoginRequest) (sessionToken string, wrappedMasterKey, keyWrapParams string, err error) {
+	var out struct {
+		SessionToken     string `json:"session_token"`
+		WrappedMasterKey string `json:"wrapped_master_key"`
+		KeyWrapParams    string `json:"key_wrap_params"`
+	}
+	if err := c.doJSON(http.MethodPost, "/login", "", req, &out); err != nil {
+		return "", "", "", err
+	}
+	return out.SessionToken, out.WrappedMasterKey, out.KeyWrapParams, nil
+}
+
+// ResendCode asks for a new email code (the credentials must be right;
+// the server throttles to one per minute).
+func (c *Client) ResendCode(email, authHash string) error {
+	body := struct {
+		Email    string `json:"email"`
+		AuthHash string `json:"auth_hash"`
+	}{email, authHash}
+	return c.doJSON(http.MethodPost, "/verify/resend", "", body, nil)
 }
 
 // Login authenticates with the client-derived auth_hash and returns a
@@ -368,9 +446,15 @@ func (c *Client) doRaw(method, path, sessionToken string, body any) ([]byte, err
 	}
 
 	switch resp.StatusCode {
-	case http.StatusOK, http.StatusNoContent:
+	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
 		return raw, nil
-	case http.StatusUnauthorized:
+	case http.StatusUnauthorized, http.StatusForbidden:
+		if ch := challengeFrom(raw); ch != nil {
+			return nil, ch
+		}
+		if resp.StatusCode == http.StatusForbidden {
+			return nil, statusError(resp.StatusCode, raw)
+		}
 		return nil, fmt.Errorf("%w: %s", ErrUnauthorized, strings.TrimSpace(string(raw)))
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(string(raw)))

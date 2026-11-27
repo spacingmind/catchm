@@ -133,6 +133,9 @@ type CloudConfig struct {
 	AuthSalt   string `yaml:"auth_salt"`
 	KDFParams  string `yaml:"kdf_params"`
 	APIBaseURL string `yaml:"api_base_url"`
+	// DeviceID identifies this installation to CatchM Cloud (new-device
+	// alerts, the signed-in devices list). Random, made once, not secret.
+	DeviceID string `yaml:"device_id"`
 }
 
 // SummaryConfig selects and configures the provider that writes meeting

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -658,3 +659,29 @@ func manifestPathFor(t *testing.T, serverURL string) string {
 }
 
 func timeNowUTC() time.Time { return time.Now().UTC() }
+
+// A breached password gets a warning the user must confirm; it never
+// blocks, and a failed lookup never warns.
+func TestCloudSignupBreachedPasswordWarns(t *testing.T) {
+	orig := passwordBreachCount
+	t.Cleanup(func() { passwordBreachCount = orig })
+	passwordBreachCount = func(context.Context, string) (int, error) { return 42, nil }
+
+	s, _ := newTestServer(t)
+	w := do(t, s, "POST", "/api/cloud/signup", `{"email":"a@example.com","password":"password"}`)
+	var body map[string]any
+	decode(t, w, &body)
+	if w.Code != http.StatusConflict || body["code"] != "password_breached" || body["count"] != float64(42) {
+		t.Fatalf("breached signup = %d %v", w.Code, body)
+	}
+	if !warnIfBreached(httptest.NewRecorder(), httptest.NewRequest("POST", "/", nil), "password", false) {
+		t.Fatal("warning not raised")
+	}
+	if warnIfBreached(httptest.NewRecorder(), httptest.NewRequest("POST", "/", nil), "password", true) {
+		t.Fatal("confirmed signup still warned")
+	}
+	passwordBreachCount = func(context.Context, string) (int, error) { return 0, context.DeadlineExceeded }
+	if warnIfBreached(httptest.NewRecorder(), httptest.NewRequest("POST", "/", nil), "password", false) {
+		t.Fatal("a failed lookup warned")
+	}
+}

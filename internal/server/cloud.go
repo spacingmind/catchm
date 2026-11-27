@@ -1,13 +1,17 @@
 package server
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -36,8 +40,9 @@ type syncNow func() (*cloudsync.SyncResult, error)
 
 func (s *Server) handleCloudSignup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		AcceptBreached bool   `json:"accept_breached"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -45,6 +50,9 @@ func (s *Server) handleCloudSignup(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Email == "" || req.Password == "" {
 		httpError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+	if warnIfBreached(w, r, req.Password, req.AcceptBreached) {
 		return
 	}
 
@@ -55,6 +63,7 @@ func (s *Server) handleCloudSignup(w http.ResponseWriter, r *http.Request) {
 	}
 	client := s.cloudClient()
 	token, _, err := client.Signup(cloudsync.SignupRequest{
+		Device:            s.cloudDevice(),
 		Email:             req.Email,
 		AuthHash:          base64.StdEncoding.EncodeToString(secrets.AuthHash),
 		AuthSalt:          base64.StdEncoding.EncodeToString(secrets.AuthSalt),
@@ -72,6 +81,17 @@ func (s *Server) handleCloudSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.saveCloudConfig(req.Email, base64.StdEncoding.EncodeToString(secrets.AuthSalt), mustJSON(secrets.KDFParams))
+	if token == "" {
+		// Hardened server: the account exists but is unverified, and a
+		// code went to the email. The UI shows the recovery code, then
+		// logs in with the emailed code.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"email":                 req.Email,
+			"recovery_code":         secrets.RecoveryCode,
+			"verification_required": true,
+		})
+		return
+	}
 	s.mu.Lock()
 	s.cloud = &cloudState{
 		email:        req.Email,
@@ -89,8 +109,12 @@ func (s *Server) handleCloudSignup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCloudLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email     string `json:"email"`
+		Password  string `json:"password"`
+		EmailCode string `json:"email_code"`
+		TOTPCode  string `json:"totp_code"`
+		// Resend asks for a new email code instead of logging in.
+		Resend bool `json:"resend"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
@@ -118,7 +142,19 @@ func (s *Server) handleCloudLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	authKey := e2ee.DeriveAuthKey(req.Password, authSalt, params)
-	token, wrappedMasterKey, _, err := client.Login(req.Email, base64.StdEncoding.EncodeToString(e2ee.DeriveAuthHash(authKey)))
+	authHash := base64.StdEncoding.EncodeToString(e2ee.DeriveAuthHash(authKey))
+	if req.Resend {
+		if err := client.ResendCode(req.Email, authHash); err != nil {
+			respondCloudErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"resent": true})
+		return
+	}
+	token, wrappedMasterKey, _, err := client.LoginWith(cloudsync.LoginRequest{
+		Email: req.Email, AuthHash: authHash, Device: s.cloudDevice(),
+		EmailCode: strings.TrimSpace(req.EmailCode), TOTPCode: strings.TrimSpace(req.TOTPCode),
+	})
 	if err != nil {
 		respondCloudErr(w, err)
 		return
@@ -438,7 +474,77 @@ func (s *Server) saveCloudConfig(email, salt, kdfParams string) {
 	}
 }
 
+// cloudDevice returns this installation's device identity, creating and
+// saving the id on first use. The name is the computer's hostname.
+func (s *Server) cloudDevice() cloudsync.Device {
+	s.mu.Lock()
+	id := s.cfg.Cloud.DeviceID
+	s.mu.Unlock()
+	if id == "" {
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		id = hex.EncodeToString(b)
+		s.mu.Lock()
+		updated := *s.cfg
+		s.mu.Unlock()
+		updated.Cloud.DeviceID = id
+		if config.Save(&updated) == nil {
+			if reloaded, err := config.Load(); err == nil {
+				s.mu.Lock()
+				s.cfg = reloaded
+				s.mu.Unlock()
+			}
+		}
+	}
+	name, _ := os.Hostname()
+	if name == "" {
+		name = "CatchM"
+	}
+	return cloudsync.Device{ID: id, Name: name}
+}
+
+// breachCheckTimeout bounds the HIBP lookup; a slow or failed lookup
+// never blocks signup, it just skips the warning.
+const breachCheckTimeout = 3 * time.Second
+
+// passwordBreachCount is the HIBP lookup; a var so tests stay offline.
+var passwordBreachCount = func(ctx context.Context, password string) (int, error) {
+	return cloudsync.PasswordBreachCount(ctx, nil, "", password)
+}
+
+// warnIfBreached answers 409 {code:"password_breached", count} when the
+// password is in known breaches and the user hasn't confirmed yet. It
+// reports whether it answered.
+func warnIfBreached(w http.ResponseWriter, r *http.Request, password string, confirmed bool) bool {
+	if confirmed {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), breachCheckTimeout)
+	defer cancel()
+	n, err := passwordBreachCount(ctx, password)
+	if err != nil || n == 0 {
+		return false
+	}
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"error": "This password has appeared in known data breaches. Choose another, or confirm to use it anyway.",
+		"code":  "password_breached",
+		"count": n,
+	})
+	return true
+}
+
 func respondCloudErr(w http.ResponseWriter, err error) {
+	var ch *cloudsync.ChallengeError
+	if errors.As(err, &ch) {
+		// The UI asks for the code and retries with it.
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error":     challengeMessage(ch),
+			"code":      "challenge",
+			"challenge": ch.Challenge,
+			"reason":    ch.Reason,
+		})
+		return
+	}
 	switch {
 	case errors.Is(err, cloudsync.ErrUnauthorized):
 		httpErrorCode(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
@@ -450,6 +556,19 @@ func respondCloudErr(w http.ResponseWriter, err error) {
 		httpErrorCode(w, http.StatusInsufficientStorage, "cloud_storage_full", "Cloud storage is full.")
 	default:
 		httpError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func challengeMessage(ch *cloudsync.ChallengeError) string {
+	switch {
+	case ch.Reason == "invalid_code":
+		return "That code isn't right. Check it and try again."
+	case ch.Reason == "code_expired":
+		return "That code has expired. Send a new one."
+	case ch.Challenge == "totp":
+		return "Enter the 6-digit code from your authenticator app."
+	default:
+		return "We sent a 6-digit code to your email. Enter it to continue."
 	}
 }
 
