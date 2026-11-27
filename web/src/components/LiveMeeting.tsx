@@ -323,6 +323,9 @@ export function LiveMeeting({
   ]
 
   return (
+    // min-h-0 keeps the transcript's height definite (it scrolls inside);
+    // in a short window its min-h-64 overflows the column and main
+    // scrolls instead.
     <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6 py-8">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
@@ -423,7 +426,9 @@ export function LiveMeeting({
         </div>
       </div>
 
-      <div className="relative mb-4 min-h-0 flex-1">
+      {/* min-h: a short window scrolls the page instead of squeezing
+          the transcript down to a line or two. */}
+      <div className="relative mb-4 min-h-64 flex-1">
         <ScrollArea className="h-full rounded-xl border border-border bg-card">
           <div role="log" aria-label={t("liveMeeting.transcriptLog")} className="grid gap-3 p-4">
             {groups.length === 0 ? (
@@ -469,7 +474,7 @@ export function LiveMeeting({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder={t("liveMeeting.notePlaceholder")}
-          rows={3}
+          rows={2}
           aria-invalid={noteState === "error" || undefined}
           aria-describedby="live-note-status"
         />

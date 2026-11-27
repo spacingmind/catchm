@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import i18next from "i18next"
 import { useTranslation } from "react-i18next"
-import { Captions, Eye, EyeOff, List, Radio, X } from "lucide-react"
+import { ArrowDown, Captions, Eye, EyeOff, List, Radio, X } from "lucide-react"
 import { cn } from "cn"
 
 import { StatusMessage } from "@/components/StatusMessage"
@@ -19,17 +19,18 @@ import type { TranscriptViewMode } from "@/lib/livePrefs"
 import { compactTransparentSupported, setCompactTransparent } from "@/lib/wailsRuntime"
 import { resyncWindowBackground } from "@/lib/theme"
 
-/** How many of the most recent utterances the compact strip keeps on
- *  screen — a reading aid, not a transcript, so only the tail matters. */
-const VISIBLE_LINES = 4
-
 /** Level polling here is just for the tiny strip's dot, so a slower
  *  cadence than the full status row's ~5 Hz is enough. */
 const LEVEL_POLL_MS = 1000
 
-/** Subtitle layout: how many of the most recent lines stay on screen —
- *  bottom-anchored, centred, larger. */
+/** Subtitle layout: how many of the most recent lines read at full
+ *  strength — bottom-anchored, centred, larger. Earlier lines stay
+ *  above, dimmed, for scrolling back. */
 const SUBTITLE_LINES = 2
+
+/** Rows this far from the end are laid out lazily (content-visibility),
+ *  so a long meeting stays cheap to scroll in the small window. */
+const EAGER_ROWS = 8
 
 /** Subtitle layout's font scale over the compact font size. */
 const SUBTITLE_SCALE = 1.25
@@ -154,8 +155,10 @@ export function CompactOverlay({
     }
   }, [meetingId])
 
-  const lines = utterances.slice(subtitle ? -SUBTITLE_LINES : -VISIBLE_LINES)
-  const { ref: bottomRef } = useStickToBottom(utterances.length)
+  // Every line is kept so the user can scroll back; the view follows the
+  // newest one until they scroll up.
+  const lines = utterances
+  const { ref: bottomRef, atBottom, hasNew, scrollToBottom } = useStickToBottom(utterances.length)
   const note = engineNote(engine)
   const problem = captureError
     ? t("compactOverlay.notRecordingWith", { error: captureError })
@@ -166,7 +169,8 @@ export function CompactOverlay({
   // Subtitle layout: lines fade out on silence. Transparency: the strip
   // and the error line appear on hover or focus within (keyboard users
   // reach them) — two independent options.
-  const fade = cn(subtitle && "motion-safe:transition-opacity motion-safe:duration-700", subtitle && idle && "opacity-0")
+  // Never while scrolled back: the user is reading.
+  const fade = cn(subtitle && "motion-safe:transition-opacity motion-safe:duration-700", subtitle && idle && atBottom && "opacity-0")
   const reveal = "opacity-0 motion-safe:transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
 
   return (
@@ -255,46 +259,66 @@ export function CompactOverlay({
         {problem}
       </StatusMessage>
 
-      <div
-        className={cn("min-h-0 flex-1 overflow-y-auto", subtitle && "flex flex-col justify-end text-center")}
-        style={{ fontSize: subtitle ? Math.round(fontSize * SUBTITLE_SCALE) : fontSize }}
-      >
+      <div className="relative min-h-0 flex-1">
         <div
-          role="log"
-          aria-label={t("compactOverlay.logAria")}
-          className={cn("grid gap-2", fade)}
+          className={cn("h-full overflow-y-auto", subtitle && "flex flex-col text-center")}
+          style={{ fontSize: subtitle ? Math.round(fontSize * SUBTITLE_SCALE) : fontSize }}
         >
-          {lines.length === 0 ? (
-            <p className="text-muted-foreground">{t("compactOverlay.waiting")}</p>
-          ) : (
-            lines.map((u) => (
-              <div key={u.seq} className="leading-snug">
-                {viewMode === "translation-only" ? (
-                  <p className="break-words">{u.translated || u.text}</p>
-                ) : viewMode === "side-by-side" ? (
-                  <div className={cn("grid gap-2", subtitle ? "grid-cols-1" : "grid-cols-2")}>
-                    <p className="min-w-0 break-words">{u.text}</p>
-                    {u.translated && (
-                      <p className="min-w-0 break-words text-muted-foreground">
-                        {u.translated}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <p className="break-words">{u.text}</p>
-                    {u.translated && (
-                      <p className="break-words text-muted-foreground">
-                        {u.translated}
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            ))
-          )}
+          <div
+            role="log"
+            aria-label={t("compactOverlay.logAria")}
+            // mt-auto: subtitle lines sit at the bottom while they're few.
+            className={cn("grid gap-2", subtitle && "mt-auto", fade)}
+          >
+            {lines.length === 0 ? (
+              <p className="text-muted-foreground">{t("compactOverlay.waiting")}</p>
+            ) : (
+              lines.map((u, i) => (
+                <div
+                  key={u.seq}
+                  className={cn(
+                    "leading-snug",
+                    i < lines.length - EAGER_ROWS && "[contain-intrinsic-size:auto_3rem] [content-visibility:auto]",
+                    subtitle && i < lines.length - SUBTITLE_LINES && "opacity-50",
+                  )}
+                >
+                  {viewMode === "translation-only" ? (
+                    <p className="break-words">{u.translated || u.text}</p>
+                  ) : viewMode === "side-by-side" ? (
+                    <div className={cn("grid gap-2", subtitle ? "grid-cols-1" : "grid-cols-2")}>
+                      <p className="min-w-0 break-words">{u.text}</p>
+                      {u.translated && (
+                        <p className="min-w-0 break-words text-muted-foreground">
+                          {u.translated}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="break-words">{u.text}</p>
+                      {u.translated && (
+                        <p className="break-words text-muted-foreground">
+                          {u.translated}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+          <div ref={bottomRef} />
         </div>
-        <div ref={bottomRef} />
+        {hasNew && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 shadow-md"
+            onClick={scrollToBottom}
+          >
+            <ArrowDown aria-hidden="true" /> {t("liveMeeting.newLines")}
+          </Button>
+        )}
       </div>
     </div>
   )
