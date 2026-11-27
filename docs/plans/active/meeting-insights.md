@@ -1,6 +1,6 @@
 # Plan: Meeting insights — evidence, mind map, flows, knowledge graph
 
-- Status: approved 2026-09-28; P0 in progress (branch `feat/meeting-insights-p0`)
+- Status: P0 and P1 done (Mind map / Flows tabs, evidence jumps). P2 (knowledge graph) waits on [speaker-identity.md](speaker-identity.md). P3 not started.
 - Created: 2026-09-28
 - Branch: `feat/meeting-insights`
 - References:
