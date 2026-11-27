@@ -657,10 +657,11 @@ func TestRecoverReturnsBlobAndSession(t *testing.T) {
 	c := newTestClient(t)
 	testSignup(t, c, "rec@example.com")
 
-	token, blob, params, err := c.Recover("rec@example.com", "rhash-rec@example.com")
+	res, err := c.Recover(RecoverRequest{Email: "rec@example.com", RecoveryAuthHash: "rhash-rec@example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	token, blob, params := res.SessionToken, res.RecoveryBlob, res.RecoveryKDFParams
 	if token == "" {
 		t.Fatal("no session token")
 	}
@@ -676,7 +677,7 @@ func TestRecoverReturnsBlobAndSession(t *testing.T) {
 func TestRecoverWrongHashFails(t *testing.T) {
 	c := newTestClient(t)
 	testSignup(t, c, "rec2@example.com")
-	if _, _, _, err := c.Recover("rec2@example.com", "wrong"); err == nil {
+	if _, err := c.Recover(RecoverRequest{Email: "rec2@example.com", RecoveryAuthHash: "wrong"}); err == nil {
 		t.Fatal("recover with wrong hash unexpectedly succeeded")
 	}
 }
@@ -684,16 +685,17 @@ func TestRecoverWrongHashFails(t *testing.T) {
 func TestResetPasswordOverwritesAndRotates(t *testing.T) {
 	c := newTestClient(t)
 	testSignup(t, c, "reset@example.com")
-	_, _, _, err := c.Recover("reset@example.com", "rhash-reset@example.com")
+	_, err := c.Recover(RecoverRequest{Email: "reset@example.com", RecoveryAuthHash: "rhash-reset@example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Grab the recovery session token via the fake's deterministic scheme is
 	// not possible (counter-based); instead use Recover's returned token.
-	token, _, _, err := c.Recover("reset@example.com", "rhash-reset@example.com")
+	rec, err := c.Recover(RecoverRequest{Email: "reset@example.com", RecoveryAuthHash: "rhash-reset@example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	token := rec.SessionToken
 
 	err = c.ResetPassword(token, ResetPasswordRequest{
 		AuthHash: "new-hash", AuthSalt: "new-salt", KDFParams: `{"t":9}`,
@@ -713,15 +715,15 @@ func TestResetPasswordOverwritesAndRotates(t *testing.T) {
 		t.Fatalf("new auth_hash rejected after reset: %v", err)
 	}
 	// Old recovery hash no longer recovers; new one returns the rotated blob.
-	if _, _, _, err := c.Recover("reset@example.com", "rhash-reset@example.com"); err == nil {
+	if _, err := c.Recover(RecoverRequest{Email: "reset@example.com", RecoveryAuthHash: "rhash-reset@example.com"}); err == nil {
 		t.Fatal("old recovery hash still recovers after reset")
 	}
-	_, blob, _, err := c.Recover("reset@example.com", "new-rhash")
+	rotated, err := c.Recover(RecoverRequest{Email: "reset@example.com", RecoveryAuthHash: "new-rhash"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blob != "new-rb" {
-		t.Fatalf("rotated blob = %q", blob)
+	if rotated.RecoveryBlob != "new-rb" {
+		t.Fatalf("rotated blob = %q", rotated.RecoveryBlob)
 	}
 	// Recovery params serve the rotated salt.
 	salt, _, err := c.RecoveryParams("reset@example.com")

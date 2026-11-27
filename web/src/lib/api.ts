@@ -401,6 +401,15 @@ const ERROR_KEYS = {
   invalid_recovery_code: "errors.invalidRecoveryCode",
   not_logged_in: "errors.notLoggedIn",
   logout_required: "errors.logoutRequired",
+  session_ended: "errors.sessionEnded",
+  session_not_found: "errors.sessionNotFound",
+  invalid_code: "errors.invalidCode",
+  already_verified: "errors.alreadyVerified",
+  email_unavailable: "errors.emailUnavailable",
+  totp_already_enabled: "errors.totpAlreadyEnabled",
+  totp_not_enabled: "errors.totpNotEnabled",
+  totp_not_set_up: "errors.totpNotSetUp",
+  cloud_unsupported: "errors.cloudUnsupported",
 } as const
 
 /** The user-facing text for an error body: translated when the server
@@ -1161,22 +1170,104 @@ export interface CloudStatus {
    * would clear are on disk. Missing on older backends — treat as true.
    */
   account_stored?: boolean
+  /** Two-factor is on, as far as this device knows (logged in only). */
+  totp_enabled?: boolean
 }
 
-/** POST /api/cloud/signup — recovery_code appears exactly once, in this response. */
-export function cloudSignup(email: string, password: string): Promise<{ email: string; recovery_code: string }> {
+/** Which code the server wants before it signs in: one emailed to the
+ *  account's address, or one from an authenticator app. */
+export type CloudChallenge = "email_code" | "totp"
+
+/**
+ * The challenge in a failed login/recover (401 {code:"challenge",
+ * challenge, reason}), or null. reason is "invalid_code" when a code was
+ * sent and was wrong; empty or "totp_required" on the first ask.
+ */
+export function cloudChallengeOf(err: unknown): { challenge: CloudChallenge; reason: string } | null {
+  if (!(err instanceof ApiError) || err.code !== "challenge") return null
+  const challenge = err.body?.challenge
+  if (challenge !== "email_code" && challenge !== "totp") return null
+  return { challenge, reason: typeof err.body?.reason === "string" ? err.body.reason : "" }
+}
+
+/** POST /api/cloud/signup — recovery_code appears exactly once, in this
+ *  response. verification_required: the account was made unverified and
+ *  a code was emailed; log in with it (no session yet). A password in
+ *  known breaches answers 409 {code:"password_breached", count} unless
+ *  acceptBreached. */
+export function cloudSignup(
+  email: string,
+  password: string,
+  opts: { acceptBreached?: boolean } = {},
+): Promise<{ email: string; recovery_code: string; verification_required?: boolean }> {
   return apiFetch("/api/cloud/signup", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, accept_breached: opts.acceptBreached || undefined }),
   })
 }
 
-/** POST /api/cloud/login */
-export function cloudLogin(email: string, password: string): Promise<{ email: string }> {
+/** POST /api/cloud/login. A 401 {code:"challenge"} (cloudChallengeOf)
+ *  asks for emailCode or totpCode; retry with it. */
+export function cloudLogin(
+  email: string,
+  password: string,
+  codes: { emailCode?: string; totpCode?: string } = {},
+): Promise<{ email: string }> {
   return apiFetch("/api/cloud/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, email_code: codes.emailCode, totp_code: codes.totpCode }),
   })
+}
+
+/** POST /api/cloud/login {resend:true} — email a new verification code.
+ *  429 {code:"resend_throttled", retry_after} when asked too soon. */
+export function cloudResendCode(email: string, password: string): Promise<{ resent: boolean }> {
+  return apiFetch("/api/cloud/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password, resend: true }),
+  })
+}
+
+/** GET /api/cloud/sessions entry. Times are Unix milliseconds; current
+ *  is this device's own session. */
+export interface CloudSession {
+  id: string
+  device_name: string
+  created_at: number
+  last_seen_at: number
+  current: boolean
+}
+
+/** GET /api/cloud/sessions — the account's signed-in devices. */
+export function cloudSessions(): Promise<{ sessions: CloudSession[] }> {
+  return apiFetch("/api/cloud/sessions")
+}
+
+/** DELETE /api/cloud/sessions/{id}. signed_out: it was this device's
+ *  session, so this device is logged out now. */
+export function cloudRevokeSession(id: string): Promise<{ signed_out: boolean }> {
+  return apiFetch(`/api/cloud/sessions/${encodeURIComponent(id)}`, { method: "DELETE" })
+}
+
+/** POST /api/cloud/sessions/revoke-others — every session but this one. */
+export function cloudRevokeOtherSessions(): Promise<{ revoked: number }> {
+  return apiFetch("/api/cloud/sessions/revoke-others", { method: "POST" })
+}
+
+/** POST /api/cloud/totp/setup — a new authenticator secret (not on until
+ *  cloudTotpEnable confirms a code). */
+export function cloudTotpSetup(): Promise<{ secret: string; otpauth_uri: string }> {
+  return apiFetch("/api/cloud/totp/setup", { method: "POST" })
+}
+
+/** POST /api/cloud/totp/enable — 403 {code:"invalid_code"} for a wrong code. */
+export function cloudTotpEnable(code: string): Promise<{ totp_enabled: boolean }> {
+  return apiFetch("/api/cloud/totp/enable", { method: "POST", body: JSON.stringify({ code }) })
+}
+
+/** POST /api/cloud/totp/disable — 403 {code:"invalid_code"} for a wrong code. */
+export function cloudTotpDisable(code: string): Promise<{ totp_enabled: boolean }> {
+  return apiFetch("/api/cloud/totp/disable", { method: "POST", body: JSON.stringify({ code }) })
 }
 
 /** POST /api/cloud/logout */
@@ -1208,15 +1299,17 @@ export function cloudSync(): Promise<SyncResult> {
   return apiFetch("/api/cloud/sync", { method: "POST" })
 }
 
-/** POST /api/cloud/recover — returns the NEW rotated recovery code (one-time display, same contract as signup). */
+/** POST /api/cloud/recover — returns the NEW rotated recovery code (one-time display, same contract as signup).
+ *  An unverified account answers the email_code challenge like login. */
 export function cloudRecover(
   email: string,
   recoveryCode: string,
   newPassword: string,
-): Promise<{ email: string; recovery_code: string }> {
+  emailCode?: string,
+): Promise<{ email: string; recovery_code: string; two_factor_disabled?: boolean }> {
   return apiFetch("/api/cloud/recover", {
     method: "POST",
-    body: JSON.stringify({ email, recovery_code: recoveryCode, new_password: newPassword }),
+    body: JSON.stringify({ email, recovery_code: recoveryCode, new_password: newPassword, email_code: emailCode }),
   })
 }
 
