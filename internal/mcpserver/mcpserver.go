@@ -1,6 +1,6 @@
 // Package mcpserver exposes the meeting tool surface (internal/tools) as
 // a Model Context Protocol server, for MCP clients such as Claude
-// Desktop, Claude Code and Cursor (docs/plans/active/local-mcp.md).
+// Desktop, Claude Code and Cursor (docs/plans/completed/local-mcp.md).
 // The same server serves stdio (`catchm mcp`) and local Streamable HTTP.
 package mcpserver
 

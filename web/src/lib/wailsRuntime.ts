@@ -202,7 +202,7 @@ export function notifyCompactMode(active: boolean): void {
 }
 
 /**
- * See-through compact overlay (docs/plans/active/compact-transparent.md):
+ * See-through compact overlay (docs/plans/completed/compact-transparent.md):
  * makes the NSWindow non-opaque on macOS. A no-op where unsupported
  * (Go-side guard) or with no bridge bound, like notifyCompactMode.
  */

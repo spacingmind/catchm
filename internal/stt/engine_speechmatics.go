@@ -20,7 +20,7 @@ import (
 	"github.com/spacingmind/catchm/internal/meeting"
 )
 
-// Speechmatics (docs/plans/active/cloud-mode-providers.md#speechmatics):
+// Speechmatics (docs/plans/completed/cloud-mode-providers.md#speechmatics):
 // realtime over a WebSocket, files through the batch jobs API. Its
 // translation add-on ($0.65/h, English pairs only) isn't used: the
 // Translation module covers every engine.

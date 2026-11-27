@@ -218,7 +218,7 @@ html.desktop-mica:not(.compact-transparent) .app-sidebar {
 }
 
 /*
- * See-through compact overlay (docs/plans/active/compact-transparent.md).
+ * See-through compact overlay (docs/plans/completed/compact-transparent.md).
  * CompactOverlay adds html.compact-transparent while the macOS shim
  * (transparent_darwin.go) has made the NSWindow non-opaque, so every
  * surface must let the content behind the window show through — the

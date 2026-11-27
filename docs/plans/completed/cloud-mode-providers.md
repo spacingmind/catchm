@@ -1,5 +1,7 @@
 # Cloud-mode providers: API notes
 
+- Status: reference for cloud-mode (shipped in v0.6.0).
+
 Research for [cloud-mode.md](cloud-mode.md), compiled 2026-11-27 from each vendor's
 official docs (links per section). Prices are the vendors' list prices on that
 date, indicative only. "unverified" marks what the docs didn't settle; check it

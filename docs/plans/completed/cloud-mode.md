@@ -1,6 +1,6 @@
 # Plan: Cloud / Self-host / Custom setup, bring-your-own-key providers
 
-- Status: phases 1–6 implemented on `feat/cloud-mode`; real-key checks pending (see Progress)
+- Status: done — shipped in v0.6.0 (2026-11-27). Follow-up: real-key checks per provider (the table under Progress); the engines were tested against fake servers only.
 - Created: 2026-11-27
 - Branch: `feat/cloud-mode` (one PR per phase below)
 - Research: [cloud-mode-providers.md](cloud-mode-providers.md) (API notes and

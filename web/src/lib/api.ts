@@ -293,7 +293,7 @@ export type SummaryErrorKind =
   | "quota_exceeded"
   | "summary_failed"
 
-/** Which setup the user chose (docs/plans/active/cloud-mode.md): ""
+/** Which setup the user chose (docs/plans/completed/cloud-mode.md): ""
  *  until the first-run chooser answers; configs from before setups
  *  load as "custom". */
 export type Setup = "" | "cloud" | "selfhost" | "custom"

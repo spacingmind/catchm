@@ -1,5 +1,7 @@
 # UI i18n: English + Vietnamese
 
+- Status: done — shipped in v0.4.0. Vietnamese copy reviewed by the owner (2026-11-27).
+
 ## Problem
 
 Every user-facing string in the web UI is hard-coded English (~800–1,000

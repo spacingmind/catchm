@@ -1278,7 +1278,7 @@ func TestActionItemStatusEndpoint(t *testing.T) {
 	}
 }
 
-// Cloud-mode setup (docs/plans/active/cloud-mode.md): setup and
+// Cloud-mode setup (docs/plans/completed/cloud-mode.md): setup and
 // translate.provider round-trip, bad values are rejected, and "none"
 // means no text translator is built.
 func TestConfigEndpointSetupAndTranslateProvider(t *testing.T) {

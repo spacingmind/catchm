@@ -1,5 +1,7 @@
 # Transparent background for compact mode (macOS)
 
+- Status: done — shipped in v0.5.0. Transparent and subtitle modes tested by the owner on macOS, Windows 11 see-through tested by the owner (2026-11-27).
+
 ## Problem
 
 The compact overlay (480×260, always on top) has a solid

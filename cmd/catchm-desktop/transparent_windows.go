@@ -2,7 +2,7 @@
 
 package main
 
-// Windows 11 compact see-through (docs/plans/active/compact-transparent.md).
+// Windows 11 compact see-through (docs/plans/completed/compact-transparent.md).
 //
 // How it works: the Wails window already has Windows.WindowIsTranslucent
 // (WS_EX_NOREDIRECTIONBITMAP + DWMWA_SYSTEMBACKDROP_TYPE=Mica, set by
