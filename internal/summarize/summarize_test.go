@@ -453,9 +453,14 @@ func TestCloudSummarize(t *testing.T) {
 	defer srv.Close()
 
 	c := &Cloud{BaseURL: srv.URL, Token: "tok", Consent: true}
-	ex, err := c.Summarize(context.Background(), testInput())
+	in := testInput()
+	in.Guests = []string{"Bao Tran", "x@y.co", strings.Repeat("a", cloudMaxGuestChars+1)}
+	ex, err := c.Summarize(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(got.Guests) != 1 || got.Guests[0] != "Bao Tran" {
+		t.Errorf("guests sent = %v", got.Guests)
 	}
 	if ex.Summary != "Synced on Q3." || got.Title != "Q3 Roadmap Sync" || got.Language != "en" || !strings.Contains(got.Transcript, "freeze") {
 		t.Fatalf("extraction = %+v, request = %+v", ex, got)

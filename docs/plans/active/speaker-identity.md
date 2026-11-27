@@ -245,9 +245,11 @@ last word:
     bare emails (the name is guessed from the address) and plain names.
     Calendar noise ("Organizer", "optional") is dropped.
   - The summary input uses confirmed names, and the LLM prompt gets an
-    "Invited:" line with guest names (never emails). The CatchM Cloud
-    request is unchanged: it gets named transcript lines but no guest
-    line yet.
+    "Invited:" line with guest names (never emails). CatchM Cloud gets the
+    same: named lines plus `guests` (names only), which the Worker
+    (catchm-api `feat/summary-guests`) turns into the same "Invited:"
+    line. Older Workers ignore the field, so the two can ship in either
+    order.
   - Export: confirmed name, then the analysis's guess, then a localized
     label ("Người nói 3", "Tôi").
   - MCP: `get_meeting` lists speakers and guests, and `read_transcript`
