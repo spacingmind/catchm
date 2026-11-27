@@ -18,6 +18,12 @@ type SonioxConfig struct {
 // TranslateConfig holds settings for the local Ollama translation layer
 // used by engines with no native translation support.
 type TranslateConfig struct {
+	// Provider translates text for engines with no native translation:
+	// "ollama" (local; the default, and what "" means for configs written
+	// before it existed) or "none" (only the engine's own translation, e.g.
+	// Soniox). Cloud translation providers join in a later phase
+	// (docs/plans/active/cloud-mode.md).
+	Provider   string `yaml:"provider"`
 	Host       string `yaml:"host"`
 	LiveModel  string `yaml:"live_model"`
 	BatchModel string `yaml:"batch_model"`
@@ -51,8 +57,28 @@ type OpenAICompatConfig struct {
 	APIKey  string `yaml:"api_key"` // secret: never returned by GET
 }
 
+// Setup values: the provider set the user picked on first run
+// (docs/plans/active/cloud-mode.md). SetupCloud hides self-hosted
+// options in the UI, SetupSelfHost hides cloud providers, SetupCustom
+// shows everything. "" means the user hasn't chosen yet (fresh install).
+const (
+	SetupCloud    = "cloud"
+	SetupSelfHost = "selfhost"
+	SetupCustom   = "custom"
+)
+
+// Translation providers (TranslateConfig.Provider).
+const (
+	TranslateOllama = "ollama"
+	TranslateNone   = "none"
+)
+
 // Config is CatchM's on-disk configuration.
 type Config struct {
+	// Setup is never omitted when saved: its absence is how Load tells a
+	// config written before setups existed (→ SetupCustom, so nothing an
+	// existing user sees changes) from a fresh one awaiting the chooser.
+	Setup      string          `yaml:"setup"`
 	Engine     string          `yaml:"engine"`
 	Lang       string          `yaml:"lang"`
 	UILanguage string          `yaml:"ui_language"` // "system" (default) | "en" | "vi"; UI text language, not the STT Lang
@@ -91,6 +117,7 @@ func defaults() *Config {
 		WhisperURL: defaultWhisperURL,
 		Soniox:     SonioxConfig{URL: defaultSonioxURL},
 		Translate: TranslateConfig{
+			Provider:   TranslateOllama,
 			Host:       defaultOllamaHost,
 			LiveModel:  defaultLiveModel,
 			BatchModel: defaultBatchModel,
@@ -135,7 +162,24 @@ func Load() (*Config, error) {
 	if err := yaml.Unmarshal(raw, c); err != nil {
 		return nil, err
 	}
+	if c.Setup == "" && !hasTopLevelKey(raw, "setup") {
+		c.Setup = SetupCustom // written before setups existed
+	}
+	if c.Translate.Provider == "" {
+		c.Translate.Provider = TranslateOllama
+	}
 	return c, nil
+}
+
+// hasTopLevelKey reports whether the YAML document maps key at its top
+// level, even to an empty value.
+func hasTopLevelKey(raw []byte, key string) bool {
+	var top map[string]yaml.Node
+	if err := yaml.Unmarshal(raw, &top); err != nil {
+		return false
+	}
+	_, ok := top[key]
+	return ok
 }
 
 // Save writes cfg as YAML to the path Path() resolves, creating the

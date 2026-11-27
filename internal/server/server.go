@@ -87,6 +87,11 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 			}()
 		},
 		newTranslator: func(cfg *config.Config, model string) (translate.Translator, error) {
+			if cfg.Translate.Provider == config.TranslateNone {
+				// Every caller treats an error as "no text translator":
+				// only the engine's own translation (Soniox) is used.
+				return nil, errTranslateNone
+			}
 			return &translate.OllamaTranslator{Host: cfg.Translate.Host, Model: model}, nil
 		},
 		newSummarizer:  summarize.New,
@@ -630,6 +635,10 @@ func (s *Server) stopPipeline(id string) {
 // the capture_error wording doesn't sniff error strings.
 var errSonioxNoKey = errors.New("soniox: no api key configured")
 
+// errTranslateNone: translate.provider is "none", so there's no text
+// translator — only an engine's native translation.
+var errTranslateNone = errors.New("no translation provider is set up: only the transcription engine's own translation is available")
+
 func newEngine(name string, cfg *config.Config) (stt.StreamEngine, error) {
 	if name == "" {
 		name = cfg.Engine
@@ -1001,6 +1010,7 @@ func (s *Server) handleSttStatus(w http.ResponseWriter, r *http.Request) {
 // secrets themselves never appear in any response.
 func sanitizedConfig(cfg *config.Config) map[string]any {
 	return map[string]any{
+		"setup":              cfg.Setup,
 		"engine":             cfg.Engine,
 		"lang":               cfg.Lang,
 		"ui_language":        cfg.UILanguage,
@@ -1008,6 +1018,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 		"soniox":             map[string]any{"url": cfg.Soniox.URL},
 		"soniox_api_key_set": cfg.Soniox.APIKey != "",
 		"translate": map[string]any{
+			"provider":    cfg.Translate.Provider,
 			"host":        cfg.Translate.Host,
 			"live_model":  cfg.Translate.LiveModel,
 			"batch_model": cfg.Translate.BatchModel,
@@ -1029,6 +1040,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 // soniox_api_key and summary.openai.api_key fields, which never appear
 // in responses.
 type configRequestBody struct {
+	Setup      string `json:"setup"`
 	Engine     string `json:"engine"`
 	Lang       string `json:"lang"`
 	UILanguage string `json:"ui_language"`
@@ -1038,6 +1050,7 @@ type configRequestBody struct {
 	} `json:"soniox"`
 	SonioxAPIKey string `json:"soniox_api_key"`
 	Translate    struct {
+		Provider   string `json:"provider"`
 		Host       string `json:"host"`
 		LiveModel  string `json:"live_model"`
 		BatchModel string `json:"batch_model"`
@@ -1090,6 +1103,18 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, `summary.provider must be "ollama", "catchm-cloud" or "openai"`)
 		return
 	}
+	switch req.Setup {
+	case "", config.SetupCloud, config.SetupSelfHost, config.SetupCustom:
+	default:
+		httpError(w, http.StatusBadRequest, `setup must be "cloud", "selfhost" or "custom"`)
+		return
+	}
+	switch req.Translate.Provider {
+	case "", config.TranslateOllama, config.TranslateNone:
+	default:
+		httpError(w, http.StatusBadRequest, `translate.provider must be "ollama" or "none"`)
+		return
+	}
 	switch req.UILanguage {
 	case "", "system", "en", "vi":
 	default:
@@ -1112,12 +1137,14 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	// A field left empty in the request means "leave it as-is", not
 	// "clear it" — a partial PUT (e.g. {"engine":"soniox"} alone) must
 	// not blank out the rest of the config on disk.
+	setIfNonEmpty(&updated.Setup, req.Setup)
 	setIfNonEmpty(&updated.Engine, req.Engine)
 	setIfNonEmpty(&updated.Lang, req.Lang)
 	setIfNonEmpty(&updated.UILanguage, req.UILanguage)
 	setIfNonEmpty(&updated.WhisperURL, req.WhisperURL)
 	setIfNonEmpty(&updated.Soniox.URL, req.Soniox.URL)
 	setIfNonEmpty(&updated.Soniox.APIKey, req.SonioxAPIKey)
+	setIfNonEmpty(&updated.Translate.Provider, req.Translate.Provider)
 	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)
 	setIfNonEmpty(&updated.Translate.LiveModel, req.Translate.LiveModel)
 	setIfNonEmpty(&updated.Translate.BatchModel, req.Translate.BatchModel)

@@ -1277,3 +1277,40 @@ func TestActionItemStatusEndpoint(t *testing.T) {
 		t.Fatalf("missing status: status = %d, want 400", w.Code)
 	}
 }
+
+// Cloud-mode setup (docs/plans/active/cloud-mode.md): setup and
+// translate.provider round-trip, bad values are rejected, and "none"
+// means no text translator is built.
+func TestConfigEndpointSetupAndTranslateProvider(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, _ := newTestServer(t)
+
+	var got struct {
+		Setup     string `json:"setup"`
+		Translate struct {
+			Provider string `json:"provider"`
+		} `json:"translate"`
+	}
+	decode(t, do(t, s, "GET", "/api/config", ""), &got)
+	if got.Setup != "" {
+		t.Fatalf("fresh setup = %q, want empty (chooser pending)", got.Setup)
+	}
+
+	w := do(t, s, "PUT", "/api/config", `{"setup":"cloud","engine":"soniox","translate":{"provider":"none"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", w.Code, w.Body.String())
+	}
+	decode(t, do(t, s, "GET", "/api/config", ""), &got)
+	if got.Setup != "cloud" || got.Translate.Provider != "none" {
+		t.Fatalf("after put: setup=%q provider=%q", got.Setup, got.Translate.Provider)
+	}
+	if tr, err := s.newTranslator(s.cfg, "x"); err == nil || tr != nil {
+		t.Fatalf("provider none built a translator (%v, %v)", tr, err)
+	}
+
+	for _, body := range []string{`{"setup":"hosted"}`, `{"translate":{"provider":"bing"}}`} {
+		if w := do(t, s, "PUT", "/api/config", body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", body, w.Code)
+		}
+	}
+}
