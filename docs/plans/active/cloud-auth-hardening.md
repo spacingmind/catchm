@@ -309,3 +309,30 @@ Changes from the design made while building:
 - **Cloudflare can send a message twice.** The Cloudflare binding has
   no idempotency key, so if Resend accepted a message but its reply was
   lost, the fallback could send it again.
+
+## Deployed (2026-11-27)
+
+- **App v0.7.0** shipped first (#46), then the Worker:
+  - D1 was backed up to `~/catchm-api-backups/` (owner's machine);
+  - catchm-api #7 merged, migration 0006 applied remotely, Worker
+    deployed.
+  - Smoke checks: `/healthz`, the update manifest, the old-client 426,
+    and a real Resend send to `delivered@resend.dev`. Test accounts were
+    deleted afterwards.
+- **Incident:**
+  - **What happened:** every send failed with Resend 403 "This API key
+    is not authorized to send emails from catchm.spacingmind.com". The
+    key was scoped to another domain on the shared Resend account.
+  - **Fix:** a key scoped to `catchm.spacingmind.com`.
+  - **Impact:** from the deploy until the key fix, no one could sign in,
+    because codes couldn't be sent.
+  - **Follow-up** (catchm-api #8): the Worker now logs Resend's error
+    message (address-scrubbed) and sends a User-Agent.
+- **Sender:** `CatchM <hello@catchm.spacingmind.com>` (catchm-api #9, owner:
+  no "no-reply").
+  - **Reply-To:** `EMAIL_REPLY_TO` is supported but not set yet; it
+    waits for the owner's choice of a monitored address. Cloudflare
+    Email Routing on the root domain is preferred over Resend Inboxes,
+    since inbound mail counts against the shared Resend quota.
+- **Still to watch:** the shared Resend free quota (100/day) during the
+  first days, while every existing account verifies at its next login.
