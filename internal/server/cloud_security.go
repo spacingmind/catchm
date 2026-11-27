@@ -1,11 +1,13 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/spacingmind/catchm/internal/cloudsync"
+	"github.com/spacingmind/catchm/internal/e2ee"
 )
 
 // Settings → Cloud sync → Security: signed-in devices and two-factor
@@ -183,4 +185,84 @@ func (s *Server) handleCloudTOTPChange(w http.ResponseWriter, r *http.Request, e
 		s.setTOTPEnabled(st, false)
 	}
 	s.respondSessionErr(w, st, err)
+}
+
+// handleCloudChangePassword sets a new password for the signed-in user.
+// The current password is checked by the Worker (its auth hash), the
+// master key in memory is re-wrapped under the new one, and the
+// recovery code is unchanged. sign_out_others ends the other sessions.
+// A breached new password gets the same confirm-first warning as signup.
+func (s *Server) handleCloudChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+		SignOutOthers   bool   `json:"sign_out_others"`
+		AcceptBreached  bool   `json:"accept_breached"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		httpError(w, http.StatusBadRequest, "current_password and new_password are required")
+		return
+	}
+	st := s.liveCloudSession(w)
+	if st == nil {
+		return
+	}
+	if req.NewPassword == req.CurrentPassword {
+		httpErrorCode(w, http.StatusBadRequest, "same_password", "The new password is the same as the current one.")
+		return
+	}
+	if warnIfBreached(w, r, req.NewPassword, req.AcceptBreached) {
+		return
+	}
+
+	client := s.cloudClient()
+	salt, kdfParams, err := client.AuthParams(st.email)
+	if err != nil {
+		s.respondSessionErr(w, st, err)
+		return
+	}
+	authSalt, err := base64.StdEncoding.DecodeString(salt)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, "server returned malformed auth salt")
+		return
+	}
+	var params e2ee.KDFParams
+	if err := json.Unmarshal([]byte(kdfParams), &params); kdfParams != "" && err != nil {
+		httpError(w, http.StatusBadGateway, "server returned malformed kdf params")
+		return
+	}
+	current := e2ee.DeriveAuthHash(e2ee.DeriveAuthKey(req.CurrentPassword, authSalt, params))
+
+	s.mu.Lock()
+	masterKey := st.masterKey
+	s.mu.Unlock()
+	pw, err := e2ee.RewrapForPassword(masterKey, req.NewPassword)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	newSalt := base64.StdEncoding.EncodeToString(pw.AuthSalt)
+	newParams := mustJSON(pw.KDFParams)
+	signedOut, err := client.ChangePassword(st.sessionToken, cloudsync.ChangePasswordRequest{
+		CurrentAuthHash:  base64.StdEncoding.EncodeToString(current),
+		AuthHash:         base64.StdEncoding.EncodeToString(pw.AuthHash),
+		AuthSalt:         newSalt,
+		KDFParams:        newParams,
+		WrappedMasterKey: base64.StdEncoding.EncodeToString(pw.WrappedMasterKey),
+		SignOutOthers:    req.SignOutOthers,
+	})
+	if errors.Is(err, cloudsync.ErrWrongPassword) {
+		httpErrorCode(w, http.StatusForbidden, "wrong_password", "That isn't your current password.")
+		return
+	}
+	if err != nil {
+		s.respondSessionErr(w, st, err)
+		return
+	}
+	s.saveCloudConfig(st.email, newSalt, newParams)
+	writeJSON(w, http.StatusOK, map[string]any{"signed_out": signedOut})
 }

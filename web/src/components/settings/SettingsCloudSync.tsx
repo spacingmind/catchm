@@ -720,6 +720,11 @@ export function SettingsCloudSync() {
 
       {loggedIn && (
         <CloudSecurity
+          email={status.email ?? email}
+          onRecovered={(code, twoFactorOff) => {
+            setRecoveryNotice(twoFactorOff ? t("settings.cloudSync.twoFactorOffByRecovery") : null)
+            setRecoveryCode(code)
+          }}
           totpEnabled={status.totp_enabled === true}
           onStatusChange={refresh}
           onSessionEnded={(message) => {
