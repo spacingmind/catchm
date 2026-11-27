@@ -70,7 +70,33 @@ type cloudRequest struct {
 	// accepts up to cloudMaxGuests of at most cloudMaxGuestChars UTF-16
 	// units; older Workers ignore the field).
 	Guests []string `json:"guests,omitempty"`
+	// Me is who recorded the meeting: their name and aliases (older
+	// Workers ignore it).
+	Me *cloudMe `json:"me,omitempty"`
 }
+
+type cloudMe struct {
+	Name    string   `json:"name,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
+}
+
+// cloudMeOf is the recorder for the Worker, within its limits (the same
+// as for guests); nil when there's nothing to say.
+func cloudMeOf(in Input) *cloudMe {
+	me := &cloudMe{Aliases: cloudGuests(in.MeAliases)}
+	if costOf(in.Me, runeUTF16) <= cloudMaxGuestChars {
+		me.Name = in.Me
+	}
+	if len(me.Aliases) > cloudMaxMeAliases {
+		me.Aliases = me.Aliases[:cloudMaxMeAliases]
+	}
+	if me.Name == "" && len(me.Aliases) == 0 {
+		return nil
+	}
+	return me
+}
+
+const cloudMaxMeAliases = 10
 
 const (
 	cloudMaxGuests     = 200
@@ -110,7 +136,7 @@ func (c *Cloud) Summarize(ctx context.Context, in Input) (Analysis, error) {
 	parts := make([]Analysis, 0, len(chunks))
 	for len(chunks) > 0 {
 		chunk := chunks[0]
-		body := cloudRequest{Title: in.Title, Transcript: chunk, Language: in.Language, Guests: cloudGuests(in.Guests)}
+		body := cloudRequest{Title: in.Title, Transcript: chunk, Language: in.Language, Guests: cloudGuests(in.Guests), Me: cloudMeOf(in)}
 		a, err := withRetry(func() (string, error) { return c.post(ctx, body) }, parseCloudReply, errNoSummary)
 		var tl *errTooLarge
 		if errors.As(err, &tl) {

@@ -1,6 +1,6 @@
 # Plan: speaker identity — who said it, who owns it
 
-- Status: approved 2026-11-27; phases 1–2 done, phase 3 next
+- Status: approved 2026-11-27; phases 1–2 and "who is me" done, phase 3 next
 - Created: 2026-11-27
 - Branch: `feat/speaker-identity`
 - Comes before P2 (knowledge graph) of
@@ -264,3 +264,24 @@ last word:
     - the live view shows "Speaker N" / "Me" labels.
   - Not yet: the "Unnamed speakers" nudge and the "Re-transcribe with a
     speaker-aware engine" hint (they belong with phase 3's suggestions).
+- **Who is me** (owner, 2026-11-27: microphone + "This is me" button,
+  auto-tagging marked as such, profile with name + emails + aliases;
+  voice enrollment is a separate plan if ever):
+  - The profile now holds `profile.emails` and `profile.aliases`, set in
+    Settings → Recording. Emails mark the user in a pasted guest list
+    ("(you)") and keep them out of the naming suggestions. They stay
+    local.
+  - Frontmatter `me:` holds the speaker key the user picked. It reads as
+    the profile name, so renaming the profile follows. Picking drops
+    that speaker's typed name; typing a name for it clears `me`.
+  - `meeting.AutoMeKey`: the single engine speaker with ≥3 lines, ≥80% of
+    them from the microphone, and no confirmed name. It's shown as
+    "Alex Kim (auto)" until confirmed. Two such speakers (people
+    sharing a microphone) give no guess.
+  - Unlabelled microphone lines ("me") are always the user.
+  - Summaries get a "Recorded by: name (also called aliases)" line in
+    the LLM prompt. CatchM Cloud gets `me: {name, aliases}`, and the
+    Worker adds the same line (catchm-api `feat/summary-guests`).
+  - API: `PATCH /api/meetings/{id}` takes `me`, and `GET .../speakers`
+    returns `me_key` and `auto_me`. MCP `set_speaker_names` takes `me`,
+    and `get_meeting` marks `is_me`.

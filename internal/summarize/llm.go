@@ -162,6 +162,9 @@ func extractUser(in Input, part, parts int) string {
 	if len(in.Guests) > 0 {
 		fmt.Fprintf(&b, "Invited: %s. Only use these names for a speaker or an owner when the transcript supports it.\n\n", strings.Join(in.Guests, ", "))
 	}
+	if line := meLine(in); line != "" {
+		b.WriteString(line + "\n\n")
+	}
 	if parts > 1 {
 		fmt.Fprintf(&b, "This is part %d of %d of the transcript; extract only what this part says.\n\n", part, parts)
 	}
@@ -335,6 +338,36 @@ func splitLine(line string, budget int, rc runeCost) []string {
 	}
 	if start < len(line) {
 		out = append(out, line[start:])
+	}
+	return out
+}
+
+// meLine tells the model who recorded the meeting, so "I'll send it" on
+// their lines, or a task given to one of their aliases, is theirs.
+func meLine(in Input) string {
+	if in.Me == "" && len(in.MeAliases) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Recorded by: ")
+	if in.Me != "" {
+		b.WriteString(in.Me)
+	} else {
+		b.WriteString(in.MeAliases[0])
+	}
+	if aliases := otherThan(in.MeAliases, in.Me); len(aliases) > 0 {
+		fmt.Fprintf(&b, " (also called %s)", strings.Join(aliases, ", "))
+	}
+	b.WriteString(". Use that name for them, including as an action item owner.")
+	return b.String()
+}
+
+func otherThan(names []string, name string) []string {
+	var out []string
+	for _, n := range names {
+		if !strings.EqualFold(n, name) {
+			out = append(out, n)
+		}
 	}
 	return out
 }

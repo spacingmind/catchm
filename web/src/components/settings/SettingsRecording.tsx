@@ -161,7 +161,7 @@ export function SettingsRecording() {
         <div className="flex items-center justify-end">
           <SaveStatus state={save.state} />
         </div>
-        {config && <ProfileNameRow id="recording-profile-name" config={config} onConfig={setConfig} />}
+        {config && <ProfileNameRow id="recording-profile-name" config={config} onConfig={setConfig} full />}
       </SettingsSection>
     </div>
   )

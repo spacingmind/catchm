@@ -80,6 +80,9 @@ type Meeting struct {
 	// Unlike Participants (rewritten by each summary), only the user
 	// changes it.
 	Guests []Guest `yaml:"guests,omitempty" json:"guests,omitempty"`
+	// Me is the speaker key the user said is them; it reads as their
+	// profile name.
+	Me string `yaml:"me,omitempty" json:"me,omitempty"`
 }
 
 // SchemaVersion is the current frontmatter schema version.
@@ -100,7 +103,7 @@ var ErrActionItemIndex = errors.New("action item index out of range")
 // or a test temp dir).
 type Store struct {
 	root string
-	me   atomic.Pointer[func() string] // see SetMe
+	self atomic.Pointer[func() Self] // see SetSelf
 }
 
 // NewStore returns a Store rooted at dir, creating it if needed.

@@ -25,6 +25,31 @@ export interface SpeakerNaming {
   names?: Record<string, string>
   /** The user's own name (config profile.name). */
   me?: string
+  /** The speaker the user said is them (Meeting.me). */
+  meKey?: string
+  /** The microphone's guess when they haven't (autoMeKey). */
+  autoMe?: string
+}
+
+/** Whether key is the user; mirrors meeting.SpeakerNamer.IsMe. */
+export function isMe(key: string, naming: SpeakerNaming): boolean {
+  return key !== "" && (key === SPEAKER_ME || key === naming.meKey || key === naming.autoMe)
+}
+
+/** The engine speaker clearly carried by the microphone; mirrors meeting.AutoMeKey. */
+export function autoMeKey(us: readonly Pick<Utterance, "speaker" | "source" | "text">[], names?: Record<string, string>): string {
+  const stats = new Map<string, { lines: number; mic: number }>()
+  for (const u of us) {
+    const key = speakerKey(u)
+    if (!key || key === SPEAKER_ME || key === SPEAKER_OTHERS || !u.text.trim()) continue
+    const st = stats.get(key) ?? { lines: 0, mic: 0 }
+    st.lines++
+    if (u.source === "mic") st.mic++
+    stats.set(key, st)
+  }
+  const found = [...stats].filter(([, st]) => st.lines >= 3 && st.mic >= 0.8 * st.lines).map(([k]) => k)
+  if (found.length !== 1 || names?.[found[0]]?.trim()) return ""
+  return found[0]
 }
 
 /** What a speaker key reads as; mirrors meeting.SpeakerNamer.Label. */
@@ -32,7 +57,7 @@ export function speakerLabel(key: string, naming: SpeakerNaming, t: TFunction): 
   if (!key) return ""
   const confirmed = naming.names?.[key]?.trim()
   if (confirmed) return confirmed
-  if (key === SPEAKER_ME) return naming.me?.trim() || t("speakers.me")
+  if (isMe(key, naming)) return naming.me?.trim() || t("speakers.me")
   if (key === SPEAKER_OTHERS) return t("speakers.others")
   if (/^\d+$/.test(key)) return t("speakers.numbered", { n: key })
   return key

@@ -30,9 +30,12 @@ type Surface struct {
 	store *meeting.Store
 }
 
-// SetMe tells the store where the user's own name (config
-// profile.name) comes from, for naming the "me" speaker.
-func (s *Surface) SetMe(f func() string) { s.store.SetMe(f) }
+// SetSelf tells the store where the user's profile comes from, for
+// naming the user's speaker.
+func (s *Surface) SetSelf(f func() meeting.Self) { s.store.SetSelf(f) }
+
+// SetMeSpeaker records which speaker is the user ("" forgets it).
+func (s *Surface) SetMeSpeaker(id, key string) error { return s.store.SetMeSpeaker(id, key) }
 
 // Namer names a meeting's speakers: confirmed names, else the user's
 // own name for "me", else generic labels.

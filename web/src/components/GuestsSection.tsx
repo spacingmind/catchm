@@ -32,9 +32,12 @@ function mergeGuests(a: readonly Guest[], b: readonly Guest[]): Guest[] {
  */
 export function GuestsSection({
   guests,
+  selfEmails,
   onChange,
 }: {
   guests: readonly Guest[]
+  /** The user's own emails (profile): their entry is marked "you". */
+  selfEmails: readonly string[]
   /** Saves the full new list; rejects with a message. */
   onChange: (guests: Guest[]) => Promise<void>
 }) {
@@ -91,6 +94,7 @@ export function GuestsSection({
             <li key={guestKey(g)}>
               <Badge variant="secondary" className="h-6 max-w-full gap-1 pr-0.5" title={g.email}>
                 <span className="min-w-0 truncate">{g.name || g.email}</span>
+                {g.email && selfEmails.includes(g.email) && <span className="text-muted-foreground">{t("guests.you")}</span>}
                 {g.name && g.email && <span className="hidden min-w-0 truncate text-muted-foreground sm:inline">{g.email}</span>}
                 <button
                   type="button"

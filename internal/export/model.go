@@ -130,6 +130,7 @@ var viWording = meeting.SpeakerWording{Me: "Tôi", Others: "Người khác", Spe
 func Build(m *meeting.Meeting, namer meeting.SpeakerNamer, people []summarize.Person, us []meeting.Utterance, lang Lang) Document {
 	lang = norm(lang)
 	l := enLabels
+	namer = namer.WithTranscript(us)
 	namer.Wording = meeting.EnglishWording
 	if lang == Vi {
 		l = viLabels

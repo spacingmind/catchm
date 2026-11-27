@@ -38,6 +38,10 @@ type Input struct {
 	// Guests are the invited people's names (never emails), candidates
 	// for unnamed speakers and owners.
 	Guests []string
+	// Me is the user's name and MeAliases what people call them, so the
+	// model can tell when a line or a task is theirs. Empty when unset.
+	Me        string
+	MeAliases []string
 }
 
 // Extraction is the frontmatter's four-field core (and the CatchM Cloud
@@ -192,6 +196,7 @@ func loadSourceFrom(store *meeting.Store, id, want string) (source, error) {
 	if err != nil {
 		return source{}, err
 	}
+	self := store.Self()
 	var us []meeting.Utterance
 	if want != transcriptLive {
 		if us, err = store.ReadBatchTranscript(id); err != nil {
@@ -216,7 +221,12 @@ func loadSourceFrom(store *meeting.Store, id, want string) (source, error) {
 		}
 	}
 	return source{
-		in:         Input{Title: m.Title, Language: lang, Transcript: formatNamed(us, store.Namer(m)), Guests: meeting.GuestNames(m.Guests)},
+		in: Input{
+			Title: m.Title, Language: lang,
+			Transcript: formatNamed(us, store.Namer(m).WithTranscript(us)),
+			Guests:     meeting.GuestNames(m.Guests),
+			Me:         self.Name, MeAliases: self.Aliases,
+		},
 		seqs:       seqs,
 		transcript: kind,
 	}, nil

@@ -123,3 +123,72 @@ func TestStoreSpeakersAndGuests(t *testing.T) {
 		t.Error("an over-long name was accepted")
 	}
 }
+
+func TestAutoMe(t *testing.T) {
+	mic := func(k string, n int) []Utterance {
+		var us []Utterance
+		for i := 0; i < n; i++ {
+			us = append(us, Utterance{Speaker: k, Source: "mic", Text: "x"})
+		}
+		return us
+	}
+	sys := Utterance{Speaker: "2", Source: "system", Text: "y"}
+	cases := []struct {
+		name  string
+		us    []Utterance
+		names map[string]string
+		want  string
+	}{
+		{"one mic-heavy speaker", append(mic("1", 4), sys, sys, sys), nil, "1"},
+		{"too few lines", append(mic("1", 2), sys), nil, ""},
+		{"two share the mic", append(mic("1", 3), mic("3", 3)...), nil, ""},
+		{"already named", mic("1", 5), map[string]string{"1": "Bao"}, ""},
+		{"mostly system", append(append(mic("1", 2), Utterance{Speaker: "1", Source: "system", Text: "z"}), Utterance{Speaker: "1", Text: "w"}), nil, ""},
+	}
+	for _, c := range cases {
+		if got := AutoMeKey(SpeakerStats(c.us), c.names); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	us := append(mic("1", 4), sys)
+	n := (&Meeting{}).Namer("Alex").WithTranscript(us)
+	if n.Label("1") != "Alex" || !n.IsMe("1") || n.IsMe("2") {
+		t.Errorf("auto me: label %q", n.Label("1"))
+	}
+	// The user's own pick wins over the microphone's guess.
+	n = (&Meeting{Me: "2"}).Namer("Alex").WithTranscript(us)
+	if n.Label("2") != "Alex" || n.Label("1") != "Speaker 1" {
+		t.Errorf("picked me: %q / %q", n.Label("2"), n.Label("1"))
+	}
+}
+
+func TestSetMeSpeaker(t *testing.T) {
+	s, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := s.Start("Sync", time.Now(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSpeakerNames(m.ID, map[string]string{"2": "typo name", "3": "Carol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeSpeaker(m.ID, "2"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Get(m.ID)
+	if got.Me != "2" || !reflect.DeepEqual(got.Speakers, map[string]string{"3": "Carol"}) {
+		t.Errorf("me = %q, speakers = %v", got.Me, got.Speakers)
+	}
+	if err := s.SetMeSpeaker(m.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.Get(m.ID); got.Me != "" {
+		t.Errorf("forgotten me = %q", got.Me)
+	}
+	if !(Self{Emails: []string{"a@b.co"}}).IsSelfEmail("A@B.co") {
+		t.Error("self email not matched case-insensitively")
+	}
+}

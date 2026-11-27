@@ -69,6 +69,8 @@ export interface Meeting {
   /** Confirmed speaker names by key (lib/speakers.ts). */
   speakers?: Record<string, string>
   guests?: Guest[]
+  /** The speaker key the user said is them. */
+  me?: string
 }
 
 /**
@@ -150,6 +152,8 @@ export interface UpdateMeetingRequest {
   speakers?: Record<string, string>
   /** Replaces the guest list. */
   guests?: Guest[]
+  /** The speaker key that is the user; "" forgets it. */
+  me?: string
 }
 
 /** internal/meeting.Guest: someone invited, pasted from a calendar. */
@@ -347,8 +351,9 @@ export interface AppConfig extends CloudKeySetFlags {
   /** True when the shared LLM's API key is stored; never the key. */
   llm_api_key_set: boolean
   summary: SummaryConfig
-  /** Who the user is: the microphone's speaker in a call. */
-  profile: { name: string }
+  /** Who the user is: their name, the emails that find them in a guest
+   *  list, and what people call them. */
+  profile: { name: string; emails: string[]; aliases: string[] }
 }
 
 /**
@@ -398,8 +403,8 @@ export interface UpdateConfigRequest extends CloudKeyFields {
     ollama_model?: string
     cloud_consent?: boolean
   }
-  /** "" clears the name. */
-  profile?: { name: string }
+  /** "" clears the name; lists replace the stored ones. */
+  profile?: { name?: string; emails?: string[]; aliases?: string[] }
 }
 
 /** Stable codes the Go server attaches to user-reachable errors

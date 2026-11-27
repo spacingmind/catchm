@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -98,13 +99,14 @@ func New(surface *tools.Surface, cfg *config.Config) *Server {
 		pipelines:      map[string]*pipeline.Pipeline{},
 		newCloudClient: nil,
 	}
-	surface.SetMe(func() string {
+	surface.SetSelf(func() meeting.Self {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.cfg == nil {
-			return ""
+			return meeting.Self{}
 		}
-		return s.cfg.Profile.Name
+		p := s.cfg.Profile
+		return meeting.Self{Name: p.Name, Emails: p.Emails, Aliases: p.Aliases}
 	})
 	s.mcpHTTP = mcpserver.NewHTTPServer(surface, "")
 	if cfg != nil {
@@ -788,13 +790,15 @@ func (s *Server) handleUpdateMeeting(w http.ResponseWriter, r *http.Request) {
 		// Guests replaces the guest list.
 		Speakers map[string]string `json:"speakers"`
 		Guests   *[]meeting.Guest  `json:"guests"`
+		// Me is the key of the speaker who is the user; "" forgets it.
+		Me *string `json:"me"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	if req.Title == nil && req.Tags == nil && req.Speakers == nil && req.Guests == nil {
-		httpError(w, http.StatusBadRequest, "title, tags, speakers or guests is required")
+	if req.Title == nil && req.Tags == nil && req.Speakers == nil && req.Guests == nil && req.Me == nil {
+		httpError(w, http.StatusBadRequest, "title, tags, speakers, guests or me is required")
 		return
 	}
 	if req.Title != nil && *req.Title == "" {
@@ -822,6 +826,13 @@ func (s *Server) handleUpdateMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Guests != nil {
 		if err := s.surface.SetGuests(id, *req.Guests); err != nil {
+			respondInputErr(w, err)
+			return
+		}
+	}
+	// After speakers: picking "me" drops that speaker's typed name.
+	if req.Me != nil {
+		if err := s.surface.SetMeSpeaker(id, *req.Me); err != nil {
 			respondInputErr(w, err)
 			return
 		}
@@ -876,13 +887,13 @@ func (s *Server) handleMeetingSpeakers(w http.ResponseWriter, r *http.Request) {
 	if guests == nil {
 		guests = []meeting.Guest{}
 	}
-	me := ""
-	s.mu.Lock()
-	if s.cfg != nil {
-		me = s.cfg.Profile.Name
-	}
-	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"speakers": out, "me": me, "guests": guests})
+	namer := s.surface.Namer(m).WithTranscript(us)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"speakers": out, "guests": guests,
+		"me":      namer.Me,     // the user's name
+		"me_key":  m.Me,         // the speaker they said is them
+		"auto_me": namer.AutoMe, // the microphone's guess when they haven't
+	})
 }
 
 // handleParseGuests reads a pasted guest list for the UI to review
@@ -1197,7 +1208,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 		},
 		"llm":             llmJSON(cfg.LLM),
 		"llm_api_key_set": cfg.LLM.APIKey != "",
-		"profile":         map[string]any{"name": cfg.Profile.Name},
+		"profile":         profileJSON(cfg.Profile),
 		"summary": map[string]any{
 			"provider":      summarize.ProviderOf(cfg),
 			"ollama_model":  cfg.Summary.OllamaModel,
@@ -1260,8 +1271,11 @@ type configRequestBody struct {
 		APIKey      string  `json:"api_key"`
 	} `json:"llm"`
 	// Profile.Name is a pointer so it can be cleared.
+	// Emails and Aliases replace the lists when present.
 	Profile struct {
-		Name *string `json:"name"`
+		Name    *string   `json:"name"`
+		Emails  *[]string `json:"emails"`
+		Aliases *[]string `json:"aliases"`
 	} `json:"profile"`
 	Summary struct {
 		Provider    string `json:"provider"`
@@ -1346,9 +1360,25 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if e := req.Profile.Emails; e != nil {
+		clean, err := cleanProfileEmails(*e)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "profile.emails: "+err.Error())
+			return
+		}
+		*e = clean
+	}
+	if a := req.Profile.Aliases; a != nil {
+		clean, err := cleanProfileAliases(*a)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, "profile.aliases: "+err.Error())
+			return
+		}
+		*a = clean
+	}
 
 	s.mu.Lock()
-	updated := *s.cfg // shallow copy is enough: Config holds no reference types
+	updated := *s.cfg // shallow copy is enough: the profile lists below are replaced, never edited in place
 	s.mu.Unlock()
 	// A field left empty in the request means "leave it as-is", not
 	// "clear it" — a partial PUT (e.g. {"engine":"soniox"} alone) must
@@ -1374,6 +1404,12 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	applyLLMUpdate(&updated.LLM, req, llmBaseURL)
 	if req.Profile.Name != nil {
 		updated.Profile.Name = *req.Profile.Name
+	}
+	if req.Profile.Emails != nil {
+		updated.Profile.Emails = *req.Profile.Emails
+	}
+	if req.Profile.Aliases != nil {
+		updated.Profile.Aliases = *req.Profile.Aliases
 	}
 	updated.Normalize()
 	if req.Summary.CloudConsent != nil {
@@ -1467,4 +1503,60 @@ func httpError(w http.ResponseWriter, code int, msg string) {
 // stays English for logs, MCP and agents; the UI keys off the code).
 func httpErrorCode(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg, "code": code})
+}
+
+// profileJSON is the profile as the UI sees it (lists never null).
+func profileJSON(p config.ProfileConfig) map[string]any {
+	emails, aliases := p.Emails, p.Aliases
+	if emails == nil {
+		emails = []string{}
+	}
+	if aliases == nil {
+		aliases = []string{}
+	}
+	return map[string]any{"name": p.Name, "emails": emails, "aliases": aliases}
+}
+
+// cleanProfileEmails lowercases, deduplicates and checks the user's
+// emails.
+func cleanProfileEmails(in []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range in {
+		e = strings.ToLower(strings.TrimSpace(e))
+		if e == "" || seen[e] {
+			continue
+		}
+		if a, err := mail.ParseAddress(e); err != nil || a.Address != e {
+			return nil, fmt.Errorf("%q isn't an email address", e)
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	if len(out) > config.MaxProfileEntries {
+		return nil, fmt.Errorf("at most %d", config.MaxProfileEntries)
+	}
+	return out, nil
+}
+
+// cleanProfileAliases trims and deduplicates the names people call the
+// user by.
+func cleanProfileAliases(in []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, a := range in {
+		a = strings.Join(strings.Fields(a), " ")
+		if a == "" || seen[strings.ToLower(a)] {
+			continue
+		}
+		if utf8.RuneCountInString(a) > config.MaxProfileName {
+			return nil, fmt.Errorf("a name has at most %d characters", config.MaxProfileName)
+		}
+		seen[strings.ToLower(a)] = true
+		out = append(out, a)
+	}
+	if len(out) > config.MaxProfileEntries {
+		return nil, fmt.Errorf("at most %d", config.MaxProfileEntries)
+	}
+	return out, nil
 }

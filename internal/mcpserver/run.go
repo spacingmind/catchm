@@ -43,7 +43,7 @@ func RunStdio(ctx context.Context, version string) error {
 		return err
 	}
 	surface := tools.New(store)
-	surface.SetMe(func() string { return cfg.Profile.Name })
+	surface.SetSelf(func() meeting.Self { return selfOf(cfg.Profile) })
 	return New(surface, Options{AllowWrites: cfg.MCP.AllowWrites, Version: version}).Run(ctx, &mcp.StdioTransport{})
 }
 
@@ -144,4 +144,9 @@ func requireToken(token string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// selfOf is the user's profile as the meeting store sees it.
+func selfOf(p config.ProfileConfig) meeting.Self {
+	return meeting.Self{Name: p.Name, Emails: p.Emails, Aliases: p.Aliases}
 }

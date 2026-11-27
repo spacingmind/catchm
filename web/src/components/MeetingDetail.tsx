@@ -63,7 +63,7 @@ import {
 } from "@/lib/api"
 import { formatDateRange, formatDateTime, formatDay } from "@/lib/format"
 import { noAutofill } from "@/lib/inputProps"
-import { speakerKey, speakerLabel } from "@/lib/speakers"
+import { autoMeKey, isMe, SPEAKER_ME, speakerKey, speakerLabel, type SpeakerNaming } from "@/lib/speakers"
 import { copyText } from "@/lib/clipboard"
 import { hasWindowControls, saveExport } from "@/lib/wailsRuntime"
 import { formatGb, modelDownloadGb } from "@/lib/modelSizes"
@@ -282,13 +282,17 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   // reloads it instead of jumping to the wrong lines.
   const [transcriptFor, setTranscriptFor] = useState<TranscriptSource | null>(null)
   const groups = useMemo(() => (transcript ? groupBySpeaker(transcript) : []), [transcript])
-  // The user's own name, for the "me" speaker and as a naming suggestion.
+  // The user's profile: their name for their own speaker, and their
+  // emails to spot them in the guest list.
   const [profileName, setProfileName] = useState("")
+  const [profileEmails, setProfileEmails] = useState<string[]>([])
   useEffect(() => {
     let cancelled = false
     getConfig()
       .then((c) => {
-        if (!cancelled) setProfileName(c.profile?.name ?? "")
+        if (cancelled) return
+        setProfileName(c.profile?.name ?? "")
+        setProfileEmails(c.profile?.emails ?? [])
       })
       .catch(() => undefined)
     return () => {
@@ -685,13 +689,18 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
   }
 
   const refined = Boolean(meeting.refined)
+  const naming: SpeakerNaming = {
+    names: meeting.speakers,
+    me: profileName,
+    meKey: meeting.me,
+    autoMe: meeting.me ? "" : autoMeKey(transcript ?? [], meeting.speakers),
+  }
   // Names offered when naming a speaker: guests first, then the user,
   // then the people the summary found; each once.
   const nameSuggestions = [
     ...new Map(
       [
-        ...(meeting.guests ?? []).map((g) => g.name ?? ""),
-        profileName,
+        ...(meeting.guests ?? []).filter((g) => !g.email || !profileEmails.includes(g.email)).map((g) => g.name ?? ""),
         ...(analysis?.analysis?.people ?? []).map((p) => p.name),
         ...(meeting.participants ?? []),
       ]
@@ -1086,6 +1095,7 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
           <Section title={t("meetingDetail.sectionGuests")}>
             <GuestsSection
               guests={meeting.guests ?? []}
+              selfEmails={profileEmails}
               onChange={async (guests) => {
                 setMeeting(await updateMeeting(meeting.id, { guests }))
               }}
@@ -1172,12 +1182,20 @@ export function MeetingDetail({ meetingId, initialMeeting, onBack, onDeleted = o
                 <div key={gi} className="[contain-intrinsic-size:auto_6rem] [content-visibility:auto]">
                   {g.key && (
                     <SpeakerNamePopover
-                      label={speakerLabel(g.key, { names: meeting.speakers, me: profileName }, t)}
+                      label={speakerLabel(g.key, naming, t)}
                       named={Boolean(meeting.speakers?.[g.key])}
                       current={meeting.speakers?.[g.key] ?? ""}
                       suggestions={nameSuggestions}
+                      me={
+                        g.key === SPEAKER_ME ? "mic" : g.key === meeting.me ? "yes" : isMe(g.key, naming) ? "auto" : "no"
+                      }
                       onSave={async (name) => {
-                        setMeeting(await updateMeeting(meeting.id, { speakers: { [g.key]: name } }))
+                        // A typed name means this isn't the user after all.
+                        const me = g.key === meeting.me ? { me: "" } : {}
+                        setMeeting(await updateMeeting(meeting.id, { speakers: { [g.key]: name }, ...me }))
+                      }}
+                      onSetMe={async (yes) => {
+                        setMeeting(await updateMeeting(meeting.id, { me: yes ? g.key : "" }))
                       }}
                     />
                   )}

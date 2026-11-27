@@ -18,7 +18,7 @@ import type { Section as SettingsSection } from "@/components/settings/Settings"
 import { addNote, endMeeting, getTranscript, type AudioSource, type Meeting, type Utterance } from "@/lib/api"
 import { FONT_SIZES, readFontSize, readViewMode, writeFontSize, writeViewMode, type TranscriptViewMode } from "@/lib/livePrefs"
 import { readStartedDevice, writeStartedDevice } from "@/lib/recordPrefs"
-import { speakerKey, speakerLabel } from "@/lib/speakers"
+import { autoMeKey, speakerKey, speakerLabel } from "@/lib/speakers"
 
 /** How often the live transcript is polled for new utterances. */
 const POLL_INTERVAL_MS = 1500
@@ -227,6 +227,12 @@ export function LiveMeeting({
   useEffect(() => () => window.clearTimeout(noteTimerRef.current), [])
 
   const groups = useMemo(() => groupBySpeaker(utterances), [utterances])
+  // The microphone's guess at which speaker is the user, while they
+  // haven't said (recomputed per line: a scan of the transcript).
+  const autoMe = useMemo(
+    () => (meeting.me ? "" : autoMeKey(utterances, meeting.speakers)),
+    [utterances, meeting.me, meeting.speakers],
+  )
   // A callback ref on the sentinel below the last row: it re-attaches
   // to the new ScrollArea after a compact-mode round-trip.
   const { ref: bottomRef, hasNew, scrollToBottom } = useStickToBottom(utterances.length)
@@ -427,7 +433,7 @@ export function LiveMeeting({
                 <SpeakerGroup
                   key={group[0].seq}
                   group={group}
-                  label={speakerLabel(speakerKey(group[0]), { names: meeting.speakers }, t)}
+                  label={speakerLabel(speakerKey(group[0]), { names: meeting.speakers, meKey: meeting.me, autoMe }, t)}
                   viewMode={viewMode}
                   fontSize={fontSize}
                   last={i === groups.length - 1}

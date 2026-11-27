@@ -71,3 +71,49 @@ func TestParseGuestsEndpoint(t *testing.T) {
 		t.Errorf("guests = %+v", got.Guests)
 	}
 }
+
+func TestMeetingMeAndProfile(t *testing.T) {
+	t.Setenv("CATCHM_HOME", t.TempDir())
+	s, store := newTestServer(t)
+	if w := do(t, s, "PUT", "/api/config", `{"profile":{"name":"An","emails":[" An@Acme.com ","an@acme.com"],"aliases":["An","anh An"," "]}}`); w.Code != http.StatusOK {
+		t.Fatalf("profile: %d %s", w.Code, w.Body.String())
+	}
+	var cfg struct {
+		Profile struct {
+			Emails  []string `json:"emails"`
+			Aliases []string `json:"aliases"`
+		} `json:"profile"`
+	}
+	decode(t, do(t, s, "GET", "/api/config", ""), &cfg)
+	if len(cfg.Profile.Emails) != 1 || cfg.Profile.Emails[0] != "an@acme.com" || len(cfg.Profile.Aliases) != 2 {
+		t.Errorf("profile = %+v", cfg.Profile)
+	}
+	if w := do(t, s, "PUT", "/api/config", `{"profile":{"emails":["not an email"]}}`); w.Code != http.StatusBadRequest {
+		t.Errorf("bad email: %d", w.Code)
+	}
+
+	m, err := store.Start("Sync", time.Now(), meeting.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		_, _ = store.Append(m.ID, meeting.Utterance{Speaker: "1", Source: "mic", Text: "mine"})
+		_, _ = store.Append(m.ID, meeting.Utterance{Speaker: "2", Source: "system", Text: "theirs"})
+	}
+	var sp struct {
+		Me     string `json:"me"`
+		MeKey  string `json:"me_key"`
+		AutoMe string `json:"auto_me"`
+	}
+	decode(t, do(t, s, "GET", "/api/meetings/"+m.ID+"/speakers", ""), &sp)
+	if sp.Me != "An" || sp.AutoMe != "1" || sp.MeKey != "" {
+		t.Errorf("speakers = %+v", sp)
+	}
+	if w := do(t, s, "PATCH", "/api/meetings/"+m.ID, `{"me":"2"}`); w.Code != http.StatusOK {
+		t.Fatalf("me: %d", w.Code)
+	}
+	decode(t, do(t, s, "GET", "/api/meetings/"+m.ID+"/speakers", ""), &sp)
+	if sp.MeKey != "2" || sp.AutoMe != "" {
+		t.Errorf("after picking = %+v", sp)
+	}
+}

@@ -455,12 +455,16 @@ func TestCloudSummarize(t *testing.T) {
 	c := &Cloud{BaseURL: srv.URL, Token: "tok", Consent: true}
 	in := testInput()
 	in.Guests = []string{"Bao Tran", "x@y.co", strings.Repeat("a", cloudMaxGuestChars+1)}
+	in.Me, in.MeAliases = "Minh", []string{"anh Minh"}
 	ex, err := c.Summarize(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got.Guests) != 1 || got.Guests[0] != "Bao Tran" {
 		t.Errorf("guests sent = %v", got.Guests)
+	}
+	if got.Me == nil || got.Me.Name != "Minh" || len(got.Me.Aliases) != 1 {
+		t.Errorf("me sent = %+v", got.Me)
 	}
 	if ex.Summary != "Synced on Q3." || got.Title != "Q3 Roadmap Sync" || got.Language != "en" || !strings.Contains(got.Transcript, "freeze") {
 		t.Fatalf("extraction = %+v, request = %+v", ex, got)
@@ -718,7 +722,7 @@ func TestCloud413RechunksToMaxChars(t *testing.T) {
 // their emails.
 func TestLoadInputNamesAndGuests(t *testing.T) {
 	s := newTestStore(t)
-	s.SetMe(func() string { return "Minh" })
+	s.SetSelf(func() meeting.Self { return meeting.Self{Name: "Minh", Aliases: []string{"minh", "anh Minh"}} })
 	m, err := s.Start("Sync", time.Now(), meeting.StartOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -745,6 +749,9 @@ func TestLoadInputNamesAndGuests(t *testing.T) {
 		t.Errorf("guests = %v", in.Guests)
 	}
 	prompt := extractUser(in, 1, 1)
+	if !strings.Contains(prompt, "Recorded by: Minh (also called anh Minh).") {
+		t.Errorf("no recorder line in %q", prompt)
+	}
 	if !strings.Contains(prompt, "Invited: Bao Tran.") || strings.Contains(prompt, "@") {
 		t.Errorf("prompt = %q", prompt)
 	}

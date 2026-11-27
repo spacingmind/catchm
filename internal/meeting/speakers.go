@@ -62,9 +62,30 @@ func SpeakerKey(u Utterance) string {
 // SpeakerNamer turns speaker keys into the names people read. The
 // default wording is English; exports in other languages swap it.
 type SpeakerNamer struct {
-	Names   map[string]string // confirmed names (Meeting.Speakers)
-	Me      string            // the user's own name (config profile.name)
-	Wording SpeakerWording
+	Names map[string]string // confirmed names (Meeting.Speakers)
+	Me    string            // the user's own name (config profile.name)
+	// MeKey is the speaker the user said is them (Meeting.Me); AutoMe
+	// the one the microphone points to when they haven't (AutoMeKey).
+	MeKey, AutoMe string
+	Wording       SpeakerWording
+}
+
+// Self is who the user is (config profile): their name, the emails that
+// find them in a guest list, and what people call them.
+type Self struct {
+	Name    string
+	Emails  []string
+	Aliases []string
+}
+
+// IsSelfEmail reports whether email is one of the user's.
+func (s Self) IsSelfEmail(email string) bool {
+	for _, e := range s.Emails {
+		if email != "" && strings.EqualFold(e, email) {
+			return true
+		}
+	}
+	return false
 }
 
 // SpeakerWording is how unnamed speakers read.
@@ -77,26 +98,75 @@ type SpeakerWording struct {
 // EnglishWording is the default.
 var EnglishWording = SpeakerWording{Me: "Me", Others: "Others", Speaker: "Speaker %s"}
 
-// SetMe tells the store where the user's own name (config profile.name)
-// comes from, so every reader names the "me" speaker the same way.
-func (s *Store) SetMe(f func() string) { s.me.Store(&f) }
+// SetSelf tells the store where the user's profile comes from, so every
+// reader names the user's speaker the same way.
+func (s *Store) SetSelf(f func() Self) { s.self.Store(&f) }
 
-// Namer names m's speakers for any reader of this store.
-func (s *Store) Namer(m *Meeting) SpeakerNamer {
-	me := ""
-	if f := s.me.Load(); f != nil {
-		me = (*f)()
+// Self is the user's profile (zero when no hook is set).
+func (s *Store) Self() Self {
+	if f := s.self.Load(); f != nil {
+		return (*f)()
 	}
-	return m.Namer(me)
+	return Self{}
 }
+
+// Namer names m's speakers for any reader of this store. Readers with
+// the transcript should add WithTranscript, for the microphone's guess.
+func (s *Store) Namer(m *Meeting) SpeakerNamer { return m.Namer(s.Self().Name) }
 
 // Namer builds the meeting's namer; me is the user's profile name.
 func (m *Meeting) Namer(me string) SpeakerNamer {
-	return SpeakerNamer{Names: m.Speakers, Me: me, Wording: EnglishWording}
+	return SpeakerNamer{Names: m.Speakers, Me: me, MeKey: m.Me, Wording: EnglishWording}
 }
 
-// Label is the name for key: confirmed, else the user's own name for
-// SpeakerMe, else a generic label. "" for "".
+// WithTranscript adds the speaker the microphone points to as the user,
+// unless the user already said which speaker they are.
+func (n SpeakerNamer) WithTranscript(us []Utterance) SpeakerNamer {
+	if n.MeKey == "" {
+		n.AutoMe = AutoMeKey(SpeakerStats(us), n.Names)
+	}
+	return n
+}
+
+// IsMe reports whether key is the user: their unlabelled microphone
+// lines, the speaker they picked, or the microphone's guess.
+func (n SpeakerNamer) IsMe(key string) bool {
+	return key != "" && (key == SpeakerMe || key == n.MeKey || key == n.AutoMe)
+}
+
+// AutoMeKey is the engine speaker label that is clearly the user: the
+// only one with at least autoMeLines lines of which autoMeShare came
+// through the microphone. "" when none or several qualify, or when that
+// speaker already has a confirmed name.
+func AutoMeKey(stats []SpeakerStat, names map[string]string) string {
+	found := ""
+	for _, st := range stats {
+		if st.Key == SpeakerMe || st.Key == SpeakerOthers || st.Lines < autoMeLines {
+			continue
+		}
+		if float64(st.Mic) < autoMeShare*float64(st.Lines) {
+			continue
+		}
+		if found != "" {
+			return "" // two mic-heavy speakers: people sharing the microphone
+		}
+		found = st.Key
+	}
+	if found != "" && strings.TrimSpace(names[found]) != "" {
+		return ""
+	}
+	return found
+}
+
+// The microphone's guess needs this many lines, this share of them from
+// the mic.
+const (
+	autoMeLines = 3
+	autoMeShare = 0.8
+)
+
+// Label is the name for key: confirmed, else the user's own name when
+// key is them, else a generic label. "" for "".
 func (n SpeakerNamer) Label(key string) string {
 	if key == "" {
 		return ""
@@ -104,12 +174,13 @@ func (n SpeakerNamer) Label(key string) string {
 	if name := strings.TrimSpace(n.Names[key]); name != "" {
 		return name
 	}
-	switch key {
-	case SpeakerMe:
+	if n.IsMe(key) {
 		if n.Me != "" {
 			return n.Me
 		}
 		return n.Wording.Me
+	}
+	switch key {
 	case SpeakerOthers:
 		return n.Wording.Others
 	}
@@ -204,6 +275,22 @@ func (s *Store) SetSpeakerNames(id string, names map[string]string) error {
 			return err
 		}
 		m.Speakers = clean
+		return nil
+	})
+}
+
+// SetMeSpeaker records which speaker is the user ("" forgets it). That
+// speaker's confirmed name goes: it reads as the profile name from now on.
+func (s *Store) SetMeSpeaker(id, key string) error {
+	key = strings.TrimSpace(key)
+	return s.UpdateDoc(id, func(m *Meeting) error {
+		m.Me = key
+		if key != "" && m.Speakers != nil {
+			delete(m.Speakers, key)
+			if len(m.Speakers) == 0 {
+				m.Speakers = nil
+			}
+		}
 		return nil
 	})
 }
