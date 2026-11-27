@@ -79,7 +79,7 @@ export interface Device {
  *  cloudEngines). Each has `<id>_api_key_set` in AppConfig and a
  *  write-only `<id>_api_key` in UpdateConfigRequest; the UI's catalog
  *  of them is lib/setup.ts CLOUD_ENGINES. */
-export type CloudSttEngine = "soniox" | "deepgram"
+export type CloudSttEngine = "soniox" | "deepgram" | "elevenlabs"
 
 export type SttEngine = "whisper" | CloudSttEngine
 

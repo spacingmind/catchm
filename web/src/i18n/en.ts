@@ -44,11 +44,13 @@ export const en = {
       whisper: "On this computer",
       soniox: "Cloud (Soniox)",
       deepgram: "Cloud (Deepgram)",
+      elevenlabs: "Cloud (ElevenLabs)",
     },
     engineHint: {
       whisper: "Free and private. Needs the free Whisper server running on this computer.",
       soniox: "More accurate and tells speakers apart. Needs a paid Soniox API key.",
       deepgram: "Fast and tells speakers apart. Needs a paid Deepgram API key.",
+      elevenlabs: "Tells speakers apart. Needs an ElevenLabs API key (the free plan includes some hours).",
     },
   },
   settings: {
@@ -437,6 +439,9 @@ export const en = {
       deepgram: "Deepgram",
       deepgramDesc:
         "Deepgram Nova-3: fast and tells speakers apart. Paid API key, about $0.29 per hour live; new accounts get $200 free credit.",
+      elevenlabs: "ElevenLabs",
+      elevenlabsDesc:
+        "ElevenLabs Scribe: accurate, tells speakers apart. About $0.22 per hour live; the free plan includes a few hours a month.",
       whisper: "Whisper",
       whisperDesc: "Runs on this computer with the free whisper.cpp server. Nothing leaves this computer.",
       builtIn: "Built into transcription",

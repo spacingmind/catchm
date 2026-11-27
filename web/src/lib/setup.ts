@@ -70,6 +70,15 @@ export const OPTIONS: readonly SetupOption[] = [
     section: "transcription",
   },
   {
+    id: "elevenlabs",
+    module: "transcription",
+    side: "cloud",
+    labelKey: "setup.options.elevenlabs",
+    descKey: "setup.options.elevenlabsDesc",
+    badges: ["speakers", "freeTier"],
+    section: "transcription",
+  },
+  {
     id: "whisper",
     module: "transcription",
     side: "selfhost",
@@ -172,6 +181,11 @@ export const CLOUD_ENGINES: Record<CloudSttEngine, CloudEngineInfo> = {
     keyUrl: "https://console.deepgram.com",
     verifiable: true,
     fileRatePerHour: 0.26,
+  },
+  elevenlabs: {
+    keyUrl: "https://elevenlabs.io/app/settings/api-keys",
+    verifiable: true,
+    fileRatePerHour: 0.2,
   },
 }
 
