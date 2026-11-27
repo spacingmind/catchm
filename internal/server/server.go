@@ -22,6 +22,7 @@ import (
 	"github.com/spacingmind/catchm/internal/pipeline"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/summarize"
+	"github.com/spacingmind/catchm/internal/sysinfo"
 	"github.com/spacingmind/catchm/internal/tools"
 	"github.com/spacingmind/catchm/internal/translate"
 )
@@ -129,6 +130,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/translate/test", s.handleTranslateTest)
 	s.mux.HandleFunc("GET /api/stt/status", s.handleSttStatus)
 	s.mux.HandleFunc("POST /api/providers/{name}/verify", s.handleVerifyProvider)
+	s.mux.HandleFunc("GET /api/system", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, sysinfo.ReadMachine())
+	})
 	s.mux.HandleFunc("GET /api/summary/status", s.handleSummaryStatus)
 
 	s.mux.HandleFunc("POST /api/cloud/signup", s.handleCloudSignup)
