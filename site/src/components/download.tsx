@@ -46,7 +46,7 @@ export function Download({ release }: { release: Release }) {
       Icon: MacIcon,
       notes: [
         "Not signed by Apple yet. The first time, right-click CatchM and choose Open. On macOS 15 and later, use System Settings → Privacy & Security → Open Anyway.",
-        "Listens to your microphone; system audio is Windows-only for now.",
+        "Captures your microphone and what your Mac plays, or both. Computer audio needs macOS 14.2 or later; allow it the first time in System Settings → Privacy & Security → Screen & System Audio Recording.",
       ],
     },
   ];
