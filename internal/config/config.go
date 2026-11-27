@@ -173,18 +173,19 @@ type Config struct {
 	// Setup is never omitted when saved: its absence is how Load tells a
 	// config written before setups existed (→ SetupCustom, so nothing an
 	// existing user sees changes) from a fresh one awaiting the chooser.
-	Setup      string          `yaml:"setup"`
-	Engine     string          `yaml:"engine"`
-	Lang       string          `yaml:"lang"`
-	UILanguage string          `yaml:"ui_language"` // "system" (default) | "en" | "vi"; UI text language, not the STT Lang
-	WhisperURL string          `yaml:"whisper_url"`
-	Soniox     SonioxConfig    `yaml:"soniox"`
-	Deepgram   APIKeyConfig    `yaml:"deepgram"`
-	ElevenLabs APIKeyConfig    `yaml:"elevenlabs"`
-	Translate  TranslateConfig `yaml:"translate"`
-	Cloud      CloudConfig     `yaml:"cloud"`
-	Summary    SummaryConfig   `yaml:"summary"`
-	LLM        LLMConfig       `yaml:"llm"`
+	Setup        string          `yaml:"setup"`
+	Engine       string          `yaml:"engine"`
+	Lang         string          `yaml:"lang"`
+	UILanguage   string          `yaml:"ui_language"` // "system" (default) | "en" | "vi"; UI text language, not the STT Lang
+	WhisperURL   string          `yaml:"whisper_url"`
+	Soniox       SonioxConfig    `yaml:"soniox"`
+	Deepgram     APIKeyConfig    `yaml:"deepgram"`
+	ElevenLabs   APIKeyConfig    `yaml:"elevenlabs"`
+	Speechmatics APIKeyConfig    `yaml:"speechmatics"`
+	Translate    TranslateConfig `yaml:"translate"`
+	Cloud        CloudConfig     `yaml:"cloud"`
+	Summary      SummaryConfig   `yaml:"summary"`
+	LLM          LLMConfig       `yaml:"llm"`
 }
 
 const (

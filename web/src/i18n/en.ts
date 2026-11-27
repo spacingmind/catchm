@@ -45,12 +45,14 @@ export const en = {
       soniox: "Cloud (Soniox)",
       deepgram: "Cloud (Deepgram)",
       elevenlabs: "Cloud (ElevenLabs)",
+      speechmatics: "Cloud (Speechmatics)",
     },
     engineHint: {
       whisper: "Free and private. Needs the free Whisper server running on this computer.",
       soniox: "More accurate and tells speakers apart. Needs a paid Soniox API key.",
       deepgram: "Fast and tells speakers apart. Needs a paid Deepgram API key.",
       elevenlabs: "Tells speakers apart. Needs an ElevenLabs API key (the free plan includes some hours).",
+      speechmatics: "Tells speakers apart, many languages. Needs a Speechmatics API key.",
     },
   },
   settings: {
@@ -442,6 +444,9 @@ export const en = {
       elevenlabs: "ElevenLabs",
       elevenlabsDesc:
         "ElevenLabs Scribe: accurate, tells speakers apart. About $0.22 per hour live; the free plan includes a few hours a month.",
+      speechmatics: "Speechmatics",
+      speechmaticsDesc:
+        "Speechmatics Enhanced: tells speakers apart, 55+ languages. About $0.80 per hour live; new accounts get $100 free credit.",
       whisper: "Whisper",
       whisperDesc: "Runs on this computer with the free whisper.cpp server. Nothing leaves this computer.",
       builtIn: "Built into transcription",

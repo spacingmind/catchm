@@ -79,6 +79,15 @@ export const OPTIONS: readonly SetupOption[] = [
     section: "transcription",
   },
   {
+    id: "speechmatics",
+    module: "transcription",
+    side: "cloud",
+    labelKey: "setup.options.speechmatics",
+    descKey: "setup.options.speechmaticsDesc",
+    badges: ["speakers", "freeCredit"],
+    section: "transcription",
+  },
+  {
     id: "whisper",
     module: "transcription",
     side: "selfhost",
@@ -186,6 +195,11 @@ export const CLOUD_ENGINES: Record<CloudSttEngine, CloudEngineInfo> = {
     keyUrl: "https://elevenlabs.io/app/settings/api-keys",
     verifiable: true,
     fileRatePerHour: 0.2,
+  },
+  speechmatics: {
+    keyUrl: "https://portal.speechmatics.com/settings/api-keys",
+    verifiable: true,
+    fileRatePerHour: 0.75,
   },
 }
 

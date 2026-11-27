@@ -46,6 +46,13 @@ var cloudEngines = []cloudEngine{
 		batch:  func(c *config.Config) stt.BatchEngine { return stt.NewElevenLabsEngine(c.ElevenLabs.APIKey) },
 		verify: func(ctx context.Context, key string) error { return stt.NewElevenLabsEngine(key).VerifyKey(ctx) },
 	},
+	{
+		name: "speechmatics", label: "Speechmatics",
+		key:    func(c *config.Config) string { return c.Speechmatics.APIKey },
+		stream: func(c *config.Config) stt.StreamEngine { return stt.NewSpeechmaticsEngine(c.Speechmatics.APIKey) },
+		batch:  func(c *config.Config) stt.BatchEngine { return stt.NewSpeechmaticsEngine(c.Speechmatics.APIKey) },
+		verify: func(ctx context.Context, key string) error { return stt.NewSpeechmaticsEngine(key).VerifyKey(ctx) },
+	},
 }
 
 func findCloudEngine(name string) (cloudEngine, bool) {

@@ -30,12 +30,14 @@ export const vi: Messages = {
       soniox: "Đám mây (Soniox)",
       deepgram: "Đám mây (Deepgram)",
       elevenlabs: "Đám mây (ElevenLabs)",
+      speechmatics: "Đám mây (Speechmatics)",
     },
     engineHint: {
       whisper: "Miễn phí và riêng tư. Cần máy chủ Whisper miễn phí chạy trên máy này.",
       soniox: "Chính xác hơn và phân biệt được người nói. Cần API key Soniox trả phí.",
       deepgram: "Nhanh và phân biệt được người nói. Cần API key Deepgram trả phí.",
       elevenlabs: "Phân biệt được người nói. Cần API key ElevenLabs (gói miễn phí có sẵn vài giờ).",
+      speechmatics: "Phân biệt được người nói, nhiều ngôn ngữ. Cần API key Speechmatics.",
     },
   },
   settings: {
@@ -427,6 +429,9 @@ export const vi: Messages = {
       elevenlabs: "ElevenLabs",
       elevenlabsDesc:
         "ElevenLabs Scribe: chính xác, phân biệt được người nói. Khoảng $0.22 mỗi giờ khi chép lời trực tiếp; gói miễn phí có sẵn vài giờ mỗi tháng.",
+      speechmatics: "Speechmatics",
+      speechmaticsDesc:
+        "Speechmatics Enhanced: phân biệt được người nói, hơn 55 ngôn ngữ. Khoảng $0.80 mỗi giờ khi chép lời trực tiếp; tài khoản mới được tặng $100 dùng thử.",
       whisper: "Whisper",
       whisperDesc: "Chạy trên máy này với máy chủ whisper.cpp miễn phí. Không có gì rời khỏi máy này.",
       builtIn: "Có sẵn trong chép lời",

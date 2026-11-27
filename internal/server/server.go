@@ -1057,15 +1057,16 @@ func (s *Server) handleSttStatus(w http.ResponseWriter, r *http.Request) {
 // secrets themselves never appear in any response.
 func sanitizedConfig(cfg *config.Config) map[string]any {
 	return map[string]any{
-		"setup":                  cfg.Setup,
-		"engine":                 cfg.Engine,
-		"lang":                   cfg.Lang,
-		"ui_language":            cfg.UILanguage,
-		"whisper_url":            cfg.WhisperURL,
-		"soniox":                 map[string]any{"url": cfg.Soniox.URL},
-		"soniox_api_key_set":     cfg.Soniox.APIKey != "",
-		"deepgram_api_key_set":   cfg.Deepgram.APIKey != "",
-		"elevenlabs_api_key_set": cfg.ElevenLabs.APIKey != "",
+		"setup":                    cfg.Setup,
+		"engine":                   cfg.Engine,
+		"lang":                     cfg.Lang,
+		"ui_language":              cfg.UILanguage,
+		"whisper_url":              cfg.WhisperURL,
+		"soniox":                   map[string]any{"url": cfg.Soniox.URL},
+		"soniox_api_key_set":       cfg.Soniox.APIKey != "",
+		"deepgram_api_key_set":     cfg.Deepgram.APIKey != "",
+		"elevenlabs_api_key_set":   cfg.ElevenLabs.APIKey != "",
+		"speechmatics_api_key_set": cfg.Speechmatics.APIKey != "",
 		"translate": map[string]any{
 			"provider":           cfg.Translate.Provider,
 			"google_api_key_set": cfg.Translate.Google.APIKey != "",
@@ -1114,10 +1115,11 @@ type configRequestBody struct {
 	Soniox     struct {
 		URL string `json:"url"`
 	} `json:"soniox"`
-	SonioxAPIKey     string `json:"soniox_api_key"`
-	DeepgramAPIKey   string `json:"deepgram_api_key"`
-	ElevenLabsAPIKey string `json:"elevenlabs_api_key"`
-	Translate        struct {
+	SonioxAPIKey       string `json:"soniox_api_key"`
+	DeepgramAPIKey     string `json:"deepgram_api_key"`
+	ElevenLabsAPIKey   string `json:"elevenlabs_api_key"`
+	SpeechmaticsAPIKey string `json:"speechmatics_api_key"`
+	Translate          struct {
 		Provider     string `json:"provider"`
 		GoogleAPIKey string `json:"google_api_key"`
 		Host         string `json:"host"`
@@ -1226,6 +1228,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.Soniox.APIKey, req.SonioxAPIKey)
 	setIfNonEmpty(&updated.Deepgram.APIKey, req.DeepgramAPIKey)
 	setIfNonEmpty(&updated.ElevenLabs.APIKey, req.ElevenLabsAPIKey)
+	setIfNonEmpty(&updated.Speechmatics.APIKey, req.SpeechmaticsAPIKey)
 	setIfNonEmpty(&updated.Translate.Provider, req.Translate.Provider)
 	setIfNonEmpty(&updated.Translate.Google.APIKey, req.Translate.GoogleAPIKey)
 	setIfNonEmpty(&updated.Translate.Host, req.Translate.Host)
