@@ -102,6 +102,10 @@ type sonioxToken struct {
 	Speaker           string `json:"speaker,omitempty"`
 	TranslationStatus string `json:"translation_status,omitempty"`
 	Language          string `json:"language,omitempty"`
+	// StartMS/EndMS place original tokens in the audio (realtime and
+	// async alike); translated tokens have none.
+	StartMS int64 `json:"start_ms"`
+	EndMS   int64 `json:"end_ms"`
 }
 
 func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-chan Result, error) {
@@ -311,6 +315,7 @@ func (e *SonioxEngine) Stream(ctx context.Context, opts Options) (chan<- PCM, <-
 func buildResult(tokens []sonioxToken) Result {
 	var text, translated strings.Builder
 	var speaker string
+	var startMS, endMS int64 = -1, 0
 	for _, tok := range tokens {
 		if tok.Text == "<end>" || !tok.IsFinal {
 			continue
@@ -320,9 +325,19 @@ func buildResult(tokens []sonioxToken) Result {
 		}
 		if tok.TranslationStatus == "translation" {
 			translated.WriteString(tok.Text)
-		} else {
-			text.WriteString(tok.Text)
+			continue
+		}
+		text.WriteString(tok.Text)
+		if tok.EndMS > tok.StartMS {
+			if startMS < 0 || tok.StartMS < startMS {
+				startMS = tok.StartMS
+			}
+			endMS = max(endMS, tok.EndMS)
 		}
 	}
-	return Result{Text: text.String(), Translated: translated.String(), Speaker: speaker, Final: text.Len() > 0}
+	res := Result{Text: text.String(), Translated: translated.String(), Speaker: speaker, Final: text.Len() > 0}
+	if startMS >= 0 && endMS > startMS {
+		res.Start, res.End = time.Duration(startMS)*time.Millisecond, time.Duration(endMS)*time.Millisecond
+	}
+	return res
 }

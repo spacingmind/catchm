@@ -2,9 +2,10 @@ import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { SegmentedControl, SettingRow, SettingsSection, SaveStatus, descId, labelId } from "@/components/settings/pieces"
+import { ProfileNameRow } from "@/components/settings/ProfileNameRow"
 import { useSaveStatus } from "@/components/settings/useConfigSave"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getAudioSources, getDevices, type AudioSources, type Device } from "@/lib/api"
+import { getAudioSources, getConfig, getDevices, type AppConfig, type AudioSources, type Device } from "@/lib/api"
 import { sourceHint, sourceLabel } from "@/lib/labels"
 import {
   effectiveSource,
@@ -27,6 +28,13 @@ export function SettingsRecording() {
   const [devices, setDevices] = useState<Device[] | null>(null)
   const [sources, setSources] = useState<AudioSources | null>(null)
   const { save, flashSaved } = useSaveStatus()
+  // Only for "Your name"; the row is hidden until it loads.
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  useEffect(() => {
+    getConfig()
+      .then(setConfig)
+      .catch(() => {})
+  }, [])
 
   // Device list: prefer M19's /api/audio/sources, fall back to
   // /api/devices, and degrade to an empty list if neither works.
@@ -153,6 +161,7 @@ export function SettingsRecording() {
         <div className="flex items-center justify-end">
           <SaveStatus state={save.state} />
         </div>
+        {config && <ProfileNameRow id="recording-profile-name" config={config} onConfig={setConfig} />}
       </SettingsSection>
     </div>
   )

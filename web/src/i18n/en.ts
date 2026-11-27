@@ -515,6 +515,11 @@ export const en = {
       moveBody: "Your saved key was entered for the current server, so changing it removes the key. Add it again afterwards.",
       switchConfirm: "Switch",
     },
+    profile: {
+      name: "Your name",
+      nameDesc: "How you appear in transcripts. In calls recorded with “Both”, the lines your microphone picks up are yours.",
+      namePlaceholder: "e.g. Alex Kim",
+    },
     appearance: {
       title: "Appearance",
       themeLabel: "Theme",

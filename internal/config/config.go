@@ -195,7 +195,17 @@ type Config struct {
 	Summary      SummaryConfig   `yaml:"summary"`
 	LLM          LLMConfig       `yaml:"llm"`
 	MCP          MCPConfig       `yaml:"mcp"`
+	Profile      ProfileConfig   `yaml:"profile"`
 }
+
+// ProfileConfig is who the user is in their own meetings: the
+// microphone's speaker in a call (docs/plans/active/speaker-identity.md).
+type ProfileConfig struct {
+	Name string `yaml:"name,omitempty"`
+}
+
+// MaxProfileName bounds the user's display name.
+const MaxProfileName = 80
 
 // MCPConfig controls the local MCP server (docs/plans/completed/local-mcp.md).
 // Off by default: `catchm mcp` (stdio) refuses to start, and the local

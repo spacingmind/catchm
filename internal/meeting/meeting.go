@@ -25,8 +25,12 @@ type Utterance struct {
 	Lang       string    `json:"lang,omitempty"`
 	// End is when the utterance stopped, for engines that report it
 	// (Soniox async); nil when unknown. Same clock as At.
-	End   *time.Time  `json:"end,omitempty"`
-	Extra interface{} `json:"extra,omitempty"`
+	End *time.Time `json:"end,omitempty"`
+	// Source is the input that carried the utterance in a meeting that
+	// recorded both: "mic" (the user) or "system" (the other side of the
+	// call). Empty when unknown or unclear.
+	Source string      `json:"source,omitempty"`
+	Extra  interface{} `json:"extra,omitempty"`
 }
 
 // ActionItem is a task extracted from a meeting.

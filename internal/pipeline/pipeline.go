@@ -4,10 +4,13 @@ package pipeline
 
 import (
 	"context"
+	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/spacingmind/catchm/internal/audio"
 	"github.com/spacingmind/catchm/internal/capture"
+	"github.com/spacingmind/catchm/internal/levels"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/translate"
@@ -20,6 +23,7 @@ type Pipeline struct {
 	src         capture.Source
 	engine      stt.StreamEngine
 	wav         *audio.Writer
+	levels      *levels.Recorder // nil unless the source is a Mixer
 	feederDone  chan struct{}
 	resultsDone chan struct{}
 }
@@ -79,6 +83,28 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 		resultsDone: make(chan struct{}),
 	}
 
+	// The wall-clock time of the stream's first sample, so an engine's
+	// audio offsets become utterance times. Estimated from the first
+	// tick the mixer reports; Start's own time until then.
+	var base atomic.Int64
+	base.Store(time.Now().UnixNano())
+	if mx, ok := src.(*capture.Mixer); ok {
+		// The timeline is best-effort: without it utterances just get
+		// no source.
+		if rec, err := levels.Create(filepath.Join(filepath.Dir(audioPath), levels.File)); err == nil {
+			p.levels = rec
+		}
+		var first atomic.Bool
+		mx.SetTickObserver(func(index uint64, lv capture.TickLevels) {
+			if first.CompareAndSwap(false, true) {
+				base.Store(time.Now().Add(-tickDuration * time.Duration(index+1)).UnixNano())
+			}
+			if p.levels != nil {
+				p.levels.Observe(index, lv)
+			}
+		})
+	}
+
 	go func() {
 		defer close(p.feederDone)
 		defer close(pcmCh)
@@ -122,12 +148,22 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 				// utterance actually ended up in.
 				lang = ""
 			}
-			_, _ = store.Append(id, meeting.Utterance{
+			u := meeting.Utterance{
 				Speaker:    res.Speaker,
 				Text:       res.Text,
 				Translated: translated,
 				Lang:       lang,
-			})
+			}
+			if res.Timed() {
+				start := time.Unix(0, base.Load()).UTC()
+				u.At = start.Add(res.Start)
+				end := start.Add(res.End)
+				u.End = &end
+				if p.levels != nil {
+					u.Source = p.levels.Source(res.Start, res.End)
+				}
+			}
+			_, _ = store.Append(id, u)
 		}
 	}()
 
@@ -144,6 +180,9 @@ func Start(store *meeting.Store, id string, src capture.Source, engine stt.Strea
 // cases are ready, so cancelling ctx before the drain finishes can drop
 // the last chunk or utterance even when nothing is actually stuck.
 const stopGraceDeadline = 5 * time.Second
+
+// tickDuration is one mixer tick's audio.
+var tickDuration = audio.Duration(capture.TickSamples * 2)
 
 // Stop closes the capture source, lets the engine drain and close, waits
 // for both pipeline goroutines to exit, and finalizes audio.wav. It is
@@ -194,6 +233,12 @@ func (p *Pipeline) stop(grace time.Duration) error {
 	}
 	p.cancel()
 
+	if mx, ok := p.src.(*capture.Mixer); ok {
+		mx.SetTickObserver(nil)
+	}
+	if p.levels != nil {
+		_ = p.levels.Close()
+	}
 	wavErr := p.wav.Close()
 	if srcErr != nil {
 		return srcErr

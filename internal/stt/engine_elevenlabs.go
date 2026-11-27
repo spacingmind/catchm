@@ -392,11 +392,17 @@ func elevenLabsSpeakerRuns(words []elevenLabsWord, merged map[string]string) []R
 	var out []Result
 	var cur strings.Builder
 	speaker := ""
+	start, end := -1.0, 0.0
 	emit := func() {
 		if t := strings.TrimSpace(cur.String()); t != "" {
-			out = append(out, Result{Text: t, Speaker: elevenLabsSpeakerLabel(speaker), Final: true})
+			r := Result{Text: t, Speaker: elevenLabsSpeakerLabel(speaker), Final: true}
+			if start >= 0 {
+				r.Start, r.End = secondsSpan(start, end)
+			}
+			out = append(out, r)
 		}
 		cur.Reset()
+		start, end = -1, 0
 	}
 	for _, w := range words {
 		if w.Type == "audio_event" {
@@ -408,6 +414,12 @@ func elevenLabsSpeakerRuns(words []elevenLabsWord, merged map[string]string) []R
 				emit()
 			}
 			speaker = s
+		}
+		if w.Type == "word" && w.End > w.Start {
+			if start < 0 {
+				start = w.Start
+			}
+			end = w.End
 		}
 		cur.WriteString(w.Text)
 	}

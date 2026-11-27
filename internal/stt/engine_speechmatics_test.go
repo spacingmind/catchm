@@ -102,7 +102,10 @@ loop:
 	if start["message"] != "StartRecognition" || tc["language"] != "en" || tc["operating_point"] != "enhanced" || tc["diarization"] != "speaker" || tc["additional_vocab"] == nil {
 		t.Errorf("StartRecognition = %v", start)
 	}
-	want := []Result{{Text: "Hello there.", Speaker: "1", Final: true}, {Text: "Hi Anna!", Speaker: "2", Final: true}}
+	want := []Result{
+		{Text: "Hello there.", Speaker: "1", Final: true, End: 600 * time.Millisecond},
+		{Text: "Hi Anna!", Speaker: "2", Final: true, Start: time.Second, End: 1500 * time.Millisecond},
+	}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("results = %+v", got)
 	}

@@ -306,14 +306,21 @@ func deepgramUtterances(words []deepgramWord, transcripts []string) []Result {
 		if text == "" {
 			return nil
 		}
-		return []Result{{Text: text, Final: true}}
+		r := Result{Text: text, Final: true}
+		if len(words) > 0 {
+			r.Start, r.End = secondsSpan(words[0].Start, words[len(words)-1].End)
+		}
+		return []Result{r}
 	}
 	var out []Result
 	var cur strings.Builder
 	speaker := -1
+	var start, end float64
 	emit := func() {
 		if t := strings.TrimSpace(cur.String()); t != "" {
-			out = append(out, Result{Text: t, Speaker: fmt.Sprint(speaker + 1), Final: true})
+			r := Result{Text: t, Speaker: fmt.Sprint(speaker + 1), Final: true}
+			r.Start, r.End = secondsSpan(start, end)
+			out = append(out, r)
 		}
 		cur.Reset()
 	}
@@ -325,6 +332,10 @@ func deepgramUtterances(words []deepgramWord, transcripts []string) []Result {
 		if s != speaker && cur.Len() > 0 {
 			emit()
 		}
+		if cur.Len() == 0 {
+			start = w.Start
+		}
+		end = w.End
 		speaker = s
 		if cur.Len() > 0 {
 			cur.WriteByte(' ')

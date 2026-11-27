@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spacingmind/catchm/internal/batch"
 	"github.com/spacingmind/catchm/internal/capture"
@@ -1097,6 +1098,7 @@ func sanitizedConfig(cfg *config.Config) map[string]any {
 		},
 		"llm":             llmJSON(cfg.LLM),
 		"llm_api_key_set": cfg.LLM.APIKey != "",
+		"profile":         map[string]any{"name": cfg.Profile.Name},
 		"summary": map[string]any{
 			"provider":      summarize.ProviderOf(cfg),
 			"ollama_model":  cfg.Summary.OllamaModel,
@@ -1158,6 +1160,10 @@ type configRequestBody struct {
 		StrongModel *string `json:"strong_model"`
 		APIKey      string  `json:"api_key"`
 	} `json:"llm"`
+	// Profile.Name is a pointer so it can be cleared.
+	Profile struct {
+		Name *string `json:"name"`
+	} `json:"profile"`
 	Summary struct {
 		Provider    string `json:"provider"`
 		OllamaModel string `json:"ollama_model"`
@@ -1234,6 +1240,13 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, `ui_language must be "system", "en" or "vi"`)
 		return
 	}
+	if n := req.Profile.Name; n != nil {
+		*n = strings.Join(strings.Fields(*n), " ")
+		if utf8.RuneCountInString(*n) > config.MaxProfileName {
+			httpError(w, http.StatusBadRequest, fmt.Sprintf("profile.name: at most %d characters", config.MaxProfileName))
+			return
+		}
+	}
 
 	s.mu.Lock()
 	updated := *s.cfg // shallow copy is enough: Config holds no reference types
@@ -1260,6 +1273,9 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	setIfNonEmpty(&updated.Summary.Provider, req.Summary.Provider)
 	setIfNonEmpty(&updated.Summary.OllamaModel, req.Summary.OllamaModel)
 	applyLLMUpdate(&updated.LLM, req, llmBaseURL)
+	if req.Profile.Name != nil {
+		updated.Profile.Name = *req.Profile.Name
+	}
 	updated.Normalize()
 	if req.Summary.CloudConsent != nil {
 		updated.Summary.CloudConsent = *req.Summary.CloudConsent

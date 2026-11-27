@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 
 import { StatusMessage } from "@/components/StatusMessage"
 import { descId, labelId, SaveStatus, SegmentedControl, SettingRow } from "@/components/settings/pieces"
+import { ProfileNameRow } from "@/components/settings/ProfileNameRow"
 import { useConfigSave } from "@/components/settings/useConfigSave"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -93,6 +94,8 @@ export function LanguagesStep({
           </div>
         }
       />
+
+      <ProfileNameRow id="ob-profile-name" config={config} onConfig={onConfig} />
 
       <SettingRow
         htmlFor="ob-meeting-lang"

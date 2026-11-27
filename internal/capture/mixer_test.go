@@ -265,7 +265,7 @@ func TestMixerInputBufferBoundDropsOldest(t *testing.T) {
 	}
 	// The oldest (BufferSamples+TickSamples) - BufferSamples = one tick
 	// were dropped; first taken sample must be script[TickSamples].
-	w := in.takeWindow(TickSamples)
+	w, _ := in.takeWindow(TickSamples)
 	if w[0] != int16(TickSamples) {
 		t.Fatalf("first sample after overflow = %d, want %d", w[0], TickSamples)
 	}

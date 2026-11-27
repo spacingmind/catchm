@@ -500,6 +500,11 @@ export const vi: Messages = {
       moveBody: "Key đã lưu được nhập cho máy chủ hiện tại, nên khi đổi, key này sẽ bị xóa. Sau đó hãy thêm lại key.",
       switchConfirm: "Chuyển",
     },
+    profile: {
+      name: "Tên của bạn",
+      nameDesc: "Tên hiển thị của bạn trong transcript. Khi ghi cuộc gọi ở chế độ “Cả hai”, những câu micro thu được là của bạn.",
+      namePlaceholder: "VD: Minh Anh",
+    },
     appearance: {
       title: "Giao diện",
       themeLabel: "Chế độ màu",

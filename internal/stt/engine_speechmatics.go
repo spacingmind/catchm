@@ -255,13 +255,14 @@ func (e *SpeechmaticsEngine) Stream(ctx context.Context, opts Options) (chan<- P
 		lastAdd := time.Now()
 		flush := func() bool {
 			t := line.text()
-			sp := line.speaker
+			r := Result{Text: t, Speaker: smSpeakerLabel(line.speaker), Final: true}
+			r.Start, r.End = secondsSpan(line.start, line.end)
 			line = smLine{}
 			if t == "" {
 				return true
 			}
 			select {
-			case resultCh <- Result{Text: t, Speaker: smSpeakerLabel(sp), Final: true}:
+			case resultCh <- r:
 				return true
 			case <-ctx.Done():
 				return false

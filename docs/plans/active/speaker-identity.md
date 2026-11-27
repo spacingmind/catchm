@@ -1,6 +1,6 @@
 # Plan: speaker identity — who said it, who owns it
 
-- Status: approved 2026-11-27; not started
+- Status: approved 2026-11-27; phase 1 in progress
 - Created: 2026-11-27
 - Branch: `feat/speaker-identity`
 - Comes before P2 (knowledge graph) of
@@ -202,3 +202,27 @@ last word:
    before. Every new field is `omitempty`.
 8. **Checks:** `task lint` and `task test` pass, with engine-offset tests
    against the fake servers.
+
+## Progress
+
+- **Phase 1** (timing and source), done on `feat/speaker-identity`:
+  - `stt.Result.Start/End`:
+    - Soniox live (token `start_ms`/`end_ms`), Deepgram (words),
+      Speechmatics (results), Gladia live (`utterance.start/end`) and
+      Whisper (the chunk's place in the stream);
+    - ElevenLabs live, only for diarized segments: their words carry
+      times. Plain commits stay untimed (`include_timestamps` is left
+      off until it's tried against the real API).
+  - `capture.Mixer.SetTickObserver` reports each delivered tick's
+    mic/system RMS by its index in the stream. Dropped ticks aren't
+    counted, so index × 20 ms is the audio offset the engine sees.
+  - `internal/levels` writes `levels.jsonl` (100 ms rows, `t`/`m`/`s`)
+    and attributes a span (ratio 2:1 RMS, both inputs required).
+  - Utterance times:
+    - live utterances get `at`/`end` from the engine offsets and
+      `source` from the timeline;
+    - re-transcription reads the timeline for `source`.
+  - `profile.name` is in the config API, onboarding step 1 and
+    Settings → Recording.
+  - Not yet shown in the UI. Phase 2's speakers API resolves the
+    labels ("me" → the profile name).

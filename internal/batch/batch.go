@@ -7,8 +7,10 @@ package batch
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
+	"github.com/spacingmind/catchm/internal/levels"
 	"github.com/spacingmind/catchm/internal/meeting"
 	"github.com/spacingmind/catchm/internal/stt"
 	"github.com/spacingmind/catchm/internal/translate"
@@ -63,14 +65,20 @@ func Refine(ctx context.Context, store *meeting.Store, id string, engine stt.Bat
 	if err != nil {
 		return err
 	}
+	// The live recording's loudness timeline tells mic from computer
+	// audio; imported audio and older meetings have none.
+	timeline, _ := levels.Read(filepath.Join(filepath.Dir(audioPath), levels.File))
 	for i := range us {
 		// TranscribeFile returns utterances with At relative to the zero
 		// time.Time value; shift them into the meeting's absolute
 		// wall-clock time before persisting.
-		us[i].At = m.StartedAt.Add(us[i].At.Sub(time.Time{}))
+		start := us[i].At.Sub(time.Time{})
+		us[i].At = m.StartedAt.Add(start)
 		if us[i].End != nil {
-			end := m.StartedAt.Add(us[i].End.Sub(time.Time{}))
-			us[i].End = &end
+			end := us[i].End.Sub(time.Time{})
+			us[i].Source = levels.Attribute(timeline, start, end)
+			endAt := m.StartedAt.Add(end)
+			us[i].End = &endAt
 		}
 		if translator != nil && m.TranslateTo != "" && us[i].Translated == "" {
 			if t, err := translator.Translate(ctx, us[i].Text, m.TranslateTo); err == nil {

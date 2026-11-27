@@ -16,6 +16,10 @@ export interface Utterance {
   text: string
   translated?: string
   lang?: string
+  /** End of the utterance (RFC3339), when the engine placed it in the audio. */
+  end?: string
+  /** The input that carried it, in meetings that recorded both. */
+  source?: "mic" | "system"
   extra?: unknown
 }
 
@@ -330,6 +334,8 @@ export interface AppConfig extends CloudKeySetFlags {
   /** True when the shared LLM's API key is stored; never the key. */
   llm_api_key_set: boolean
   summary: SummaryConfig
+  /** Who the user is: the microphone's speaker in a call. */
+  profile: { name: string }
 }
 
 /**
@@ -379,6 +385,8 @@ export interface UpdateConfigRequest extends CloudKeyFields {
     ollama_model?: string
     cloud_consent?: boolean
   }
+  /** "" clears the name. */
+  profile?: { name: string }
 }
 
 /** Stable codes the Go server attaches to user-reachable errors

@@ -5,6 +5,7 @@ package stt
 
 import (
 	"context"
+	"time"
 
 	"github.com/spacingmind/catchm/internal/meeting"
 )
@@ -28,6 +29,22 @@ type Result struct {
 	Speaker    string // empty when the engine has no diarization
 	Translated string // empty when translation was not requested or not supported
 	Final      bool
+	// Start and End are the result's position in the audio sent on this
+	// stream, measured from its first sample. End == 0 means the engine
+	// gave no timing (the pipeline falls back to the arrival time).
+	Start, End time.Duration
+}
+
+// Timed reports whether the engine placed the result in the audio.
+func (r Result) Timed() bool { return r.End > 0 }
+
+// secondsSpan converts an engine's start/end seconds into a Result span;
+// a zero or inverted span means no timing.
+func secondsSpan(start, end float64) (time.Duration, time.Duration) {
+	if end <= start || end <= 0 {
+		return 0, 0
+	}
+	return secondsDuration(start), secondsDuration(end)
 }
 
 // StreamEngine streams PCM audio to a realtime STT backend and returns
