@@ -7,6 +7,7 @@ import {
   Mic,
   Monitor,
   Palette,
+  Plug,
   Settings2,
   Sparkles,
   Speech,
@@ -18,6 +19,7 @@ import { cn } from "cn"
 
 import { SettingsAppearance } from "@/components/settings/SettingsAppearance"
 import { SettingsCloudSync } from "@/components/settings/SettingsCloudSync"
+import { SettingsMcp } from "@/components/settings/SettingsMcp"
 import { SettingsShortcuts } from "@/components/settings/SettingsShortcuts"
 import { SettingsSummaries } from "@/components/settings/SettingsSummaries"
 import { SettingsSystem } from "@/components/settings/SettingsSystem"
@@ -47,6 +49,8 @@ const ALL_SECTIONS = [
   { id: "translation", labelKey: "settings.nav.translation", icon: Languages, Page: SettingsTranslation },
   { id: "summaries", labelKey: "settings.nav.summaries", icon: Sparkles, Page: SettingsSummaries },
   { id: "cloud", labelKey: "settings.nav.cloudSync", icon: Cloud, Page: SettingsCloudSync },
+  // Not desktop-only: `catchm serve` runs the same MCP server.
+  { id: "mcp", labelKey: "settings.nav.mcp", icon: Plug, Page: SettingsMcp },
   { id: "appearance", labelKey: "settings.nav.appearance", icon: Palette, Page: SettingsAppearance },
   // M22 §5: global shortcuts/launch-at-login/notifications only mean
   // anything inside the real Wails window — hidden entirely in

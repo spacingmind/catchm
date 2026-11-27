@@ -229,7 +229,16 @@ export interface SummaryConfig {
 /** llm.preset: an OpenAI-compatible service with known server and
  *  default models (Go config.LLMPresets), or "custom" (base_url as
  *  given). "" until one is chosen. */
-export type LlmPreset = "openai" | "gemini" | "openrouter" | "anthropic" | "groq" | "deepseek" | "cloudflare" | "custom"
+export type LlmPreset =
+  | "openai"
+  | "gemini"
+  | "openrouter"
+  | "anthropic"
+  | "groq"
+  | "deepseek"
+  | "zai"
+  | "cloudflare"
+  | "custom"
 
 /** The shared OpenAI-compatible LLM (translate.provider "llm" uses the
  *  fast model, summary.provider "openai" the strong one). The key is
@@ -1209,4 +1218,53 @@ export function cloudRecover(
     method: "POST",
     body: JSON.stringify({ email, recovery_code: recoveryCode, new_password: newPassword }),
   })
+}
+
+/**
+ * Local MCP server (Settings → MCP). MCP clients either run
+ * `<stdio.command> mcp` themselves (works while the app is closed;
+ * refuses to start while `enabled` is off) or connect to the local
+ * HTTP listener at `http.url` with `Authorization: Bearer <http.token>`.
+ */
+export interface McpSettings {
+  enabled: boolean
+  allow_writes: boolean
+  http: {
+    enabled: boolean
+    port: number
+    /** Empty until Local HTTP is first turned on. */
+    token: string
+    /** The listener is up (MCP and Local HTTP both on, port opened). */
+    running: boolean
+    /** Set while running, e.g. "http://127.0.0.1:4655/mcp". */
+    url: string
+    /** Why the listener isn't running (e.g. the port is taken). */
+    error: string
+  }
+  stdio: { command: string; args: string[] }
+}
+
+/** PUT /api/mcp body: a partial update; omitted fields stay as they are. */
+export interface UpdateMcpRequest {
+  enabled?: boolean
+  allow_writes?: boolean
+  http_enabled?: boolean
+  /** 1024–65535. */
+  port?: number
+}
+
+/** GET /api/mcp */
+export function getMcp(): Promise<McpSettings> {
+  return apiFetch("/api/mcp")
+}
+
+/** PUT /api/mcp — turning Local HTTP on creates a token if there isn't
+ *  one; the HTTP listener restarts on every change. */
+export function updateMcp(patch: UpdateMcpRequest): Promise<McpSettings> {
+  return apiFetch("/api/mcp", { method: "PUT", body: JSON.stringify(patch) })
+}
+
+/** POST /api/mcp/token — a new HTTP token; apps using the old one stop working. */
+export function regenerateMcpToken(): Promise<McpSettings> {
+  return apiFetch("/api/mcp/token", { method: "POST" })
 }

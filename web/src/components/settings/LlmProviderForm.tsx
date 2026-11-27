@@ -43,6 +43,12 @@ const PRESETS: readonly PresetInfo[] = [
   { id: "groq", name: "Groq", keyUrl: "https://console.groq.com/keys" },
   { id: "deepseek", name: "DeepSeek", keyUrl: "https://platform.deepseek.com/api_keys" },
   {
+    id: "zai",
+    name: "Z.AI (GLM)",
+    keyUrl: "https://z.ai/manage-apikey/apikey-list",
+    noteKey: "settings.llm.noteZai",
+  },
+  {
     id: "cloudflare",
     name: "Cloudflare Workers AI",
     keyUrl: "https://dash.cloudflare.com/profile/api-tokens",
